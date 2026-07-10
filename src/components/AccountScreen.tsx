@@ -2,36 +2,33 @@ import React, { useState, useRef } from "react";
 import { UserProfile, ScreenId } from "../types";
 import {
   User,
-  Shield,
-  CreditCard,
   CheckCircle,
-  Smartphone,
   Key,
   RefreshCw,
-  X,
-  Bell,
   Download,
   Upload,
   Database,
   FileJson,
   AlertTriangle,
-  Info
+  Info,
+  LogOut
 } from "lucide-react";
+import PageShell from "./layout/PageShell";
 
 interface AccountScreenProps {
   user: UserProfile;
-  activeScreenCount: number;
   onUpdateUser: (name: string, email: string) => void;
   onExportData: () => void;
   onImportData: (data: any) => boolean;
+  onLogout: () => void;
 }
 
 export default function AccountScreen({
   user,
-  activeScreenCount,
   onUpdateUser,
   onExportData,
-  onImportData
+  onImportData,
+  onLogout
 }: AccountScreenProps) {
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
@@ -124,18 +121,30 @@ export default function AccountScreen({
   };
 
   return (
-    <div className="flex-1 p-6 md:p-8 space-y-8 max-w-5xl mx-auto w-full">
+    <PageShell className="max-w-5xl">
       {/* Header */}
-      <div>
-        <h2 className="font-display font-bold text-3xl text-gray-950 tracking-tight animate-in fade-in slide-in-from-top-4 duration-300">
-          Account Settings
-        </h2>
-        <p className="text-gray-500 text-sm mt-1">Manage workspace plans, user credentials, and full-database backups.</p>
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="font-display font-bold text-2xl sm:text-3xl text-gray-950 tracking-tight animate-in fade-in slide-in-from-top-4 duration-300">
+            Account Settings
+          </h2>
+          <p className="text-gray-500 text-sm mt-1">
+            Manage workspace plans, user credentials, and full-database backups.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onLogout}
+          className="shrink-0 self-start sm:self-auto inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 hover:border-rose-300 text-sm font-semibold transition-all active:scale-95"
+        >
+          <LogOut className="h-4 w-4" />
+          <span>Log Out</span>
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="max-w-3xl">
         {/* Left Columns - profile settings & backups */}
-        <div className="lg:col-span-2 space-y-8">
+        <div className="space-y-8">
           
           {/* Profile details card */}
           <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm space-y-6">
@@ -329,47 +338,7 @@ export default function AccountScreen({
           </div>
         </div>
 
-        {/* Right Column - subscription details */}
-        <div className="space-y-6 animate-in fade-in duration-300 delay-150">
-          {/* Subscription plan card */}
-          <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm space-y-5">
-            <h3 className="font-display font-bold text-gray-950 text-base flex items-center gap-2">
-              <CreditCard className="h-5 w-5 text-gray-400" />
-              Workspace Plan
-            </h3>
-
-            <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4.5 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-900">Current tier:</span>
-                <span className="bg-[#FF6B4A]/10 text-[#FF6B4A] font-bold text-[10px] px-2.5 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
-                  Free Trial Plan
-                </span>
-              </div>
-
-              {/* Progress Slider exactly representing mockup items */}
-              <div className="space-y-1.5 pt-2">
-                <div className="flex justify-between text-[11px] font-semibold text-gray-500">
-                  <span>Completed Screens</span>
-                  <span className="font-mono text-gray-950 font-bold">{activeScreenCount} / 15</span>
-                </div>
-                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                  <div
-                    className="bg-[#4F46E5] h-full rounded-full transition-all duration-1000"
-                    style={{ width: `${(activeScreenCount / 15) * 100}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <button
-              onClick={() => alert(`Upgrading workspace brings 100% white-labeled domains, infinite custom CSS templates, and unlimited live dynamic QR codes!`)}
-              className="w-full bg-gradient-to-r from-[#FF6B4A] to-[#FF4B6B] hover:from-[#E55B3C] hover:to-[#E53C5D] text-white py-3 rounded-xl text-xs font-bold shadow-md shadow-orange-100 transition-all flex items-center justify-center gap-1.5 active:scale-95"
-            >
-              <span>Upgrade Workspace Plan</span>
-            </button>
-          </div>
-        </div>
       </div>
-    </div>
+    </PageShell>
   );
 }

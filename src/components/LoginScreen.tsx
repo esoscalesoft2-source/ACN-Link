@@ -1,20 +1,33 @@
 import React, { useState } from "react";
 import { Link, Mail, Lock, Eye, EyeOff, Chrome, Github } from "lucide-react";
 
+const DEMO_EMAIL = "acnlink@gmail.com";
+const DEMO_PASSWORD = "acnlink1234";
+
 interface LoginScreenProps {
   onLoginSuccess: (email: string) => void;
 }
 
 export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(DEMO_EMAIL);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const completeLogin = (loginEmail: string) => {
+    setError("");
+    setLoading(true);
+
+    setTimeout(() => {
+      setLoading(false);
+      onLoginSuccess(loginEmail);
+    }, 800);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email) {
+    if (!email.trim()) {
       setError("Please enter your email address");
       return;
     }
@@ -22,14 +35,22 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       setError("Please enter your password");
       return;
     }
-    setError("");
-    setLoading(true);
 
-    // Simulate login
-    setTimeout(() => {
-      setLoading(false);
-      onLoginSuccess(email);
-    }, 800);
+    const normalizedEmail = email.trim().toLowerCase();
+    if (normalizedEmail !== DEMO_EMAIL || password !== DEMO_PASSWORD) {
+      setError(`Invalid email or password. Use ${DEMO_EMAIL} / ${DEMO_PASSWORD}`);
+      return;
+    }
+
+    completeLogin(DEMO_EMAIL);
+  };
+
+  const handleGoogleLogin = () => {
+    completeLogin(DEMO_EMAIL);
+  };
+
+  const handleGitHubLogin = () => {
+    completeLogin(DEMO_EMAIL);
   };
 
   return (
@@ -142,15 +163,19 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         {/* OAuth Buttons */}
         <div className="grid grid-cols-2 gap-3.5">
           <button
-            onClick={() => onLoginSuccess("google.user@gmail.com")}
-            className="flex items-center justify-center gap-2 border border-slate-200 rounded-lg py-2 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors cursor-pointer"
+            type="button"
+            disabled={loading}
+            onClick={handleGoogleLogin}
+            className="flex items-center justify-center gap-2 border border-slate-200 rounded-lg py-2 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors cursor-pointer disabled:opacity-85"
           >
             <Chrome className="h-4 w-4 text-[#EA4335]" />
             <span>Google</span>
           </button>
           <button
-            onClick={() => onLoginSuccess("github.user@github.com")}
-            className="flex items-center justify-center gap-2 border border-slate-200 rounded-lg py-2 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors cursor-pointer"
+            type="button"
+            disabled={loading}
+            onClick={handleGitHubLogin}
+            className="flex items-center justify-center gap-2 border border-slate-200 rounded-lg py-2 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors cursor-pointer disabled:opacity-85"
           >
             <Github className="h-4 w-4 text-[#181717]" />
             <span>GitHub</span>
@@ -162,8 +187,9 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           Don't have an account?{" "}
           <button
             type="button"
-            onClick={() => onLoginSuccess("eso.tech@acnlink.com")}
-            className="font-semibold text-[#312ecb] hover:underline transition-colors"
+            disabled={loading}
+            onClick={() => completeLogin(DEMO_EMAIL)}
+            className="font-semibold text-[#312ecb] hover:underline transition-colors disabled:opacity-85"
           >
             Sign up for free
           </button>

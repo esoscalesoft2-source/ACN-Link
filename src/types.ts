@@ -144,3 +144,67 @@ export interface HelpArticle {
   excerpt: string;
   readTime: string;
 }
+
+/** Bio Page Editor block — supports extra widget fields via index signature */
+export interface BioEditorBlock {
+  id: string;
+  type: string;
+  label: string;
+  value: string;
+  [key: string]: unknown;
+}
+
+/** Full restorable editor state for drafts and templates */
+export interface BioEditorState {
+  pageMeta: {
+    title: string;
+    slug?: string;
+    shortBio: string;
+    coverImage: string;
+  };
+  blocks: BioEditorBlock[];
+}
+
+export interface BioPageDraft {
+  id: string;
+  pageId: string;
+  pageSlug?: string;
+  data: BioEditorState;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BioPageTemplate {
+  id: string;
+  name: string;
+  sourcePageId?: string;
+  previewImage?: string;
+  description?: string;
+  data: BioEditorState;
+  createdAt: string;
+  updatedAt: string;
+  isBuiltIn?: boolean;
+}
+
+export type NotificationType =
+  | "page_published"
+  | "draft_saved"
+  | "template_saved"
+  | "template_used"
+  | "page_duplicated"
+  | "contact_added"
+  | "analytics_event"
+  | "qr_generated"
+  | "pixel_added"
+  | "general";
+
+export interface AppNotification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  read: boolean;
+  createdAt: string;
+  targetScreen?: ScreenId;
+  meta?: Record<string, string>;
+}

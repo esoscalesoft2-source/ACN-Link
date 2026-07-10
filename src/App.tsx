@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ScreenId, UserProfile, BioPage, Contact, WhatsAppCampaign, WhatsAppTemplate, SmartLink, QRCodeItem, TemplateItem, IntegrationItem, IntegrationVote, TrackingPixel, MediaFile, CustomDomain, HelpArticle } from "./types";
+import { ScreenId, UserProfile, BioPage, Contact, WhatsAppCampaign, WhatsAppTemplate, SmartLink, QRCodeItem, TemplateItem, IntegrationItem, IntegrationVote, TrackingPixel, MediaFile, CustomDomain, HelpArticle, BioPageDraft, BioPageTemplate, BioEditorBlock, AppNotification } from "./types";
 import {
   initialUser,
   initialBioPages,
@@ -19,6 +19,7 @@ import {
 
 // Import modular screens
 import Sidebar from "./components/Sidebar";
+import MobileNavDrawer from "./components/MobileNavDrawer";
 import Header from "./components/Header";
 import LoginScreen from "./components/LoginScreen";
 import DashboardScreen from "./components/DashboardScreen";
@@ -36,15 +37,66 @@ import HelpCenterScreen from "./components/HelpCenterScreen";
 import ContactSupportScreen from "./components/ContactSupportScreen";
 import AccountScreen from "./components/AccountScreen";
 import PublicBioPageView from "./components/PublicBioPageView";
+import {
+  buildEditorState,
+  cloneBlocks,
+  DEFAULT_COVER,
+  getAllDrafts,
+  getAllUserTemplates,
+  getTemplateEditorPayload,
+  normalizeDraft,
+  normalizeTemplate,
+  persistDrafts,
+  persistTemplates,
+  persistPagePreviewStorage,
+  fetchServerTemplates,
+  mergeTemplates,
+  syncTemplateToServer,
+  deleteTemplateOnServer,
+  syncAllTemplatesToServer
+} from "./storage/bioBuilderStorage";
+import {
+  getAllNotifications,
+  getUnreadCount,
+  prependNotification,
+  markNotificationRead,
+  markAllNotificationsRead,
+  CreateNotificationInput
+} from "./storage/notificationStorage";
 
 export default function App() {
   // Parse URL search parameters for standalone public preview
   const urlParams = new URLSearchParams(window.location.search);
   const previewPageId = urlParams.get("previewPageId");
 
-  const [currentScreen, setCurrentScreen] = useState<ScreenId>(ScreenId.LOGIN);
+  const [currentScreen, setCurrentScreen] = useState<ScreenId>(() => {
+    try {
+      const saved = sessionStorage.getItem("acnlink_session");
+      if (saved) {
+        const { screen, loggedIn } = JSON.parse(saved);
+        if (loggedIn && screen) return screen as ScreenId;
+      }
+    } catch {
+      /* ignore */
+    }
+    return ScreenId.LOGIN;
+  });
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem("acnlink_session");
+      if (saved) {
+        const { loggedIn } = JSON.parse(saved);
+        return !!loggedIn;
+      }
+    } catch {
+      /* ignore */
+    }
+    return false;
+  });
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>(() => getAllNotifications());
+  const lastAnalyticsEventIdRef = React.useRef<string | null>(null);
   
   // App state loaded from static files
   const [user, setUser] = useState<UserProfile>(initialUser);
@@ -64,6 +116,94 @@ export default function App() {
     totalRegisters: number;
     events: any[];
   } | null>(null);
+  const [serverHealth, setServerHealth] = useState<"checking" | "online" | "offline">("checking");
+
+  React.useEffect(() => {
+    if (isLoggedIn) {
+      sessionStorage.setItem(
+        "acnlink_session",
+        JSON.stringify({ loggedIn: true, screen: currentScreen })
+      );
+    } else {
+      sessionStorage.removeItem("acnlink_session");
+    }
+  }, [isLoggedIn, currentScreen]);
+
+  React.useEffect(() => {
+    let isMounted = true;
+
+    const checkServerHealth = async () => {
+      try {
+        const response = await fetch("/api/health", { cache: "no-store" });
+        if (!response.ok) throw new Error("Health check failed");
+
+        const health = await response.json();
+        if (isMounted) {
+          setServerHealth(health.status === "ok" ? "online" : "offline");
+        }
+      } catch {
+        if (isMounted) setServerHealth("offline");
+      }
+    };
+
+    checkServerHealth();
+    const interval = window.setInterval(checkServerHealth, 30_000);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  const pushNotification = React.useCallback((input: CreateNotificationInput) => {
+    setNotifications((prev) => prependNotification(prev, input));
+  }, []);
+
+  const handleMarkNotificationRead = (id: string) => {
+    setNotifications((prev) => markNotificationRead(prev, id));
+  };
+
+  const handleMarkAllNotificationsRead = () => {
+    setNotifications((prev) => markAllNotificationsRead(prev));
+  };
+
+  const unreadNotificationCount = getUnreadCount(notifications);
+
+  // Load shared templates from server on startup
+  React.useEffect(() => {
+    if (!isLoggedIn) return;
+    fetchServerTemplates().then((remote) => {
+      if (remote.length === 0) return;
+      setSavedTemplates((local) => {
+        const merged = mergeTemplates(local, remote);
+        persistTemplates(merged);
+        return merged;
+      });
+    });
+  }, [isLoggedIn]);
+
+  // Notify on new live analytics events (skip initial load)
+  React.useEffect(() => {
+    if (!serverMetrics?.events?.length) return;
+    const latest = serverMetrics.events[0];
+    if (!latest?.id) return;
+
+    if (lastAnalyticsEventIdRef.current === null) {
+      lastAnalyticsEventIdRef.current = latest.id;
+      return;
+    }
+
+    if (latest.id === lastAnalyticsEventIdRef.current) return;
+    lastAnalyticsEventIdRef.current = latest.id;
+
+    const label = latest.eventLabel || "Page activity";
+    pushNotification({
+      type: "analytics_event",
+      title: `New ${latest.eventType || "visit"}`,
+      message: `${label} · ${latest.device || "Unknown device"} on ${latest.domain || "acn.link"}`,
+      targetScreen: ScreenId.DASHBOARD
+    });
+  }, [serverMetrics?.events, pushNotification]);
 
   // 1. Initial fetch of pages list and analytics from the server
   React.useEffect(() => {
@@ -93,11 +233,12 @@ export default function App() {
         const analyticsRes = await fetch("/api/analytics");
         if (analyticsRes.ok) {
           const data = await analyticsRes.json();
+          const metrics = data?.metrics ?? {};
           setServerMetrics({
-            totalViews: data.metrics.totalViews,
-            totalClicks: data.metrics.totalClicks,
-            totalRegisters: data.metrics.totalRegisters,
-            events: data.events
+            totalViews: metrics.totalViews ?? 0,
+            totalClicks: metrics.totalClicks ?? 0,
+            totalRegisters: metrics.totalRegisters ?? 0,
+            events: Array.isArray(data?.events) ? data.events : []
           });
         }
       } catch (err) {
@@ -112,11 +253,12 @@ export default function App() {
       fetch("/api/analytics")
         .then(res => res.json())
         .then(data => {
+          const metrics = data?.metrics ?? {};
           setServerMetrics({
-            totalViews: data.metrics.totalViews,
-            totalClicks: data.metrics.totalClicks,
-            totalRegisters: data.metrics.totalRegisters,
-            events: data.events
+            totalViews: metrics.totalViews ?? 0,
+            totalClicks: metrics.totalClicks ?? 0,
+            totalRegisters: metrics.totalRegisters ?? 0,
+            events: Array.isArray(data?.events) ? data.events : []
           });
         })
         .catch(err => console.error("Error polling analytics:", err));
@@ -147,23 +289,9 @@ export default function App() {
   const [templates] = useState<TemplateItem[]>(initialTemplates);
   
   // Custom elevated states for draft and template persistence across pages/screens
-  const [savedTemplates, setSavedTemplates] = useState<any[]>(() => {
-    try {
-      const saved = localStorage.getItem("savedTemplates");
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [savedTemplates, setSavedTemplates] = useState<BioPageTemplate[]>(() => getAllUserTemplates());
 
-  const [savedDrafts, setSavedDrafts] = useState<any[]>(() => {
-    try {
-      const saved = localStorage.getItem("savedDrafts");
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [savedDrafts, setSavedDrafts] = useState<BioPageDraft[]>(() => getAllDrafts());
 
   const [pageBlocksMap, setPageBlocksMap] = useState<Record<string, any[]>>(() => {
     try {
@@ -175,13 +303,17 @@ export default function App() {
   });
 
   const [initialActiveEditPageId, setInitialActiveEditPageId] = useState<string | null>(null);
+  const [initialActiveTemplateId, setInitialActiveTemplateId] = useState<string | null>(null);
 
   React.useEffect(() => {
-    localStorage.setItem("savedTemplates", JSON.stringify(savedTemplates));
+    persistTemplates(savedTemplates);
+    if (savedTemplates.length > 0) {
+      syncAllTemplatesToServer(savedTemplates);
+    }
   }, [savedTemplates]);
 
   React.useEffect(() => {
-    localStorage.setItem("savedDrafts", JSON.stringify(savedDrafts));
+    persistDrafts(savedDrafts);
   }, [savedDrafts]);
 
   React.useEffect(() => {
@@ -239,14 +371,50 @@ export default function App() {
   const handleDuplicatePage = (id: string) => {
     const pageToDuplicate = pages.find((p) => p.id === id);
     if (!pageToDuplicate) return;
+
+    const newId = "p_" + Date.now();
+    const cleanSuffix =
+      pageToDuplicate.title.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-") ||
+      "page-copy";
+    const newSlug = `acn.link/page-${cleanSuffix}-copy-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const sourceBlocks =
+      pageBlocksMap[pageToDuplicate.id] ||
+      pageBlocksMap[pageToDuplicate.slug] ||
+      [];
+
+    const blocksCopy = cloneBlocks(sourceBlocks as BioEditorBlock[]);
+
     const duplicated: BioPage = {
       ...pageToDuplicate,
-      id: "p_" + Date.now(),
+      id: newId,
       title: `${pageToDuplicate.title} (Copy)`,
+      slug: newSlug,
       views: 0,
       createdAt: "7 Jul 2026"
     };
+
     setPages([duplicated, ...pages]);
+
+    setPageBlocksMap((prev) => ({
+      ...prev,
+      [newId]: blocksCopy,
+      [newSlug]: blocksCopy
+    }));
+
+    persistPagePreviewStorage(newId, newSlug, blocksCopy, {
+      title: duplicated.title,
+      bio: duplicated.bio || "Write a short bio...",
+      coverPhoto: duplicated.coverPhoto || DEFAULT_COVER
+    });
+
+    pushNotification({
+      type: "page_duplicated",
+      title: "Page duplicated",
+      message: `"${duplicated.title}" was created with ${blocksCopy.length} block(s).`,
+      targetScreen: ScreenId.BIO_PAGES,
+      meta: { pageId: newId }
+    });
   };
 
   const handleAddContact = (newContactData: Omit<Contact, "id" | "maskedEmail" | "maskedPhone">) => {
@@ -257,6 +425,12 @@ export default function App() {
       maskedPhone: "•••••• " + newContactData.phone.slice(-4)
     };
     setContacts([newContact, ...contacts]);
+    pushNotification({
+      type: "contact_added",
+      title: "New contact captured",
+      message: `${newContact.name} was added to your contacts.`,
+      targetScreen: ScreenId.CONTACTS
+    });
   };
 
   const handleAddWhatsAppTemplate = (name: string) => {
@@ -312,6 +486,12 @@ export default function App() {
       customDesign: true
     };
     setQrCodes([newQR, ...qrCodes]);
+    pushNotification({
+      type: "qr_generated",
+      title: "QR code created",
+      message: `"${name}" is ready to share.`,
+      targetScreen: ScreenId.QR_CODES
+    });
   };
 
   const handleUpdateTargetUrl = (id: string, newUrl: string) => {
@@ -348,6 +528,12 @@ export default function App() {
       status: "Active"
     };
     setPixels([...pixels, newPixel]);
+    pushNotification({
+      type: "pixel_added",
+      title: "Tracking pixel added",
+      message: `"${name}" (${type}) is now active.`,
+      targetScreen: ScreenId.PIXELS
+    });
   };
 
   const handleDeletePixel = (id: string) => {
@@ -387,6 +573,17 @@ export default function App() {
 
   const handleUpdateUser = (name: string, email: string) => {
     setUser((prev) => ({ ...prev, name, email }));
+  };
+
+  const handleLogout = () => {
+    setIsLoggedIn(false);
+    setCurrentScreen(ScreenId.LOGIN);
+    setIsMobileNavOpen(false);
+  };
+
+  const handleScreenChange = (screen: ScreenId) => {
+    setCurrentScreen(screen);
+    setIsMobileNavOpen(false);
   };
 
   // Quick Action trigger on headers
@@ -461,12 +658,18 @@ export default function App() {
       if (backupData.links) setLinks(backupData.links);
       if (backupData.qrCodes) setQrCodes(backupData.qrCodes);
       if (backupData.savedTemplates) {
-        setSavedTemplates(backupData.savedTemplates);
-        localStorage.setItem("savedTemplates", JSON.stringify(backupData.savedTemplates));
+        const normalized = (backupData.savedTemplates as Record<string, unknown>[]).map((item) =>
+          item.data ? (item as BioPageTemplate) : normalizeTemplate(item)
+        );
+        setSavedTemplates(normalized);
+        persistTemplates(normalized);
       }
       if (backupData.savedDrafts) {
-        setSavedDrafts(backupData.savedDrafts);
-        localStorage.setItem("savedDrafts", JSON.stringify(backupData.savedDrafts));
+        const normalized = (backupData.savedDrafts as Record<string, unknown>[]).map((item) =>
+          item.data ? (item as BioPageDraft) : normalizeDraft(item)
+        );
+        setSavedDrafts(normalized);
+        persistDrafts(normalized);
       }
       if (backupData.pageBlocksMap) {
         setPageBlocksMap(backupData.pageBlocksMap);
@@ -489,7 +692,7 @@ export default function App() {
       case ScreenId.LOGIN:
         return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
       case ScreenId.DASHBOARD:
-        return <DashboardScreen onNavigate={setCurrentScreen} metrics={metrics} pages={pages} links={links} />;
+        return <DashboardScreen onNavigate={handleScreenChange} metrics={metrics} pages={pages} links={links} />;
       case ScreenId.BIO_PAGES:
         return (
           <BioPagesScreen
@@ -506,6 +709,9 @@ export default function App() {
             setPageBlocksMap={setPageBlocksMap}
             initialActiveEditPageId={initialActiveEditPageId}
             clearInitialActiveEditPageId={() => setInitialActiveEditPageId(null)}
+            initialActiveTemplateId={initialActiveTemplateId}
+            clearInitialActiveTemplateId={() => setInitialActiveTemplateId(null)}
+            onNotify={pushNotification}
           />
         );
       case ScreenId.CONTACTS:
@@ -544,28 +750,42 @@ export default function App() {
             items={templates}
             savedTemplates={savedTemplates}
             onDeleteCustomTemplate={(id) => {
-              setSavedTemplates(prev => prev.filter(t => t.id !== id));
+              setSavedTemplates((prev) => prev.filter((t) => t.id !== id));
+              deleteTemplateOnServer(id);
             }}
             onUseTemplate={(tplName, isCustom, customTpl) => {
-              let blocksToLoad = [
-                { id: "g1", type: "Header", label: `👤 ${tplName}`, value: `👤 ${tplName}` },
-                { id: "g2", type: "Text", label: "Welcome to my responsive bio page! Customize me using the blocks.", value: "Welcome" },
-                { id: "g3", type: "Button", label: "Visit My Website", value: "https://example.com" },
-                { id: "g4", type: "WhatsApp", label: "Chat with me on WhatsApp", value: "https://wa.me/1234567890" }
-              ];
-              let tplBio = "Write a short bio...";
-              let tplCoverPhoto = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800";
-              let tplTitle = tplName;
+              let editorPayload = buildEditorState(
+                tplName,
+                "Write a short bio...",
+                DEFAULT_COVER,
+                [
+                  { id: "g1", type: "Header", label: `👤 ${tplName}`, value: `👤 ${tplName}` },
+                  {
+                    id: "g2",
+                    type: "Text",
+                    label: "Welcome to my responsive bio page! Customize me using the blocks.",
+                    value: "Welcome"
+                  },
+                  { id: "g3", type: "Button", label: "Visit My Website", value: "https://example.com" },
+                  {
+                    id: "g4",
+                    type: "WhatsApp",
+                    label: "Chat with me on WhatsApp",
+                    value: "https://wa.me/1234567890"
+                  }
+                ] as BioEditorBlock[]
+              );
+              let sourceTemplateId: string | null = null;
 
               if (isCustom && customTpl) {
-                blocksToLoad = customTpl.blocks || [];
-                tplBio = customTpl.bio || "Write a short bio...";
-                tplCoverPhoto = customTpl.coverPhoto || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800";
-                tplTitle = customTpl.title || tplName;
-              } else {
-                // Determine blocks for system templates
-                if (tplName === "Flash Sale Funnel") {
-                  blocksToLoad = [
+                editorPayload = getTemplateEditorPayload(customTpl);
+                sourceTemplateId = customTpl.id;
+              } else if (tplName === "Flash Sale Funnel") {
+                editorPayload = buildEditorState(
+                  "Flash Sale Funnel",
+                  "🚨 Mega Limited Discount Offer. Only valid for 24 hours. Get your premium toys before we run out of stock! 🚀",
+                  "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?auto=format&fit=crop&q=80&w=800",
+                  [
                     { id: "fs1", type: "Header", label: "⚡ FLASH SALE: 50% OFF TODAY!", value: "⚡ FLASH SALE: 50% OFF TODAY!" },
                     { id: "fs2", type: "Countdown", label: "Hurry! Offer ends in:", value: "1" },
                     { id: "fs3", type: "Shop", label: "Featured Deals", value: "Products List" },
@@ -573,31 +793,40 @@ export default function App() {
                     { id: "fs5", type: "Link Spin", label: "Spin to Win Extra Discount!", value: "Spin Now" },
                     { id: "fs6", type: "Button", label: "Shop All Products", value: "https://example.com/shop" },
                     { id: "fs7", type: "Socials", label: "Follow us", value: "Socials" }
-                  ];
-                  tplBio = "🚨 Mega Limited Discount Offer. Only valid for 24 hours. Get your premium toys before we run out of stock! 🚀";
-                  tplCoverPhoto = "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?auto=format&fit=crop&q=80&w=800";
-                } else if (tplName === "Ebook Download") {
-                  blocksToLoad = [
+                  ] as BioEditorBlock[]
+                );
+              } else if (tplName === "Ebook Download") {
+                editorPayload = buildEditorState(
+                  "Ebook Download",
+                  "Grab your FREE copy of the Ultimate Guide to scaling your digital business and maximizing conversion optimization. 📚",
+                  "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&q=80&w=800",
+                  [
                     { id: "eb1", type: "Header", label: "📘 Free Ebook: Mastering BioLinks", value: "📘 Free Ebook: Mastering BioLinks" },
                     { id: "eb2", type: "Text", label: "Download our comprehensive guide to skyrocketing your click-through rates.", value: "Ebook Description" },
                     { id: "eb3", type: "Smart Form", label: "Enter your email to get it instantly", value: "Newsletter Signup" },
                     { id: "eb4", type: "PDF", label: "Download PDF Directly", value: "https://example.com/ebook.pdf" },
                     { id: "eb5", type: "Socials", label: "Stay connected", value: "Socials" }
-                  ];
-                  tplBio = "Grab your FREE copy of the Ultimate Guide to scaling your digital business and maximizing conversion optimization. 📚";
-                  tplCoverPhoto = "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&q=80&w=800";
-                } else if (tplName === "Personal Bio Link") {
-                  blocksToLoad = [
+                  ] as BioEditorBlock[]
+                );
+              } else if (tplName === "Personal Bio Link") {
+                editorPayload = buildEditorState(
+                  "Personal Bio Link",
+                  "Tech developer and indie hacker crafting clean user interfaces and sharing digital insights daily.",
+                  "https://images.unsplash.com/photo-1511556532299-8f662fc26c06?auto=format&fit=crop&q=80&w=800",
+                  [
                     { id: "pb1", type: "Header", label: "👋 Hi, I'm Alex Carter", value: "👋 Hi, I'm Alex Carter" },
                     { id: "pb2", type: "Text", label: "Digital creator, developer, and writer. Sharing my journey and latest projects.", value: "Bio text" },
                     { id: "pb3", type: "Button", label: "Read My Blog", value: "https://example.com/blog" },
                     { id: "pb4", type: "vCard", label: "Save My Contact", value: "Alex Carter" },
                     { id: "pb5", type: "Socials", label: "Follow my journey", value: "Socials" }
-                  ];
-                  tplBio = "Tech developer and indie hacker crafting clean user interfaces and sharing digital insights daily.";
-                  tplCoverPhoto = "https://images.unsplash.com/photo-1511556532299-8f662fc26c06?auto=format&fit=crop&q=80&w=800";
-                } else if (tplName.toLowerCase().includes("marvel")) {
-                  blocksToLoad = [
+                  ] as BioEditorBlock[]
+                );
+              } else if (tplName.toLowerCase().includes("marvel")) {
+                editorPayload = buildEditorState(
+                  "Marvel Products",
+                  "Official Marvel-Inspired Toys & Collectibles. Safe, fun & exciting toys for young superheroes.",
+                  DEFAULT_COVER,
+                  [
                     { id: "b1", type: "Header", label: "👤 Marvel Toys for Kids", value: "👤 Marvel Toys for Kids" },
                     { id: "b2", type: "Header", label: "Official Marvel-Inspired Toys & Collectibles", value: "Official Marvel-Inspired Toys & Collectibles" },
                     { id: "b3", type: "Text", label: "🎁 Safe, fun & exciting toys for young superheroes.", value: "🎁 Safe, fun & exciting toys for young superheroes." },
@@ -611,15 +840,18 @@ export default function App() {
                     { id: "b11", type: "WhatsApp", label: "Message Us on WhatsApp", value: "Message Us on WhatsApp" },
                     { id: "b12", type: "Smart Form", label: "Get in Touch Leads Form", value: "Get in Touch" },
                     { id: "b13", type: "vCard", label: "Save Contact Card Info", value: "Save Contact" }
-                  ];
-                  tplBio = "Official Marvel-Inspired Toys & Collectibles. Safe, fun & exciting toys for young superheroes.";
-                  tplCoverPhoto = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800";
-                }
+                  ] as BioEditorBlock[]
+                );
               }
 
-              // Create unique id and slug
+              const tplTitle = editorPayload.pageMeta.title;
+              const tplBio = editorPayload.pageMeta.shortBio;
+              const tplCoverPhoto = editorPayload.pageMeta.coverImage;
+              const blocksToLoad = cloneBlocks(editorPayload.blocks);
+
               const newId = "p_" + Date.now();
-              const cleanSuffix = tplTitle.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-") || "custom-tpl";
+              const cleanSuffix =
+                tplTitle.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-") || "custom-tpl";
               const newSlug = `acn.link/page-${cleanSuffix}-${Math.floor(1000 + Math.random() * 9000)}`;
 
               const newPage: BioPage = {
@@ -633,11 +865,10 @@ export default function App() {
                 coverPhoto: tplCoverPhoto
               };
 
-              // Save block map and details
-              setPageBlocksMap(prev => ({
+              setPageBlocksMap((prev) => ({
                 ...prev,
-                [newId]: [...blocksToLoad],
-                [newSlug]: [...blocksToLoad]
+                [newId]: blocksToLoad,
+                [newSlug]: blocksToLoad
               }));
 
               const details = { title: tplTitle, bio: tplBio, coverPhoto: tplCoverPhoto };
@@ -646,12 +877,18 @@ export default function App() {
               localStorage.setItem(`biolink_details_${newId}`, JSON.stringify(details));
               localStorage.setItem(`biolink_details_${newSlug}`, JSON.stringify(details));
 
-              // Add page to general list
-              setPages(prev => [newPage, ...prev]);
+              setPages((prev) => [newPage, ...prev]);
 
-              // Direct edit page transition
               setInitialActiveEditPageId(newId);
-              setCurrentScreen(ScreenId.BIO_PAGES);
+              setInitialActiveTemplateId(sourceTemplateId);
+              handleScreenChange(ScreenId.BIO_PAGES);
+              pushNotification({
+                type: "template_used",
+                title: "Template applied",
+                message: `"${tplTitle}" was created from ${isCustom ? "your template" : "a preset"}.`,
+                targetScreen: ScreenId.BIO_PAGES,
+                meta: { pageId: newId }
+              });
             }}
           />
         );
@@ -689,63 +926,81 @@ export default function App() {
         return (
           <AccountScreen
             user={user}
-            activeScreenCount={15}
             onUpdateUser={handleUpdateUser}
             onExportData={handleExportData}
             onImportData={handleImportData}
+            onLogout={handleLogout}
           />
         );
       default:
-        return <DashboardScreen onNavigate={setCurrentScreen} metrics={metrics} pages={pages} links={links} />;
+        return <DashboardScreen onNavigate={handleScreenChange} metrics={metrics} pages={pages} links={links} />;
     }
   };
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex font-sans antialiased">
-      {/* Persistent Sidebar Drawer */}
       {currentScreen !== ScreenId.LOGIN && (
         <Sidebar
           currentScreen={currentScreen}
-          onScreenChange={setCurrentScreen}
+          onScreenChange={handleScreenChange}
           isCollapsed={isCollapsed}
           setIsCollapsed={setIsCollapsed}
-          onLogout={() => {
-            setIsLoggedIn(false);
-            setCurrentScreen(ScreenId.LOGIN);
-          }}
-          isLoggedIn={isLoggedIn}
         />
       )}
 
-      {/* Main Container Wrapper */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Dynamic header toolbar */}
+      <div className="flex-1 flex flex-col min-w-0 w-full">
         {currentScreen !== ScreenId.LOGIN && (
           <Header
             currentScreen={currentScreen}
             user={user}
-            onScreenChange={setCurrentScreen}
+            onScreenChange={handleScreenChange}
             onQuickCreate={handleQuickCreate}
+            onMenuToggle={() => setIsMobileNavOpen((open) => !open)}
+            isMobileNavOpen={isMobileNavOpen}
+            notifications={notifications}
+            unreadCount={unreadNotificationCount}
+            onMarkNotificationRead={handleMarkNotificationRead}
+            onMarkAllNotificationsRead={handleMarkAllNotificationsRead}
           />
         )}
 
-        {/* Primary Screen viewport routing */}
-        <main className="flex-1 overflow-y-auto">{renderContent()}</main>
+        <main className="flex-1 overflow-y-auto overflow-x-hidden min-w-0">
+          {renderContent()}
+        </main>
 
-        {/* Status Bar Footer matching Geometric Balance Theme */}
         {currentScreen !== ScreenId.LOGIN && (
-          <footer className="h-10 bg-slate-900 text-slate-400 px-6 flex items-center justify-between text-[10px] uppercase tracking-widest font-mono shrink-0 select-none">
-            <div className="flex gap-4">
-              <span className="flex items-center">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 mr-2 animate-pulse" />
-                System Operational
+          <footer className="h-10 bg-[#F1F5F9] border-t border-slate-200 text-slate-500 px-4 sm:px-6 flex items-center justify-between text-[10px] uppercase tracking-widest font-mono shrink-0 select-none">
+            <div className="flex min-w-0">
+              <span className="flex items-center truncate" aria-live="polite">
+                <span
+                  className={`w-2 h-2 rounded-full mr-2 shrink-0 ${
+                    serverHealth === "online"
+                      ? "bg-emerald-500 animate-pulse"
+                      : serverHealth === "offline"
+                        ? "bg-rose-500"
+                        : "bg-amber-400 animate-pulse"
+                  }`}
+                />
+                {serverHealth === "online"
+                  ? "System Operational"
+                  : serverHealth === "offline"
+                    ? "Server Offline"
+                    : "Checking Server"}
               </span>
-              <span>Server: us-east-1</span>
             </div>
-            <div>Master Template v1.4.2</div>
+            <div>ACN Link © 2026</div>
           </footer>
         )}
       </div>
+
+      {currentScreen !== ScreenId.LOGIN && (
+        <MobileNavDrawer
+          isOpen={isMobileNavOpen}
+          onClose={() => setIsMobileNavOpen(false)}
+          currentScreen={currentScreen}
+          onScreenChange={handleScreenChange}
+        />
+      )}
     </div>
   );
 }

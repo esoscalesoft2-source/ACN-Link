@@ -63,18 +63,18 @@ export default function DashboardScreen({ onNavigate, metrics, pages, links }: D
   ];
 
   return (
-    <div className="flex-1 p-8 space-y-8 max-w-7xl mx-auto w-full">
+    <div className="flex-1 p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8 max-w-7xl mx-auto w-full min-w-0">
       {/* Welcome Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h2 className="font-display font-bold text-3xl text-slate-900 tracking-tight flex items-center gap-2">
+        <div className="min-w-0">
+          <h2 className="font-display font-bold text-2xl sm:text-3xl text-slate-900 tracking-tight flex flex-wrap items-center gap-x-2 gap-y-1">
             Welcome back, <span className="text-indigo-600">Alex</span>
           </h2>
           <p className="text-slate-500 text-sm mt-1">Here's your live digital marketing analytics dashboard.</p>
         </div>
 
         {/* Time filters matching the geometric theme */}
-        <div className="flex bg-slate-50 border border-slate-200 rounded-lg p-0.5 self-start md:self-auto">
+        <div className="flex bg-slate-50 border border-slate-200 rounded-lg p-0.5 self-start md:self-auto overflow-x-auto max-w-full">
           {ranges.map((range) => {
             const isSelected = range === timeRange;
             return (
@@ -95,7 +95,7 @@ export default function DashboardScreen({ onNavigate, metrics, pages, links }: D
       </div>
 
       {/* Statistics Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
         {[
           { label: "Total Views (Impression)", value: metrics.pageViews, trend: "Live Impression Count", trendColor: "text-indigo-600" },
           { label: "Total Clicks (Ads/Social)", value: metrics.totalClicks, trend: "Dynamic Click Logs", trendColor: "text-emerald-600" },
@@ -104,12 +104,12 @@ export default function DashboardScreen({ onNavigate, metrics, pages, links }: D
         ].map((metric) => (
           <div
             key={metric.label}
-            className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden"
+            className="bg-white p-4 sm:p-6 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden min-w-0"
           >
-            <div className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-2">
+            <div className="text-slate-500 text-[10px] sm:text-xs font-bold uppercase tracking-wider mb-2">
               {metric.label}
             </div>
-            <div className="text-3xl font-bold text-slate-900">
+            <div className="text-2xl sm:text-3xl font-bold text-slate-900">
               {metric.value.toLocaleString()}
             </div>
             <div className={`text-xs font-medium mt-1 ${metric.trendColor}`}>
@@ -122,10 +122,10 @@ export default function DashboardScreen({ onNavigate, metrics, pages, links }: D
       {/* Main Visual Flow Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Click Performance Graph */}
-        <div className="lg:col-span-8 bg-white border border-slate-200 rounded-xl p-6 flex flex-col relative overflow-hidden">
-          <div className="flex items-center justify-between mb-6">
+        <div className="lg:col-span-8 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 flex flex-col relative overflow-hidden min-w-0">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
             <h3 className="font-bold text-slate-800">Traffic Source Analytics</h3>
-            <div className="flex bg-slate-50 border border-slate-200 rounded-lg p-0.5">
+            <div className="flex bg-slate-50 border border-slate-200 rounded-lg p-0.5 self-start">
               <button className="px-3 py-1 text-xs font-medium rounded-md bg-white shadow-sm text-slate-900">7D</button>
               <button className="px-3 py-1 text-xs font-medium text-slate-500">30D</button>
               <button className="px-3 py-1 text-xs font-medium text-slate-500">90D</button>
@@ -183,7 +183,7 @@ export default function DashboardScreen({ onNavigate, metrics, pages, links }: D
         </div>
 
         {/* Recent Activity / Top Bio Pages */}
-        <div className="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-6 flex flex-col justify-between">
+        <div className="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 flex flex-col justify-between min-w-0">
           <div>
             <h3 className="font-bold text-slate-800 mb-4">Top Bio Pages</h3>
             <div className="space-y-4">
@@ -223,10 +223,10 @@ export default function DashboardScreen({ onNavigate, metrics, pages, links }: D
       </div>
 
       {/* NEW: Visitor Session & Event Activity Log Table */}
-      <div className="bg-white border border-slate-200 rounded-xl p-6">
+      <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 min-w-0">
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-2">
-          <div>
-            <h3 className="font-bold text-slate-900 text-lg">Real-Time Traffic & Action Tracker</h3>
+          <div className="min-w-0">
+            <h3 className="font-bold text-slate-900 text-base sm:text-lg">Real-Time Traffic & Action Tracker</h3>
             <p className="text-xs text-slate-500">Track which domain, client ports, devices, OS, and actions users perform globally.</p>
           </div>
           <span className="bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-widest flex items-center gap-1.5 self-start md:self-auto">
@@ -306,14 +306,14 @@ export default function DashboardScreen({ onNavigate, metrics, pages, links }: D
         <h3 className="font-display font-bold text-lg text-slate-900 tracking-tight">
           Quick Access
         </h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
           {quickAccess.map((qa) => {
             const Icon = qa.icon;
             return (
               <div
                 key={qa.id}
                 onClick={() => onNavigate(qa.id)}
-                className={`bg-white border border-slate-200 rounded-xl p-6 flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-300 ${qa.bgHover} hover:-translate-y-1 shadow-sm hover:shadow-md`}
+                className={`bg-white border border-slate-200 rounded-xl p-4 sm:p-6 flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-300 ${qa.bgHover} hover:-translate-y-1 shadow-sm hover:shadow-md min-w-0`}
               >
                 <div
                   className={`h-12 w-12 rounded-xl bg-gradient-to-tr ${qa.color} flex items-center justify-center ${qa.iconColor} mb-4`}

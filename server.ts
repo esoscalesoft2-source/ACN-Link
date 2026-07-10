@@ -12,6 +12,14 @@ const STORE_FILE = path.join(process.cwd(), "data-store.json");
 
 app.use(express.json({ limit: "10mb" }));
 
+// Lightweight endpoint for the dashboard footer health indicator.
+app.get("/api/health", (_req, res) => {
+  res.status(200).json({
+    status: "ok",
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Helper to read store
 function readStore() {
   try {
@@ -145,6 +153,46 @@ app.post("/api/track", (req, res) => {
   res.json({ success: true, event: newEvent });
 });
 
+// Bio page templates API (shared template library)
+app.get("/api/templates", (req, res) => {
+  const store = readStore();
+  const templates = store["bio_page_templates"] || [];
+  res.json(templates);
+});
+
+app.post("/api/templates", (req, res) => {
+  const store = readStore();
+  if (!store["bio_page_templates"]) {
+    store["bio_page_templates"] = [];
+  }
+
+  if (req.body.template) {
+    const template = req.body.template;
+    const list = store["bio_page_templates"] as any[];
+    const idx = list.findIndex((t: any) => t.id === template.id);
+    if (idx >= 0) {
+      list[idx] = { ...template, updatedAt: new Date().toISOString() };
+    } else {
+      list.unshift(template);
+    }
+  } else if (Array.isArray(req.body.templates)) {
+    store["bio_page_templates"] = req.body.templates;
+  }
+
+  writeStore(store);
+  res.json({ success: true, templates: store["bio_page_templates"] });
+});
+
+app.delete("/api/templates/:id", (req, res) => {
+  const { id } = req.params;
+  const store = readStore();
+  if (store["bio_page_templates"] && Array.isArray(store["bio_page_templates"])) {
+    store["bio_page_templates"] = store["bio_page_templates"].filter((t: any) => t.id !== id);
+    writeStore(store);
+  }
+  res.json({ success: true });
+});
+
 // Analytics Retrieval API
 app.get("/api/analytics", (req, res) => {
   const store = readStore();
@@ -167,9 +215,25 @@ app.get("/api/analytics", (req, res) => {
 });
 
 // Vite middleware setup
+function isProductionMode(): boolean {
+  const lifecycle = process.env.npm_lifecycle_event;
+
+  // npm run dev → always use Vite (live source)
+  if (lifecycle === "dev") return false;
+  // npm start / npm run preview → serve dist/
+  if (lifecycle === "start" || lifecycle === "preview") return true;
+
+  if (process.env.NODE_ENV === "development") return false;
+  if (process.env.NODE_ENV === "production") return true;
+
+  const entry = (process.argv[1] || "").replace(/\\/g, "/");
+  if (entry.endsWith("/server.ts")) return false;
+  return entry.endsWith("/server.cjs") || entry.endsWith("/dist/server.cjs");
+}
+
 async function startServer() {
-  const isProd = process.env.NODE_ENV === "production" || fs.existsSync(path.join(process.cwd(), "dist/index.html"));
-  
+  const isProd = isProductionMode();
+
   if (!isProd) {
     console.log("Starting server in DEVELOPMENT mode with Vite middleware...");
     const { createServer: createViteServer } = await import("vite");
@@ -181,15 +245,30 @@ async function startServer() {
   } else {
     console.log("Starting server in PRODUCTION mode, serving static files from dist/...");
     const distPath = path.join(process.cwd(), "dist");
+    if (!fs.existsSync(path.join(distPath, "index.html"))) {
+      console.error("ERROR: dist/index.html not found. Run `npm run build` first.");
+      process.exit(1);
+    }
     app.use(express.static(distPath));
-    app.get("*", (req, res) => {
+    app.get("*", (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
   if (!process.env.VERCEL) {
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running on http://0.0.0.0:${PORT}`);
+    const server = app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+    server.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE") {
+        console.error(
+          `\nPort ${PORT} is already in use. Stop the other server first:\n` +
+            `  Windows: netstat -ano | findstr :${PORT}\n` +
+            `  Then:    taskkill /PID <pid> /F\n`
+        );
+        process.exit(1);
+      }
+      throw err;
     });
   }
 }

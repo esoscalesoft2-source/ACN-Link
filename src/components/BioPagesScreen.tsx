@@ -1,5 +1,15 @@
 import React, { useState, useRef } from "react";
-import { BioPage } from "../types";
+import { BioPage, BioPageDraft, BioPageTemplate, BioEditorState, BioEditorBlock, ScreenId } from "../types";
+import {
+  buildEditorState,
+  cloneBlocks,
+  DEFAULT_COVER,
+  upsertDraft,
+  upsertTemplate,
+  syncTemplateToServer,
+  persistPagePreviewStorage
+} from "../storage/bioBuilderStorage";
+import { CreateNotificationInput } from "../storage/notificationStorage";
 import {
   RefreshCw,
   Plus,
@@ -39,8 +49,12 @@ import {
   Globe,
   ArrowUp,
   ArrowDown,
-  Image as ImageIcon
+  Image as ImageIcon,
+  MoreVertical,
+  LayoutGrid,
+  Eye
 } from "lucide-react";
+import PageShell, { PageHeader } from "./layout/PageShell";
 
 export function getShareableOrigin() {
   let origin = window.location.origin;
@@ -154,14 +168,17 @@ interface BioPagesScreenProps {
   onUpdatePage: (id: string, title: string, bio?: string, coverPhoto?: string) => void;
   onDuplicatePage: (id: string) => void;
   // New props for shared state
-  savedTemplates: any[];
-  setSavedTemplates: React.Dispatch<React.SetStateAction<any[]>>;
-  savedDrafts: any[];
-  setSavedDrafts: React.Dispatch<React.SetStateAction<any[]>>;
-  pageBlocksMap: Record<string, any[]>;
-  setPageBlocksMap: React.Dispatch<React.SetStateAction<Record<string, any[]>>>;
+  savedTemplates: BioPageTemplate[];
+  setSavedTemplates: React.Dispatch<React.SetStateAction<BioPageTemplate[]>>;
+  savedDrafts: BioPageDraft[];
+  setSavedDrafts: React.Dispatch<React.SetStateAction<BioPageDraft[]>>;
+  pageBlocksMap: Record<string, BioEditorBlock[]>;
+  setPageBlocksMap: React.Dispatch<React.SetStateAction<Record<string, BioEditorBlock[]>>>;
   initialActiveEditPageId: string | null;
   clearInitialActiveEditPageId: () => void;
+  initialActiveTemplateId: string | null;
+  clearInitialActiveTemplateId: () => void;
+  onNotify: (input: CreateNotificationInput) => void;
 }
 
 export default function BioPagesScreen({
@@ -177,7 +194,10 @@ export default function BioPagesScreen({
   pageBlocksMap,
   setPageBlocksMap,
   initialActiveEditPageId,
-  clearInitialActiveEditPageId
+  clearInitialActiveEditPageId,
+  initialActiveTemplateId,
+  clearInitialActiveTemplateId,
+  onNotify
 }: BioPagesScreenProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -225,6 +245,11 @@ export default function BioPagesScreen({
   const [editorBio, setEditorBio] = useState<string>("Write a short bio...");
   const [editorCoverPhoto, setEditorCoverPhoto] = useState<string>("https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800");
   const [editorTab, setEditorTab] = useState<"Edit" | "Settings">("Edit");
+  const [editorViewPanel, setEditorViewPanel] = useState<"blocks" | "edit" | "preview">("edit");
+  const [showEditorMoreMenu, setShowEditorMoreMenu] = useState(false);
+  const [linkedTemplateId, setLinkedTemplateId] = useState<string | null>(null);
+  const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
+  const [templateNameInput, setTemplateNameInput] = useState("");
   const [showPublishSuccess, setShowPublishSuccess] = useState(false);
 
   // Widget states inside editor to allow live mockup interactivity!
@@ -509,29 +534,153 @@ export default function BioPagesScreen({
   };
 
   const handleSaveAsTemplate = () => {
-    if (!editorTitle) return;
-    const newTemplate = {
-      id: "tpl_" + Date.now(),
-      title: editorTitle,
-      bio: editorBio,
-      coverPhoto: editorCoverPhoto,
-      blocks: [...editorBlocks]
-    };
-    setSavedTemplates(prev => [...prev, newTemplate]);
-    triggerToast(`✨ Template "${editorTitle}" saved successfully!`);
+    if (!editorTitle.trim()) {
+      triggerToast("⚠️ Add a page title before saving as template.");
+      return;
+    }
+    setTemplateNameInput(
+      linkedTemplateId
+        ? savedTemplates.find((tpl) => tpl.id === linkedTemplateId)?.name || editorTitle
+        : `${editorTitle} Template`
+    );
+    setShowSaveTemplateModal(true);
+  };
+
+  const confirmSaveAsTemplate = () => {
+    try {
+      const name = templateNameInput.trim() || editorTitle || "Untitled Template";
+      const state = buildCurrentEditorState();
+      const now = new Date().toISOString();
+
+      const savedTemplate: BioPageTemplate = linkedTemplateId
+        ? {
+            id: linkedTemplateId,
+            name,
+            sourcePageId: selectedEditPage?.id,
+            previewImage: state.pageMeta.coverImage,
+            data: state,
+            createdAt:
+              savedTemplates.find((t) => t.id === linkedTemplateId)?.createdAt || now,
+            updatedAt: now
+          }
+        : {
+            id: `tpl_${Date.now()}`,
+            name,
+            sourcePageId: selectedEditPage?.id,
+            previewImage: state.pageMeta.coverImage,
+            data: state,
+            createdAt: now,
+            updatedAt: now
+          };
+
+      setSavedTemplates((prev) => upsertTemplate(savedTemplate, prev));
+
+      if (!linkedTemplateId) {
+        setLinkedTemplateId(savedTemplate.id);
+      }
+
+      syncTemplateToServer(savedTemplate);
+      setShowSaveTemplateModal(false);
+
+      triggerToast(
+        linkedTemplateId
+          ? `✨ Template "${name}" updated successfully!`
+          : `✨ Template "${name}" saved successfully!`
+      );
+      onNotify({
+        type: "template_saved",
+        title: linkedTemplateId ? "Template updated" : "Template saved",
+        message: `"${name}" is available in Templates → My Templates.`,
+        targetScreen: ScreenId.TEMPLATES
+      });
+    } catch (err) {
+      console.error("Failed to save template:", err);
+      triggerToast("⚠️ Could not save template. Please try again.");
+    }
+  };
+
+  const buildCurrentEditorState = (): BioEditorState =>
+    buildEditorState(
+      editorTitle,
+      editorBio,
+      editorCoverPhoto,
+      editorBlocks as BioEditorBlock[],
+      selectedEditPage?.slug
+    );
+
+  const hydrateEditorFromState = (state: BioEditorState) => {
+    setEditorTitle(state.pageMeta.title);
+    setEditorBio(state.pageMeta.shortBio);
+    setEditorCoverPhoto(state.pageMeta.coverImage);
+    setEditorBlocks(cloneBlocks(state.blocks));
+  };
+
+  const getTemplateDisplayName = (tpl: BioPageTemplate) => tpl.name;
+  const getTemplateBlockCount = (tpl: BioPageTemplate) => tpl.data?.blocks?.length ?? 0;
+  const getDraftDisplayName = (draft: BioPageDraft) => draft.data.pageMeta.title;
+  const getDraftBlockCount = (draft: BioPageDraft) => draft.data.blocks.length;
+
+  const resolvePageBlocks = (page: BioPage): BioEditorBlock[] => {
+    if (pageBlocksMap[page.id]?.length) {
+      return cloneBlocks(pageBlocksMap[page.id]);
+    }
+    if (pageBlocksMap[page.slug]?.length) {
+      return cloneBlocks(pageBlocksMap[page.slug]);
+    }
+    if (page.title.toLowerCase().includes("marvel")) {
+      return cloneBlocks(marvelInitialBlocks as BioEditorBlock[]);
+    }
+    return cloneBlocks(genericInitialBlocks as BioEditorBlock[]);
   };
 
   const handleSaveDraft = () => {
-    if (!editorTitle) return;
-    const newDraft = {
-      id: "draft_" + Date.now(),
-      title: editorTitle,
-      bio: editorBio,
-      coverPhoto: editorCoverPhoto,
-      blocks: [...editorBlocks]
+    if (!selectedEditPage || !editorTitle.trim()) {
+      triggerToast("⚠️ Add a page title before saving a draft.");
+      return;
+    }
+
+    const state = buildCurrentEditorState();
+    const now = new Date().toISOString();
+    const existingDraft = savedDrafts.find((draft) => draft.pageId === selectedEditPage.id);
+
+    const draftRecord: BioPageDraft = {
+      id: existingDraft?.id || `draft_${selectedEditPage.id}`,
+      pageId: selectedEditPage.id,
+      pageSlug: selectedEditPage.slug,
+      data: state,
+      createdAt: existingDraft?.createdAt || now,
+      updatedAt: now
     };
-    setSavedDrafts(prev => [...prev, newDraft]);
+
+    setSavedDrafts((prev) => upsertDraft(draftRecord, prev));
+
+    setPageBlocksMap((prev) => ({
+      ...prev,
+      [selectedEditPage.id]: cloneBlocks(state.blocks),
+      [selectedEditPage.slug]: cloneBlocks(state.blocks)
+    }));
+
+    try {
+      const details = {
+        title: state.pageMeta.title,
+        bio: state.pageMeta.shortBio,
+        coverPhoto: state.pageMeta.coverImage
+      };
+      localStorage.setItem(`biolink_blocks_${selectedEditPage.id}`, JSON.stringify(state.blocks));
+      localStorage.setItem(`biolink_blocks_${selectedEditPage.slug}`, JSON.stringify(state.blocks));
+      localStorage.setItem(`biolink_details_${selectedEditPage.id}`, JSON.stringify(details));
+      localStorage.setItem(`biolink_details_${selectedEditPage.slug}`, JSON.stringify(details));
+    } catch (err) {
+      console.error("Failed to persist draft preview data:", err);
+    }
+
     triggerToast(`💾 Draft for "${editorTitle}" saved successfully!`);
+    onNotify({
+      type: "draft_saved",
+      title: "Draft saved",
+      message: `Your edits to "${editorTitle}" were saved locally.`,
+      targetScreen: ScreenId.BIO_PAGES
+    });
   };
 
   const startEditingBlock = (id: string, label: string, value: string) => {
@@ -720,33 +869,38 @@ export default function BioPagesScreen({
     setEditingId(null);
   };
 
-  const openEditor = (page: BioPage) => {
+  const openEditor = (page: BioPage, options?: { templateId?: string | null; preferPublished?: boolean }) => {
     setSelectedEditPage(page);
+    setEditorTab("Edit");
+    setEditorViewPanel("edit");
+    setShowEditorMoreMenu(false);
+    setLinkedTemplateId(options?.templateId ?? null);
+
+    const pageDraft = savedDrafts.find((draft) => draft.pageId === page.id);
+
+    if (pageDraft && !options?.preferPublished) {
+      hydrateEditorFromState(pageDraft.data);
+      triggerToast(`📂 Restored draft for "${pageDraft.data.pageMeta.title}"`);
+      return;
+    }
+
     setEditorTitle(page.title);
     setEditorBio(page.bio || "Write a short bio...");
-    setEditorCoverPhoto(page.coverPhoto || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800");
-    setEditorTab("Edit");
-    if (pageBlocksMap[page.id]) {
-      setEditorBlocks(pageBlocksMap[page.id]);
-    } else if (pageBlocksMap[page.slug]) {
-      setEditorBlocks(pageBlocksMap[page.slug]);
-    } else if (page.title.toLowerCase().includes("marvel")) {
-      setEditorBlocks(marvelInitialBlocks);
-    } else {
-      setEditorBlocks(genericInitialBlocks);
-    }
+    setEditorCoverPhoto(page.coverPhoto || DEFAULT_COVER);
+    setEditorBlocks(resolvePageBlocks(page));
   };
 
-  // Auto-load template into editor when initialActiveEditPageId is present
+  // Auto-load editor when arriving from Templates page or deep links
   React.useEffect(() => {
     if (initialActiveEditPageId) {
-      const pageToEdit = pages.find(p => p.id === initialActiveEditPageId);
+      const pageToEdit = pages.find((p) => p.id === initialActiveEditPageId);
       if (pageToEdit) {
-        openEditor(pageToEdit);
+        openEditor(pageToEdit, { templateId: initialActiveTemplateId });
       }
       clearInitialActiveEditPageId();
+      clearInitialActiveTemplateId();
     }
-  }, [initialActiveEditPageId, pages]);
+  }, [initialActiveEditPageId, initialActiveTemplateId, pages]);
 
   const handlePublishEditor = () => {
     if (selectedEditPage) {
@@ -779,6 +933,14 @@ export default function BioPagesScreen({
         body: JSON.stringify({ blocks: editorBlocks, details })
       }).catch(err => {
         console.error("Failed to save to server database:", err);
+      });
+
+      onNotify({
+        type: "page_published",
+        title: "Page published",
+        message: `"${editorTitle}" is now live.`,
+        targetScreen: ScreenId.BIO_PAGES,
+        meta: { pageId: selectedEditPage.id }
       });
 
       setShowPublishSuccess(true);
@@ -842,34 +1004,29 @@ export default function BioPagesScreen({
   const currentAnalytics = getAnalyticsData();
 
   return (
-    <div className="flex-1 p-6 md:p-8 space-y-8 max-w-7xl mx-auto w-full relative">
-      {/* Page Title & Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="font-display font-bold text-3xl text-gray-950 tracking-tight">
-            BioLink Pages
-          </h2>
-          <p className="text-gray-500 text-sm mt-1">{pages.length} page{pages.length !== 1 ? "s" : ""}</p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleRefresh}
-            className="flex items-center gap-2 border border-gray-200 hover:bg-gray-50 rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-600 transition-colors bg-white shadow-sm"
-          >
-            <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
-            <span>Refresh</span>
-          </button>
-
-          <button
-            onClick={() => setIsAdding(true)}
-            className="flex items-center gap-2 bg-gradient-to-r from-[#FF6B4A] to-[#FF4B6B] hover:from-[#E55B3C] hover:to-[#E53C5D] text-white rounded-xl px-5 py-2.5 text-sm font-semibold shadow-md shadow-orange-100 transition-all active:scale-95"
-          >
-            <Plus className="h-4 w-4" />
-            <span>New Page</span>
-          </button>
-        </div>
-      </div>
+    <PageShell>
+      <PageHeader
+        title="BioLink Pages"
+        subtitle={`${pages.length} page${pages.length !== 1 ? "s" : ""}`}
+        actions={
+          <>
+            <button
+              onClick={handleRefresh}
+              className="flex items-center gap-2 border border-gray-200 hover:bg-gray-50 rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-600 transition-colors bg-white shadow-sm"
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+              <span>Refresh</span>
+            </button>
+            <button
+              onClick={() => setIsAdding(true)}
+              className="flex items-center gap-2 bg-gradient-to-r from-[#FF6B4A] to-[#FF4B6B] hover:from-[#E55B3C] hover:to-[#E53C5D] text-white rounded-xl px-5 py-2.5 text-sm font-semibold shadow-md shadow-orange-100 transition-all active:scale-95"
+            >
+              <Plus className="h-4 w-4" />
+              <span>New Page</span>
+            </button>
+          </>
+        }
+      />
 
       {/* Creation Modal/Dialog */}
       {isAdding && (
@@ -973,10 +1130,15 @@ export default function BioPagesScreen({
                           type="button"
                           onClick={() => {
                             setSelectedTemplateId(tpl.id);
-                            setNextInitialBlocks(tpl.blocks);
-                            setNewTitle(tpl.title + " Copy");
-                            setNewSlug((tpl.title + " Copy").toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-"));
-                            triggerToast(`✨ Applied Saved Template "${tpl.title}"!`);
+                            setNextInitialBlocks(tpl.data.blocks);
+                            setNewTitle(getTemplateDisplayName(tpl) + " Copy");
+                            setNewSlug(
+                              (getTemplateDisplayName(tpl) + " Copy")
+                                .toLowerCase()
+                                .replace(/[^a-z0-9\s-]/g, "")
+                                .replace(/\s+/g, "-")
+                            );
+                            triggerToast(`✨ Applied Saved Template "${getTemplateDisplayName(tpl)}"!`);
                           }}
                           className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-bold transition-all ${
                             selectedTemplateId === tpl.id
@@ -984,7 +1146,7 @@ export default function BioPagesScreen({
                               : "border-slate-200 hover:bg-slate-50 text-slate-600 bg-white"
                           }`}
                         >
-                          💎 {tpl.title}
+                          💎 {getTemplateDisplayName(tpl)}
                         </button>
                       ))}
                     </div>
@@ -1013,7 +1175,7 @@ export default function BioPagesScreen({
       )}
 
       {/* Pages Container list */}
-      <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm">
+      <div className="bg-white border border-gray-100 rounded-3xl p-4 sm:p-6 shadow-sm">
         {pages.length === 0 ? (
           <div className="flex flex-col items-center justify-center text-center py-12">
             <div className="h-14 w-14 bg-orange-50 text-[#FF6B4A] rounded-2xl flex items-center justify-center mb-4">
@@ -1033,13 +1195,13 @@ export default function BioPagesScreen({
             {pages.map((page) => (
               <div
                 key={page.id}
-                className="flex flex-col md:flex-row md:items-center justify-between border border-gray-100 rounded-2xl p-5 hover:bg-slate-50/50 transition-colors gap-4"
+                className="flex flex-col lg:flex-row lg:items-center justify-between border border-gray-100 rounded-2xl p-4 sm:p-5 hover:bg-slate-50/50 transition-colors gap-4 min-w-0"
               >
-                <div className="flex items-start gap-4">
-                  <div className="h-12 w-12 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0">
-                    <Smartphone className="h-6 w-6" />
+                <div className="flex items-start gap-3 sm:gap-4 min-w-0">
+                  <div className="h-11 w-11 sm:h-12 sm:w-12 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0">
+                    <Smartphone className="h-5 w-5 sm:h-6 sm:w-6" />
                   </div>
-                  <div>
+                  <div className="min-w-0 flex-1">
                     {editingId === page.id ? (
                       <div className="flex items-center gap-1">
                         <input
@@ -1056,8 +1218,8 @@ export default function BioPagesScreen({
                         </button>
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-display font-semibold text-gray-950 text-base">{page.title}</h4>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <h4 className="font-display font-semibold text-gray-950 text-base truncate">{page.title}</h4>
                         <button onClick={() => startEditing(page)} className="text-gray-400 hover:text-gray-600">
                           <Edit3 className="h-3.5 w-3.5" />
                         </button>
@@ -1075,7 +1237,7 @@ export default function BioPagesScreen({
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-4 sm:gap-6 ml-16 md:ml-0">
+                <div className="flex flex-wrap items-center gap-3 sm:gap-4 lg:gap-6 w-full lg:w-auto lg:justify-end pl-14 lg:pl-0">
                   {/* Status */}
                   <span className="bg-emerald-50 text-emerald-600 text-xs px-2.5 py-1 rounded-full font-semibold">
                     {page.status}
@@ -1102,7 +1264,7 @@ export default function BioPagesScreen({
                   </div>
 
                   {/* Toolbar Actions matching mockup exactly */}
-                  <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-xl border border-gray-100 shadow-sm">
+                  <div className="flex flex-wrap items-center gap-1 bg-gray-50 p-1 rounded-xl border border-gray-100 shadow-sm w-full sm:w-auto justify-start sm:justify-center">
                     {/* 1st - Analytics */}
                     <button
                       onClick={() => setSelectedAnalyticsPage(page)}
@@ -1298,38 +1460,37 @@ export default function BioPagesScreen({
       {selectedEditPage && (
         <div className="fixed inset-0 bg-slate-50 z-50 flex flex-col animate-in fade-in duration-200 text-slate-800">
           {/* Editor Header */}
-          <header className="bg-white border-b border-slate-200 px-6 py-3.5 flex items-center justify-between shadow-sm">
-            <div className="flex items-center gap-4">
+          <header className="bg-white border-b border-slate-200 px-3 sm:px-6 py-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between shadow-sm shrink-0">
+            <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
               <button
                 onClick={() => setSelectedEditPage(null)}
-                className="text-slate-600 hover:text-slate-900 hover:bg-slate-50 flex items-center gap-1.5 text-sm font-semibold bg-white rounded-xl px-3.5 py-2 transition-all border border-slate-200 shadow-sm"
+                className="text-slate-600 hover:text-slate-900 hover:bg-slate-50 flex items-center gap-1.5 text-sm font-semibold bg-white rounded-xl px-3 py-2 transition-all border border-slate-200 shadow-sm shrink-0"
               >
                 <X className="h-4 w-4" />
-                <span>Close Editor</span>
+                <span className="hidden sm:inline">Close Editor</span>
               </button>
 
-              <div className="h-5 w-px bg-slate-200" />
+              <div className="h-5 w-px bg-slate-200 hidden sm:block shrink-0" />
 
-              <div className="flex items-center gap-2">
-                <span className="text-[#4F46E5] font-extrabold text-lg tracking-tight font-mono">acn.link</span>
-                <span className="text-slate-400 text-sm">/</span>
-                <div className="flex items-center gap-1">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <span className="text-[#4F46E5] font-extrabold text-sm sm:text-lg tracking-tight font-mono shrink-0">acn.link</span>
+                <span className="text-slate-400 text-sm shrink-0">/</span>
+                <div className="flex items-center gap-1 min-w-0 flex-1">
                   <input
                     type="text"
                     value={editorTitle}
                     onChange={(e) => setEditorTitle(e.target.value)}
-                    className="bg-transparent text-slate-900 text-sm font-bold border-b border-dashed border-slate-300 focus:border-[#FF6B4A] focus:outline-none py-0.5 px-1 max-w-[150px]"
+                    className="bg-transparent text-slate-900 text-sm font-bold border-b border-dashed border-slate-300 focus:border-[#FF6B4A] focus:outline-none py-0.5 px-1 min-w-0 w-full max-w-[120px] sm:max-w-[200px]"
                   />
-                  <Edit3 className="h-3.5 w-3.5 text-slate-400" />
+                  <Edit3 className="h-3.5 w-3.5 text-slate-400 shrink-0" />
                 </div>
               </div>
             </div>
 
-            {/* Center Tab Buttons */}
-            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-sm">
+            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-sm self-start lg:self-auto">
               <button
                 onClick={() => setEditorTab("Edit")}
-                className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                className={`px-3 sm:px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${
                   editorTab === "Edit" ? "bg-white text-slate-900 shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-900"
                 }`}
               >
@@ -1337,7 +1498,7 @@ export default function BioPagesScreen({
               </button>
               <button
                 onClick={() => setEditorTab("Settings")}
-                className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                className={`px-3 sm:px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${
                   editorTab === "Settings" ? "bg-white text-slate-900 shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-900"
                 }`}
               >
@@ -1345,23 +1506,65 @@ export default function BioPagesScreen({
               </button>
             </div>
 
-            {/* Action buttons on Right */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end relative">
               <button
                 onClick={handleSaveAsTemplate}
-                className="hidden sm:block text-xs font-bold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 rounded-xl px-4 py-2 border border-slate-200 shadow-sm transition-all"
+                className="hidden md:inline-flex text-xs font-bold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 rounded-xl px-4 py-2 border border-slate-200 shadow-sm transition-all"
               >
                 Save as Template
               </button>
               <button
                 onClick={handleSaveDraft}
-                className="hidden sm:block text-xs font-bold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 rounded-xl px-4 py-2 border border-slate-200 shadow-sm transition-all"
+                className="hidden md:inline-flex text-xs font-bold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 rounded-xl px-4 py-2 border border-slate-200 shadow-sm transition-all"
               >
                 Save Draft
               </button>
+              <div className="relative md:hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowEditorMoreMenu((open) => !open)}
+                  className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-50 rounded-xl border border-slate-200 bg-white shadow-sm"
+                  aria-label="More editor actions"
+                  aria-expanded={showEditorMoreMenu}
+                >
+                  <MoreVertical className="h-4 w-4" />
+                </button>
+                {showEditorMoreMenu && (
+                  <>
+                    <button
+                      type="button"
+                      className="fixed inset-0 z-10"
+                      aria-label="Close menu"
+                      onClick={() => setShowEditorMoreMenu(false)}
+                    />
+                    <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 min-w-[160px]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleSaveAsTemplate();
+                          setShowEditorMoreMenu(false);
+                        }}
+                        className="w-full text-left px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                      >
+                        Save as Template
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleSaveDraft();
+                          setShowEditorMoreMenu(false);
+                        }}
+                        className="w-full text-left px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                      >
+                        Save Draft
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
               <button
                 onClick={handlePublishEditor}
-                className="bg-gradient-to-r from-[#FF6B4A] to-[#FF4B6B] hover:from-[#E55B3C] hover:to-[#E53C5D] text-white text-xs font-extrabold rounded-xl px-5 py-2 shadow-md shadow-orange-100 active:scale-95 transition-all flex items-center gap-1.5"
+                className="bg-gradient-to-r from-[#FF6B4A] to-[#FF4B6B] hover:from-[#E55B3C] hover:to-[#E53C5D] text-white text-xs font-extrabold rounded-xl px-4 sm:px-5 py-2 shadow-md shadow-orange-100 active:scale-95 transition-all flex items-center gap-1.5 shrink-0"
               >
                 <Save className="h-3.5 w-3.5" />
                 <span>Publish</span>
@@ -1369,10 +1572,42 @@ export default function BioPagesScreen({
             </div>
           </header>
 
+          {editorTab === "Edit" && !showPublishSuccess && (
+            <div className="xl:hidden bg-white border-b border-slate-200 px-3 sm:px-6 py-2 shrink-0">
+              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 gap-1">
+                {(
+                  [
+                    { id: "blocks" as const, label: "Blocks", icon: LayoutGrid },
+                    { id: "edit" as const, label: "Edit", icon: Edit3 },
+                    { id: "preview" as const, label: "Preview", icon: Eye }
+                  ] as const
+                ).map(({ id, label, icon: Icon }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setEditorViewPanel(id)}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold rounded-lg transition-all ${
+                      editorViewPanel === id
+                        ? "bg-white text-slate-900 shadow-sm border border-slate-200/50"
+                        : "text-slate-500 hover:text-slate-900"
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Editor Body */}
-          <div className="flex-1 overflow-hidden flex flex-col lg:flex-row">
+          <div className="flex-1 overflow-hidden flex flex-col xl:flex-row min-h-0">
             {/* Left Panel: Toolbar and Widget list */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50 text-slate-800">
+            <div
+              className={`flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 bg-slate-50 text-slate-800 min-h-0 min-w-0 ${
+                editorViewPanel === "preview" ? "hidden xl:block" : "block"
+              }`}
+            >
               {showPublishSuccess ? (
                 <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 text-center text-emerald-800 animate-in fade-in zoom-in-95 duration-300">
                   <Check className="h-10 w-10 mx-auto mb-2 bg-emerald-500 text-white p-2 rounded-full shadow-lg" />
@@ -1441,14 +1676,14 @@ export default function BioPagesScreen({
                           {savedDrafts.map((draft) => (
                             <div key={draft.id} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-xl hover:border-slate-300 transition-all">
                               <div className="min-w-0">
-                                <span className="text-xs font-bold block text-slate-800 truncate">{draft.title}</span>
-                                <span className="text-[9px] text-slate-400 block font-mono">{draft.blocks.length} block{draft.blocks.length !== 1 ? "s" : ""} saved</span>
+                                <span className="text-xs font-bold block text-slate-800 truncate">{getDraftDisplayName(draft)}</span>
+                                <span className="text-[9px] text-slate-400 block font-mono">{getDraftBlockCount(draft)} block{getDraftBlockCount(draft) !== 1 ? "s" : ""} saved</span>
                               </div>
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setEditorBlocks([...draft.blocks]);
-                                  triggerToast(`✨ Restored editor blocks to draft "${draft.title}"!`);
+                                  hydrateEditorFromState(draft.data);
+                                  triggerToast(`✨ Restored editor blocks to draft "${getDraftDisplayName(draft)}"!`);
                                 }}
                                 className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-[10px] font-bold rounded-lg transition-colors shadow-sm"
                               >
@@ -1462,9 +1697,13 @@ export default function BioPagesScreen({
                   </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+                <div className="flex flex-col xl:grid xl:grid-cols-12 xl:gap-6">
                   {/* Left subcol: CORE, GROWTH, MEDIA, OTHERS Blocks */}
-                  <div className="md:col-span-5 space-y-6">
+                  <div
+                    className={`space-y-6 min-w-0 ${
+                      editorViewPanel === "blocks" ? "block" : "hidden"
+                    } xl:block xl:col-span-4`}
+                  >
                     <div>
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-3">
                         CORE BLOCKS
@@ -1779,17 +2018,15 @@ export default function BioPagesScreen({
                               {savedTemplates.map((tpl) => (
                                 <div key={tpl.id} className="flex items-center justify-between p-2.5 bg-white border border-slate-200 rounded-xl shadow-sm hover:border-slate-300 transition-all">
                                   <div className="min-w-0">
-                                    <span className="text-xs font-bold text-slate-800 block truncate">💎 {tpl.title}</span>
-                                    <span className="text-[9px] text-slate-400 font-medium block">{tpl.blocks.length} blocks</span>
+                                    <span className="text-xs font-bold text-slate-800 block truncate">💎 {getTemplateDisplayName(tpl)}</span>
+                                    <span className="text-[9px] text-slate-400 font-medium block">{getTemplateBlockCount(tpl)} blocks</span>
                                   </div>
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      setEditorBlocks([...tpl.blocks]);
-                                      if (tpl.title) setEditorTitle(tpl.title);
-                                      if (tpl.bio) setEditorBio(tpl.bio);
-                                      if (tpl.coverPhoto) setEditorCoverPhoto(tpl.coverPhoto);
-                                      triggerToast(`✨ Applied Template "${tpl.title}" to editor!`);
+                                      hydrateEditorFromState(tpl.data);
+                                      setLinkedTemplateId(tpl.id);
+                                      triggerToast(`✨ Applied Template "${getTemplateDisplayName(tpl)}" to editor!`);
                                     }}
                                     className="px-2.5 py-1 bg-orange-50 hover:bg-orange-100 text-[#FF6B4A] text-[9px] font-bold rounded-lg transition-colors border border-orange-100"
                                   >
@@ -1808,17 +2045,14 @@ export default function BioPagesScreen({
                               {savedDrafts.map((draft) => (
                                 <div key={draft.id} className="flex items-center justify-between p-2.5 bg-white border border-slate-200 rounded-xl shadow-sm hover:border-slate-300 transition-all">
                                   <div className="min-w-0">
-                                    <span className="text-xs font-bold text-slate-800 block truncate">📝 {draft.title}</span>
-                                    <span className="text-[9px] text-slate-400 font-medium block">{draft.blocks.length} blocks</span>
+                                    <span className="text-xs font-bold text-slate-800 block truncate">📝 {getDraftDisplayName(draft)}</span>
+                                    <span className="text-[9px] text-slate-400 font-medium block">{getDraftBlockCount(draft)} blocks</span>
                                   </div>
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      setEditorBlocks([...draft.blocks]);
-                                      if (draft.title) setEditorTitle(draft.title);
-                                      if (draft.bio) setEditorBio(draft.bio);
-                                      if (draft.coverPhoto) setEditorCoverPhoto(draft.coverPhoto);
-                                      triggerToast(`✨ Restored Draft for "${draft.title}"!`);
+                                      hydrateEditorFromState(draft.data);
+                                      triggerToast(`✨ Restored Draft for "${getDraftDisplayName(draft)}"!`);
                                     }}
                                     className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-white text-[9px] font-bold rounded-lg transition-colors"
                                   >
@@ -1834,7 +2068,11 @@ export default function BioPagesScreen({
                   </div>
 
                   {/* Right subcol: Replaced with Cover Image Dropzone + Bio + Accordion Blocks List */}
-                  <div className="md:col-span-7 space-y-6">
+                  <div
+                    className={`space-y-6 min-w-0 ${
+                      editorViewPanel === "edit" ? "block" : "hidden"
+                    } xl:block xl:col-span-8`}
+                  >
                     {/* COVER IMAGE & BIO CARD */}
                     <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-4">
                       <div className="flex items-center justify-between">
@@ -1945,7 +2183,7 @@ export default function BioPagesScreen({
                         onDragEnter={handleDragEnterManager}
                         onDragLeave={handleDragLeaveManager}
                         onDrop={handleDropOnManager}
-                        className={`space-y-3 p-4 rounded-3xl border transition-all max-h-[580px] overflow-y-auto shadow-inner ${
+                        className={`space-y-3 p-4 rounded-3xl border transition-all max-h-[50vh] xl:max-h-[580px] overflow-y-auto shadow-inner ${
                           isDraggingOverManager
                             ? "bg-orange-50 border-orange-400 ring-2 ring-orange-400 ring-opacity-50"
                             : "bg-slate-100/80 border-slate-200"
@@ -2512,14 +2750,18 @@ export default function BioPagesScreen({
             </div>
 
             {/* Right Panel: Immersive Live Phone Preview in Light Mode with Full Interactivity */}
-            <div className="w-full lg:w-[460px] bg-slate-100/50 border-l border-slate-200/80 p-6 flex flex-col items-center justify-center overflow-y-auto">
-              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3.5 flex items-center gap-1.5">
+            <div
+              className={`w-full xl:w-[420px] 2xl:w-[460px] bg-slate-100/50 border-l border-slate-200/80 p-4 sm:p-6 flex-col items-center justify-start overflow-y-auto min-h-0 shrink-0 ${
+                editorViewPanel === "preview" ? "flex" : "hidden"
+              } xl:flex`}
+            >
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3.5 flex items-center gap-1.5 shrink-0">
                 <Smartphone className="h-3.5 w-3.5 text-[#FF6B4A]" />
                 LIVE PREVIEW
               </span>
 
               {/* iPhone simulator frame */}
-              <div className="w-[340px] h-[680px] bg-[#0F1420] rounded-[42px] p-3.5 shadow-2xl border-4 border-slate-800 relative flex flex-col overflow-hidden shrink-0">
+              <div className="w-[min(340px,calc(100vw-2rem))] h-[min(680px,calc((100vw-2rem)*2))] max-h-[calc(100vh-10rem)] bg-[#0F1420] rounded-[42px] p-3.5 shadow-2xl border-4 border-slate-800 relative flex flex-col overflow-hidden shrink-0 mx-auto">
                 {/* Dynamic Notch */}
                 <div className="absolute top-2 left-1/2 -translate-x-1/2 w-32 h-4.5 bg-slate-800 rounded-full z-20 flex items-center justify-center">
                   <span className="w-2.5 h-2.5 rounded-full bg-slate-900/60 block mr-12" />
@@ -2902,7 +3144,7 @@ export default function BioPagesScreen({
                           }}
                         >
                           {/* Floating Live Editor Controls */}
-                          <div className="absolute -top-3.5 right-1.5 hidden group-hover:flex items-center gap-1 bg-white border border-[#FF6B4A]/30 shadow-md py-0.5 px-1.5 rounded-lg z-30 animate-in zoom-in-95 duration-150">
+                          <div className="absolute -top-3.5 right-1.5 hidden max-xl:flex xl:group-hover:flex items-center gap-1 bg-white border border-[#FF6B4A]/30 shadow-md py-0.5 px-1.5 rounded-lg z-30 animate-in zoom-in-95 duration-150">
                             <span className="text-[7px] font-mono font-bold text-[#FF6B4A] uppercase tracking-widest mr-1">
                               {block.type}
                             </span>
@@ -3069,6 +3311,67 @@ export default function BioPagesScreen({
               </div>
             </div>
           </div>
+
+          {showSaveTemplateModal && (
+            <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+              <div
+                className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-50"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-5">
+                  <h3 className="font-display font-bold text-lg text-gray-950">
+                    {linkedTemplateId ? "Update Template" : "Save as Template"}
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowSaveTemplateModal(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    confirmSaveAsTemplate();
+                  }}
+                  className="space-y-4"
+                >
+                  <div>
+                    <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
+                      TEMPLATE NAME
+                    </label>
+                    <input
+                      type="text"
+                      value={templateNameInput}
+                      onChange={(e) => setTemplateNameInput(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 focus:border-[#FF6B4A] rounded-xl py-2.5 px-3.5 text-sm text-gray-900 focus:outline-none"
+                      placeholder="e.g. Summer Sale Landing"
+                      autoFocus
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 leading-relaxed">
+                    Saves title, bio, cover, blocks, and settings to Templates → My Templates.
+                  </p>
+                  <div className="flex items-center justify-end gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowSaveTemplateModal(false)}
+                      className="px-4 py-2 text-sm font-semibold text-gray-500 hover:bg-gray-50 rounded-xl"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2 bg-[#4F46E5] hover:bg-[#4338CA] text-white rounded-xl text-sm font-semibold"
+                    >
+                      {linkedTemplateId ? "Update Template" : "Save Template"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -3272,6 +3575,6 @@ export default function BioPagesScreen({
           <span className="text-sm font-bold">{toast}</span>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }

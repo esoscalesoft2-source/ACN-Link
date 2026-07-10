@@ -186,6 +186,28 @@ export interface BioPageTemplate {
   isBuiltIn?: boolean;
 }
 
+export type PublishVisibility = "public" | "workspace" | "selected_members";
+
+export type CustomDomainStatus = "verified" | "pending_dns";
+
+export interface PublishedDomain {
+  id: string;
+  hostname: string;
+  status: CustomDomainStatus;
+  dnsTarget?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PublishSettings {
+  primaryUrl: string;
+  customDomains: PublishedDomain[];
+  visibility: PublishVisibility;
+  selectedMemberIds: string[];
+  publishedAt?: string;
+  updatedAt: string;
+}
+
 export type NotificationType =
   | "page_published"
   | "draft_saved"

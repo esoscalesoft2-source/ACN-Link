@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { ScreenId, UserProfile, BioPage, Contact, WhatsAppCampaign, WhatsAppTemplate, SmartLink, QRCodeItem, TemplateItem, IntegrationItem, IntegrationVote, TrackingPixel, MediaFile, CustomDomain, HelpArticle, BioPageDraft, BioPageTemplate, BioEditorBlock, AppNotification } from "./types";
+import { ScreenId, UserProfile, BioPage, Contact, WhatsAppCampaign, WhatsAppTemplate, SmartLink, QRCodeItem, TemplateItem, IntegrationItem, IntegrationVote, TrackingPixel, MediaFile, CustomDomain, HelpArticle, BioPageDraft, BioPageTemplate, BioEditorBlock, AppNotification, PublishSettings } from "./types";
 import {
   initialUser,
   initialBioPages,
@@ -37,6 +37,7 @@ import HelpCenterScreen from "./components/HelpCenterScreen";
 import ContactSupportScreen from "./components/ContactSupportScreen";
 import AccountScreen from "./components/AccountScreen";
 import PublicBioPageView from "./components/PublicBioPageView";
+import PublishModal from "./components/PublishModal";
 import {
   buildEditorState,
   cloneBlocks,
@@ -63,6 +64,9 @@ import {
   markAllNotificationsRead,
   CreateNotificationInput
 } from "./storage/notificationStorage";
+import { getPublishSettings, persistPublishSettings } from "./storage/publishStorage";
+
+const USER_PROFILE_STORAGE_KEY = "acnlink_user_profile";
 
 export default function App() {
   // Parse URL search parameters for standalone public preview
@@ -95,11 +99,20 @@ export default function App() {
     return false;
   });
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  const [isPublishOpen, setIsPublishOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>(() => getAllNotifications());
   const lastAnalyticsEventIdRef = React.useRef<string | null>(null);
   
   // App state loaded from static files
-  const [user, setUser] = useState<UserProfile>(initialUser);
+  const [user, setUser] = useState<UserProfile>(() => {
+    try {
+      const saved = localStorage.getItem(USER_PROFILE_STORAGE_KEY);
+      return saved ? { ...initialUser, ...JSON.parse(saved) } : initialUser;
+    } catch {
+      return initialUser;
+    }
+  });
+  const [publishSettings, setPublishSettings] = useState<PublishSettings>(() => getPublishSettings());
   const [pages, setPages] = useState<BioPage[]>(() => {
     try {
       const saved = localStorage.getItem("biolinks_pages_list");
@@ -130,6 +143,14 @@ export default function App() {
   }, [isLoggedIn, currentScreen]);
 
   React.useEffect(() => {
+    try {
+      localStorage.setItem(USER_PROFILE_STORAGE_KEY, JSON.stringify(user));
+    } catch (error) {
+      console.error("Failed to save user profile:", error);
+    }
+  }, [user]);
+
+  React.useEffect(() => {
     let isMounted = true;
 
     const checkServerHealth = async () => {
@@ -158,6 +179,21 @@ export default function App() {
   const pushNotification = React.useCallback((input: CreateNotificationInput) => {
     setNotifications((prev) => prependNotification(prev, input));
   }, []);
+
+  const savePublishSettings = (settings: PublishSettings) => {
+    setPublishSettings(settings);
+    persistPublishSettings(settings);
+  };
+
+  const handleWebsitePublished = (settings: PublishSettings) => {
+    savePublishSettings(settings);
+    pushNotification({
+      type: "general",
+      title: "Website published",
+      message: `Your website is available at ${settings.primaryUrl}.`,
+      targetScreen: ScreenId.DASHBOARD
+    });
+  };
 
   const handleMarkNotificationRead = (id: string) => {
     setNotifications((prev) => markNotificationRead(prev, id));
@@ -571,8 +607,8 @@ export default function App() {
     setDomains(domains.filter((d) => d.id !== id));
   };
 
-  const handleUpdateUser = (name: string, email: string) => {
-    setUser((prev) => ({ ...prev, name, email }));
+  const handleUpdateUser = (name: string, email: string, avatarUrl: string) => {
+    setUser((prev) => ({ ...prev, name, email, avatarUrl }));
   };
 
   const handleLogout = () => {
@@ -961,6 +997,7 @@ export default function App() {
             unreadCount={unreadNotificationCount}
             onMarkNotificationRead={handleMarkNotificationRead}
             onMarkAllNotificationsRead={handleMarkAllNotificationsRead}
+            onPublish={() => setIsPublishOpen(true)}
           />
         )}
 
@@ -999,6 +1036,17 @@ export default function App() {
           onClose={() => setIsMobileNavOpen(false)}
           currentScreen={currentScreen}
           onScreenChange={handleScreenChange}
+        />
+      )}
+
+      {currentScreen !== ScreenId.LOGIN && (
+        <PublishModal
+          isOpen={isPublishOpen}
+          settings={publishSettings}
+          user={user}
+          onClose={() => setIsPublishOpen(false)}
+          onSave={savePublishSettings}
+          onPublished={handleWebsitePublished}
         />
       )}
     </div>

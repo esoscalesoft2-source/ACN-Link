@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { AppNotification, ScreenId, UserProfile } from "../types";
-import { Search, Plus, Menu } from "lucide-react";
+import { Search, Plus, Menu, Rocket } from "lucide-react";
 import { getScreenTitle } from "../navigation";
 import NotificationPanel from "./NotificationPanel";
 
@@ -15,6 +15,7 @@ interface HeaderProps {
   unreadCount: number;
   onMarkNotificationRead: (id: string) => void;
   onMarkAllNotificationsRead: () => void;
+  onPublish?: () => void;
 }
 
 export default function Header({
@@ -27,7 +28,8 @@ export default function Header({
   notifications,
   unreadCount,
   onMarkNotificationRead,
-  onMarkAllNotificationsRead
+  onMarkAllNotificationsRead,
+  onPublish
 }: HeaderProps) {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
@@ -60,14 +62,12 @@ export default function Header({
         .slice(0, 2)
         .toUpperCase() || "U";
 
-    return {
-      name: user.name,
-      initials
-    };
+    return { initials };
   };
 
   const details = getUserDetails();
   const pageTitle = getScreenTitle(currentScreen);
+  const hasProfilePhoto = /^(data:image\/|https?:\/\/)/i.test(user.avatarUrl);
 
   const showQuickCreate =
     currentScreen === ScreenId.DASHBOARD ||
@@ -77,6 +77,8 @@ export default function Header({
     currentScreen === ScreenId.INTEGRATIONS ||
     currentScreen === ScreenId.MEDIA_LIBRARY ||
     currentScreen === ScreenId.CUSTOM_DOMAINS;
+  const showPublish =
+    currentScreen === ScreenId.DASHBOARD || currentScreen === ScreenId.ACCOUNT;
 
   return (
     <header className="bg-white border-b border-slate-200 px-4 sm:px-6 h-16 flex items-center justify-between sticky top-0 z-20 gap-3">
@@ -114,6 +116,17 @@ export default function Header({
       </div>
 
       <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+        {showPublish && (
+          <button
+            type="button"
+            onClick={onPublish}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 active:scale-95"
+          >
+            <Rocket className="h-4 w-4" />
+            <span className="hidden sm:inline">Publish</span>
+          </button>
+        )}
+
         {showQuickCreate && (
           <button
             onClick={onQuickCreate}
@@ -138,17 +151,19 @@ export default function Header({
         <button
           type="button"
           onClick={() => onScreenChange(ScreenId.ACCOUNT)}
-          className="flex items-center gap-2 sm:gap-3 hover:bg-slate-50 p-1.5 rounded-lg transition-colors select-none"
+          className="flex items-center hover:bg-slate-50 p-1.5 rounded-lg transition-colors select-none"
           aria-label="Go to account"
         >
-          <div className="text-right hidden sm:block">
-            <p className="text-sm font-semibold text-slate-950 leading-none">
-              {details.name}
-            </p>
-          </div>
-
-          <div className="h-9 w-9 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-600 font-sans font-semibold text-sm flex items-center justify-center shadow-inner">
-            {details.initials}
+          <div className="h-9 w-9 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-600 font-sans font-semibold text-sm flex items-center justify-center shadow-inner overflow-hidden">
+            {hasProfilePhoto ? (
+              <img
+                src={user.avatarUrl}
+                alt={`${user.name} profile`}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              details.initials
+            )}
           </div>
         </button>
       </div>

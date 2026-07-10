@@ -15,9 +15,19 @@ import {
 } from "lucide-react";
 import PageShell from "./layout/PageShell";
 
+const CARTOON_AVATARS = [
+  "https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=Nova",
+  "https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=Kai",
+  "https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=Milo",
+  "https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=Zara",
+  "https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=Leo",
+  "https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=Ava",
+  "https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=Rex"
+];
+
 interface AccountScreenProps {
   user: UserProfile;
-  onUpdateUser: (name: string, email: string) => void;
+  onUpdateUser: (name: string, email: string, avatarUrl: string) => void;
   onExportData: () => void;
   onImportData: (data: any) => boolean;
   onLogout: () => void;
@@ -32,24 +42,58 @@ export default function AccountScreen({
 }: AccountScreenProps) {
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
+  const [avatarUrl, setAvatarUrl] = useState(user.avatarUrl);
   const [isUpdating, setIsUpdating] = useState(false);
   const [success, setSuccess] = useState(false);
 
   // Backup state management
   const [importStatus, setImportStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
+  const [avatarError, setAvatarError] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const profileInitials =
+    name
+      .trim()
+      .split(/\s+/)
+      .map((part) => part[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() || "U";
+  const hasProfilePhoto = /^(data:image\/|https?:\/\/)/i.test(avatarUrl);
 
   const handleUpdate = (e: React.FormEvent) => {
     e.preventDefault();
     setIsUpdating(true);
     setTimeout(() => {
-      onUpdateUser(name, email);
+      onUpdateUser(name, email, avatarUrl);
       setIsUpdating(false);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 2000);
     }, 600);
+  };
+
+  const handleAvatarChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setAvatarError("Please choose a valid image file.");
+      return;
+    }
+
+    if (file.size > 1_000_000) {
+      setAvatarError("Profile image must be smaller than 1 MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setAvatarUrl(reader.result as string);
+      setAvatarError("");
+    };
+    reader.readAsDataURL(file);
   };
 
   // Import file processing logic
@@ -152,6 +196,83 @@ export default function AccountScreen({
               <User className="h-5 w-5 text-gray-400" />
               Profile Details
             </h3>
+
+            <div className="flex items-center gap-4 rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
+              <div className="h-16 w-16 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 font-sans font-bold text-xl flex items-center justify-center shadow-inner shrink-0 overflow-hidden">
+                {hasProfilePhoto ? (
+                  <img src={avatarUrl} alt={`${name} profile`} className="h-full w-full object-cover" />
+                ) : (
+                  profileInitials
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold text-slate-900 truncate">{name}</p>
+                <p className="text-xs text-slate-500 mt-0.5">This photo is shown in the navbar.</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAvatarChange}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => avatarInputRef.current?.click()}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Change photo
+                </button>
+                {hasProfilePhoto && (
+                  <button
+                    type="button"
+                    onClick={() => setAvatarUrl("")}
+                    className="rounded-xl px-2 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50"
+                    aria-label="Remove profile photo"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {avatarError && (
+              <p className="text-xs font-medium text-rose-600">{avatarError}</p>
+            )}
+
+            <div className="space-y-3">
+              <div>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                  CHOOSE CARTOON AVATAR
+                </p>
+                <p className="mt-1 text-xs text-slate-500">Select one, then save your profile changes.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {CARTOON_AVATARS.map((avatar, index) => {
+                  const selected = avatarUrl === avatar;
+                  return (
+                    <button
+                      key={avatar}
+                      type="button"
+                      onClick={() => {
+                        setAvatarUrl(avatar);
+                        setAvatarError("");
+                      }}
+                      className={`h-11 w-11 overflow-hidden rounded-xl border-2 bg-white transition-all ${
+                        selected
+                          ? "border-indigo-600 ring-2 ring-indigo-100 scale-105"
+                          : "border-transparent hover:border-indigo-200 hover:scale-105"
+                      }`}
+                      aria-label={`Choose cartoon avatar ${index + 1}`}
+                      aria-pressed={selected}
+                    >
+                      <img src={avatar} alt="" className="h-full w-full object-cover" />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
             {success && (
               <div className="p-3 bg-emerald-50 border border-emerald-100 text-emerald-600 rounded-xl text-xs font-semibold flex items-center gap-1.5 animate-in fade-in duration-200">

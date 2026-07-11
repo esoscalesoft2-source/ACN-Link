@@ -1,45 +1,138 @@
+import "dotenv/config";
 import express from "express";
 import path from "path";
 import fs from "fs";
 import cookieParser from "cookie-parser";
 import { createAuthRouter } from "./server/auth/routes";
+import { getDataStoreStatus, getRootStore, initRootStore, setRootStore } from "./server/db/rootStore";
+import { getSupabase, isSupabaseConfigured } from "./server/db/supabase";
+import { mergeWorkspaceIntoRoot, syncRootToNormalizedTables } from "./server/db/syncNormalized";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
-const STORE_FILE = path.join(process.cwd(), "data-store.json");
+
+function allowedCorsOrigins(): Set<string> {
+  const origins = new Set<string>();
+  const appUrl = (process.env.APP_URL || "").trim().replace(/\/$/, "");
+  if (appUrl) {
+    try {
+      origins.add(new URL(appUrl).origin);
+    } catch {
+      /* ignore */
+    }
+  }
+  for (const raw of (process.env.CORS_ORIGINS || "").split(",")) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    try {
+      origins.add(new URL(trimmed).origin);
+    } catch {
+      /* ignore */
+    }
+  }
+  if (process.env.NODE_ENV !== "production") {
+    origins.add("http://localhost:3000");
+    origins.add("http://127.0.0.1:3000");
+    origins.add("http://localhost:5173");
+    origins.add("http://127.0.0.1:5173");
+  }
+  return origins;
+}
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  const allowed = allowedCorsOrigins();
+  if (origin && allowed.has(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Vary", "Origin");
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Authorization, Content-Type, Cookie"
+    );
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  }
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
+  next();
+});
 
 app.use(express.json({ limit: "10mb" }));
 app.use(cookieParser());
 
 // Lightweight endpoint for the dashboard footer health indicator.
 app.get("/api/health", (_req, res) => {
+  const storeStatus = getDataStoreStatus();
   res.status(200).json({
     status: "ok",
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    database: storeStatus
   });
 });
 
 app.use("/api/auth", createAuthRouter());
 
-// Helper to read store
-function readStore() {
+/** Import browser localStorage workspace collections → root + normalized Supabase tables */
+app.post("/api/workspace/import", async (req, res) => {
   try {
-    if (fs.existsSync(STORE_FILE)) {
-      return JSON.parse(fs.readFileSync(STORE_FILE, "utf-8"));
+    const workspace = (req.body?.workspace || req.body || {}) as Record<string, unknown>;
+    const root = mergeWorkspaceIntoRoot(getRootStore(), workspace);
+    setRootStore(root);
+
+    let normalized: { ok: boolean; counts?: Record<string, number>; error?: string } = {
+      ok: false,
+      error: "supabase_not_configured"
+    };
+    if (isSupabaseConfigured()) {
+      const supabase = getSupabase();
+      if (supabase) {
+        const result = await syncRootToNormalizedTables(supabase, root);
+        normalized = result.ok
+          ? { ok: true, counts: result.counts }
+          : { ok: false, error: result.error };
+      }
     }
-  } catch (e) {
-    console.error("Error reading data store:", e);
+
+    res.json({
+      success: true,
+      backend: getDataStoreStatus().backend,
+      normalized
+    });
+  } catch (error) {
+    console.error("workspace import failed:", error);
+    res.status(500).json({ error: "Workspace import failed." });
   }
-  return {};
+});
+
+/** Force re-migrate root blob → all typed tables */
+app.post("/api/admin/migrate-normalized", async (_req, res) => {
+  if (!isSupabaseConfigured()) {
+    res.status(400).json({ error: "Supabase is not configured." });
+    return;
+  }
+  const supabase = getSupabase();
+  if (!supabase) {
+    res.status(400).json({ error: "Supabase client unavailable." });
+    return;
+  }
+  const result = await syncRootToNormalizedTables(supabase, getRootStore());
+  if (!result.ok) {
+    res.status(500).json({ error: result.error });
+    return;
+  }
+  res.json({ success: true, counts: result.counts });
+});
+
+// Helper to read store
+function readStore(): any {
+  return getRootStore();
 }
 
 // Helper to write store
 function writeStore(data: any) {
-  try {
-    fs.writeFileSync(STORE_FILE, JSON.stringify(data, null, 2), "utf-8");
-  } catch (e) {
-    console.error("Error writing to data store:", e);
-  }
+  setRootStore(data);
 }
 
 // API Routes
@@ -246,6 +339,8 @@ function isProductionMode(): boolean {
 }
 
 async function startServer() {
+  await initRootStore();
+
   const isProd = isProductionMode();
 
   if (!isProd) {

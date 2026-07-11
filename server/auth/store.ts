@@ -1,5 +1,4 @@
-import fs from "fs";
-import path from "path";
+import { getRootStore, setRootStore } from "../db/rootStore";
 import {
   AuthStoreShape,
   AuthUserRecord,
@@ -8,25 +7,12 @@ import {
   randomToken
 } from "./crypto";
 
-const STORE_FILE = path.join(process.cwd(), "data-store.json");
-
 function readRootStore(): Record<string, unknown> {
-  try {
-    if (fs.existsSync(STORE_FILE)) {
-      return JSON.parse(fs.readFileSync(STORE_FILE, "utf-8"));
-    }
-  } catch (error) {
-    console.error("Error reading data store:", error);
-  }
-  return {};
+  return getRootStore();
 }
 
 function writeRootStore(data: Record<string, unknown>) {
-  try {
-    fs.writeFileSync(STORE_FILE, JSON.stringify(data, null, 2), "utf-8");
-  } catch (error) {
-    console.error("Error writing data store:", error);
-  }
+  setRootStore(data);
 }
 
 function emptyAuthStore(): AuthStoreShape {

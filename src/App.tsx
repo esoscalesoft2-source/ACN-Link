@@ -34,6 +34,7 @@ import {
   logoutRequest,
   touchActivity
 } from "./lib/authApi";
+import { apiUrl } from "./lib/apiBase";
 import DashboardScreen from "./components/DashboardScreen";
 import BioPagesScreen from "./components/BioPagesScreen";
 import ContactsScreen from "./components/ContactsScreen";
@@ -280,7 +281,7 @@ export default function App() {
 
     const checkServerHealth = async () => {
       try {
-        const response = await fetch("/api/health", { cache: "no-store" });
+        const response = await fetch(apiUrl("/api/health"), { cache: "no-store" });
         if (!response.ok) throw new Error("Health check failed");
 
         const health = await response.json();
@@ -371,7 +372,7 @@ export default function App() {
     async function loadInitialData() {
       try {
         // Fetch Pages List
-        const pagesRes = await fetch("/api/pages");
+        const pagesRes = await fetch(apiUrl("/api/pages"));
         if (pagesRes.ok) {
           const remotePages = await pagesRes.json();
           if (remotePages && Array.isArray(remotePages) && remotePages.length > 0) {
@@ -382,7 +383,7 @@ export default function App() {
             });
           } else {
             // Seed an empty server from the local workspace, not hardcoded demo data.
-            await fetch("/api/pages", {
+            await fetch(apiUrl("/api/pages"), {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ pages })
@@ -397,7 +398,7 @@ export default function App() {
 
       // Fetch Analytics metrics
       try {
-        const analyticsRes = await fetch("/api/analytics");
+        const analyticsRes = await fetch(apiUrl("/api/analytics"));
         if (analyticsRes.ok) {
           const data = await analyticsRes.json();
           const metrics = data?.metrics ?? {};
@@ -417,7 +418,7 @@ export default function App() {
 
     // Poll for real-time analytics updates every 5 seconds!
     const interval = setInterval(() => {
-      fetch("/api/analytics")
+      fetch(apiUrl("/api/analytics"))
         .then(res => res.json())
         .then(data => {
           const metrics = data?.metrics ?? {};
@@ -440,7 +441,7 @@ export default function App() {
     if (!isPagesSyncReady) return;
 
     // Sync to server
-    fetch("/api/pages", {
+    fetch(apiUrl("/api/pages"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pages })
@@ -521,6 +522,65 @@ export default function App() {
   React.useEffect(() => writeLocalStorage("acnlink_custom_domains", domains), [domains]);
   const [articles] = useState<HelpArticle[]>(initialHelpArticles);
 
+  // Push browser workspace fields → Railway → Supabase normalized tables
+  React.useEffect(() => {
+    if (!isLoggedIn) return;
+    const timer = window.setTimeout(() => {
+      let supportTickets: unknown[] = [];
+      try {
+        supportTickets = JSON.parse(localStorage.getItem("acnlink_support_tickets") || "[]");
+        if (!Array.isArray(supportTickets)) supportTickets = [];
+      } catch {
+        supportTickets = [];
+      }
+
+      fetch(apiUrl("/api/workspace/import"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          workspace: {
+            contacts,
+            whatsapp_campaigns: whatsAppCampaigns,
+            whatsapp_templates: whatsAppTemplates,
+            smart_links: links,
+            qr_codes: qrCodes,
+            catalog_templates: templates,
+            integrations,
+            integration_votes: votes,
+            tracking_pixels: pixels,
+            media_files: mediaFiles,
+            custom_domains: domains,
+            help_articles: articles,
+            support_tickets: supportTickets,
+            notifications: getAllNotifications(),
+            bio_page_drafts: savedDrafts,
+            publish_settings: getPublishSettings()
+          }
+        })
+      }).catch((error) => {
+        console.warn("Workspace Supabase sync failed:", error);
+      });
+    }, 2500);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    isLoggedIn,
+    contacts,
+    whatsAppCampaigns,
+    whatsAppTemplates,
+    links,
+    qrCodes,
+    templates,
+    integrations,
+    votes,
+    pixels,
+    mediaFiles,
+    domains,
+    articles,
+    savedDrafts
+  ]);
+
   // If we are in standalone public preview mode, render the public view immediately
   if (previewPageId) {
     const pageToPreview = pages.find((p) => p.id === previewPageId);
@@ -583,7 +643,7 @@ export default function App() {
   };
 
   const handleRefreshPages = async () => {
-    const response = await fetch("/api/pages", { cache: "no-store" });
+    const response = await fetch(apiUrl("/api/pages"), { cache: "no-store" });
     if (!response.ok) throw new Error("Unable to load pages");
 
     const remotePages = await response.json();
@@ -618,7 +678,7 @@ export default function App() {
       }
     }
 
-    fetch(`/api/page/${id}`, { method: "DELETE" }).catch((error) => {
+    fetch(apiUrl(`/api/page/${id}`), { method: "DELETE" }).catch((error) => {
       console.error("Failed to remove the page from the server:", error);
     });
   };
@@ -1420,6 +1480,10 @@ export default function App() {
           onClose={() => setIsPublishOpen(false)}
           onSave={savePublishSettings}
           onPublished={handleWebsitePublished}
+          onNavigateToCustomDomains={() => {
+            setIsPublishOpen(false);
+            handleScreenChange(ScreenId.CUSTOM_DOMAINS);
+          }}
         />
       )}
     </div>

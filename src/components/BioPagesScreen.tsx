@@ -11,6 +11,7 @@ import {
   persistPagePreviewStorage
 } from "../storage/bioBuilderStorage";
 import { CreateNotificationInput } from "../storage/notificationStorage";
+import { apiUrl } from "../lib/apiBase";
 import {
   RefreshCw,
   Plus,
@@ -960,7 +961,7 @@ export default function BioPagesScreen({
 
       // Also save to server backend for cross-device linking (Mobile / QR Code support)
       try {
-        const response = await fetch(`/api/page/${selectedEditPage.id}`, {
+        const response = await fetch(apiUrl(`/api/page/${selectedEditPage.id}`), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ blocks: editorBlocks, details })

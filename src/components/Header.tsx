@@ -117,6 +117,7 @@ export default function Header({
           <button
             type="button"
             onClick={onPublish}
+            title="Go live and choose who can see your website"
             className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 active:scale-95"
           >
             <Rocket className="h-4 w-4" />

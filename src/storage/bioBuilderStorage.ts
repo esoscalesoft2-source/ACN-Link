@@ -1,4 +1,5 @@
 import { BioEditorBlock, BioEditorState, BioPageDraft, BioPageTemplate } from "../types";
+import { apiUrl } from "../lib/apiBase";
 
 export const DRAFTS_STORAGE_KEY = "acnlink_bio_page_drafts";
 export const TEMPLATES_STORAGE_KEY = "acnlink_bio_page_templates";
@@ -290,7 +291,7 @@ export function mergeTemplates(
 
 export async function fetchServerTemplates(): Promise<BioPageTemplate[]> {
   try {
-    const res = await fetch("/api/templates");
+    const res = await fetch(apiUrl("/api/templates"));
     if (!res.ok) return [];
     const data = await res.json();
     if (!Array.isArray(data)) return [];
@@ -302,7 +303,7 @@ export async function fetchServerTemplates(): Promise<BioPageTemplate[]> {
 
 export async function syncTemplateToServer(template: BioPageTemplate): Promise<void> {
   try {
-    await fetch("/api/templates", {
+    await fetch(apiUrl("/api/templates"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ template })
@@ -314,7 +315,7 @@ export async function syncTemplateToServer(template: BioPageTemplate): Promise<v
 
 export async function deleteTemplateOnServer(id: string): Promise<void> {
   try {
-    await fetch(`/api/templates/${id}`, { method: "DELETE" });
+    await fetch(apiUrl(`/api/templates/${id}`), { method: "DELETE" });
   } catch (err) {
     console.error("Failed to delete template on server:", err);
   }
@@ -322,7 +323,7 @@ export async function deleteTemplateOnServer(id: string): Promise<void> {
 
 export async function syncAllTemplatesToServer(templates: BioPageTemplate[]): Promise<void> {
   try {
-    await fetch("/api/templates", {
+    await fetch(apiUrl("/api/templates"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ templates })

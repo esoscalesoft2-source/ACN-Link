@@ -59,13 +59,27 @@ function appOrigin() {
   return (process.env.APP_URL || "http://localhost:3000").replace(/\/$/, "");
 }
 
+function extraAllowedOrigins(): string[] {
+  return (process.env.CORS_ORIGINS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 function isAllowedOrigin(candidate: string): boolean {
   try {
     const url = new URL(candidate);
     const allowed = new URL(appOrigin());
     if (url.origin === allowed.origin) return true;
-    if (process.env.NODE_ENV === "production") return false;
+    for (const raw of extraAllowedOrigins()) {
+      try {
+        if (url.origin === new URL(raw).origin) return true;
+      } catch {
+        /* skip bad entry */
+      }
+    }
     // Local development: allow localhost / 127.0.0.1 on any port
+    if (process.env.NODE_ENV === "production") return false;
     return url.hostname === "localhost" || url.hostname === "127.0.0.1";
   } catch {
     return false;
@@ -90,17 +104,23 @@ function assertSameOrigin(req: Request, res: Response): boolean {
 }
 
 function setAuthCookies(res: Response, accessToken: string, refreshToken: string, rememberMe: boolean) {
-  const secure = process.env.NODE_ENV === "production";
+  // Path A (Vercel UI → Railway API): cross-site cookies need SameSite=None; Secure.
+  // Bearer tokens in localStorage remain the primary auth path.
+  const crossSite =
+    process.env.CROSS_ORIGIN_COOKIES === "true" ||
+    process.env.NODE_ENV === "production";
+  const secure = process.env.NODE_ENV === "production" || crossSite;
+  const sameSite = crossSite ? ("none" as const) : ("lax" as const);
   res.cookie("acn_access", accessToken, {
     httpOnly: true,
-    sameSite: "lax",
+    sameSite,
     secure,
     maxAge: ACCESS_TTL_SEC * 1000,
     path: "/"
   });
   res.cookie("acn_refresh", refreshToken, {
     httpOnly: true,
-    sameSite: "lax",
+    sameSite,
     secure,
     maxAge: rememberMe ? REFRESH_REMEMBER_TTL_MS : REFRESH_TTL_MS,
     path: "/"
@@ -108,8 +128,13 @@ function setAuthCookies(res: Response, accessToken: string, refreshToken: string
 }
 
 function clearAuthCookies(res: Response) {
-  res.clearCookie("acn_access", { path: "/" });
-  res.clearCookie("acn_refresh", { path: "/" });
+  const crossSite =
+    process.env.CROSS_ORIGIN_COOKIES === "true" ||
+    process.env.NODE_ENV === "production";
+  const secure = process.env.NODE_ENV === "production" || crossSite;
+  const sameSite = crossSite ? ("none" as const) : ("lax" as const);
+  res.clearCookie("acn_access", { path: "/", sameSite, secure });
+  res.clearCookie("acn_refresh", { path: "/", sameSite, secure });
 }
 
 function issueSession(

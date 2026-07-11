@@ -1,3 +1,5 @@
+import { apiUrl } from "./apiBase";
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -65,7 +67,7 @@ export function isAuthPreviewDisabled(): boolean {
 
 export async function probeAuthBackend(): Promise<boolean> {
   try {
-    const response = await fetch("/api/auth/config", {
+    const response = await fetch(apiUrl("/api/auth/config"), {
       method: "GET",
       credentials: "include",
       cache: "no-store"
@@ -235,7 +237,7 @@ async function authFetch<T>(path: string, init: RequestInit = {}, retry = true):
 
   let response: Response;
   try {
-    response = await fetch(path, { ...init, headers, credentials: "include" });
+    response = await fetch(apiUrl(path), { ...init, headers, credentials: "include" });
   } catch {
     throw new AuthApiError("Network error. Check your connection and try again.", "NETWORK_ERROR", 0);
   }
@@ -446,7 +448,7 @@ export async function githubLoginRequest(input?: {
 
 export async function passwordStrengthRequest(password: string) {
   const response = await fetch(
-    `/api/auth/password-strength?password=${encodeURIComponent(password)}`,
+    apiUrl(`/api/auth/password-strength?password=${encodeURIComponent(password)}`),
     { credentials: "include" }
   );
   return parseResponse<{ strength: "weak" | "fair" | "good" | "strong" }>(response);

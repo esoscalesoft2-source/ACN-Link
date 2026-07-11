@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { ArrowRight, Copy, Check, MessageSquare, User, X, AlertCircle } from "lucide-react";
+import { apiUrl } from "../lib/apiBase";
 
 interface Block {
   id: string;
@@ -83,7 +84,7 @@ export default function PublicBioPageView({ pageId, pageTitle, pageSlug, pageBio
   const [spinResult, setSpinResult] = useState<string | null>(null);
 
   const trackAction = (eventType: "visit" | "click" | "register", eventLabel: string, details?: any) => {
-    fetch("/api/track", {
+    fetch(apiUrl("/api/track"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -173,7 +174,7 @@ export default function PublicBioPageView({ pageId, pageTitle, pageSlug, pageBio
     async function loadPageData() {
       // 1. Try fetching from server first (critical for multi-device/mobile preview)
       try {
-        const res = await fetch(`/api/page/${pageId}`);
+        const res = await fetch(apiUrl(`/api/page/${pageId}`));
         if (res.ok) {
           const data = await res.json();
           if (isMounted && data) {

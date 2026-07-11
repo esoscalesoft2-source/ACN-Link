@@ -5,20 +5,11 @@ import {
   Copy,
   ExternalLink,
   Globe2,
-  Link2,
   LockKeyhole,
-  Plus,
-  RefreshCw,
   Users,
   X
 } from "lucide-react";
 import { PublishSettings, PublishVisibility, UserProfile } from "../types";
-import {
-  DEFAULT_DNS_TARGET,
-  isValidHostname,
-  normaliseHostname,
-  PRIMARY_DOMAIN
-} from "../storage/publishStorage";
 
 interface PublishModalProps {
   isOpen: boolean;
@@ -27,9 +18,10 @@ interface PublishModalProps {
   onClose: () => void;
   onSave: (settings: PublishSettings) => void;
   onPublished: (settings: PublishSettings) => void;
+  onNavigateToCustomDomains?: () => void;
 }
 
-type PublishStep = "domain" | "visibility" | "success";
+type PublishStep = "url" | "visibility" | "success";
 
 const VISIBILITY_OPTIONS: Array<{
   id: PublishVisibility;
@@ -63,20 +55,17 @@ export default function PublishModal({
   user,
   onClose,
   onSave,
-  onPublished
+  onPublished,
+  onNavigateToCustomDomains
 }: PublishModalProps) {
-  const [step, setStep] = useState<PublishStep>("domain");
+  const [step, setStep] = useState<PublishStep>("url");
   const [draft, setDraft] = useState<PublishSettings>(settings);
-  const [domainInput, setDomainInput] = useState("");
-  const [domainError, setDomainError] = useState("");
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
-    setStep("domain");
+    setStep("url");
     setDraft(settings);
-    setDomainInput("");
-    setDomainError("");
     setCopied(false);
   }, [isOpen, settings]);
 
@@ -101,40 +90,6 @@ export default function PublishModal({
     }
   };
 
-  const addCustomDomain = () => {
-    const hostname = normaliseHostname(domainInput);
-    if (!isValidHostname(hostname)) {
-      setDomainError("Enter a valid domain, for example links.example.com.");
-      return;
-    }
-
-    if (draft.customDomains.some((domain) => domain.hostname === hostname)) {
-      setDomainError("This domain is already listed.");
-      return;
-    }
-
-    const now = new Date().toISOString();
-    const next = {
-      ...draft,
-      customDomains: [
-        ...draft.customDomains,
-        {
-          id: `domain_${Date.now()}`,
-          hostname,
-          status: "pending_dns" as const,
-          dnsTarget: DEFAULT_DNS_TARGET,
-          createdAt: now,
-          updatedAt: now
-        }
-      ],
-      updatedAt: now
-    };
-    setDraft(next);
-    onSave(next);
-    setDomainInput("");
-    setDomainError("");
-  };
-
   const setVisibility = (visibility: PublishVisibility) => {
     setDraft((current) => ({ ...current, visibility, updatedAt: new Date().toISOString() }));
   };
@@ -146,6 +101,7 @@ export default function PublishModal({
       updatedAt: new Date().toISOString()
     };
     setDraft(published);
+    onSave(published);
     onPublished(published);
     setStep("success");
   };
@@ -169,11 +125,14 @@ export default function PublishModal({
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-indigo-600">ACN Link</p>
             <h2 className="mt-1 font-display text-xl font-bold text-slate-950">Publish</h2>
+            <p className="mt-1 max-w-sm text-xs text-slate-500">
+              Go live and choose who can see your website. Connect brand domains from Custom Domains in the sidebar.
+            </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700"
+            className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700 shrink-0"
             aria-label="Close publish dialog"
           >
             <X className="h-5 w-5" />
@@ -181,8 +140,16 @@ export default function PublishModal({
         </header>
 
         <div className="p-5 sm:p-7">
-          {step === "domain" && (
+          {step === "url" && (
             <div className="space-y-6">
+              <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 px-4 py-3">
+                <p className="text-xs font-semibold text-indigo-900">Why Publish?</p>
+                <p className="mt-1 text-xs leading-relaxed text-indigo-800/90">
+                  Publish makes your ACN Link site live, shows your public URL, lets you set visibility
+                  (Public / Workspace / Selected members), then copy or open the live link.
+                </p>
+              </div>
+
               <div>
                 <h3 className="text-base font-bold text-slate-900">Your website URL</h3>
                 <p className="mt-1 text-sm text-slate-500">
@@ -207,62 +174,20 @@ export default function PublishModal({
                 </button>
               </div>
 
-              <div className="space-y-3 border-t border-slate-100 pt-5">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">Add custom domain</h3>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-500">
-                    Connect any domain you own. DNS verification is required before a new domain can be live.
-                  </p>
-                </div>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <input
-                    type="text"
-                    value={domainInput}
-                    onChange={(event) => {
-                      setDomainInput(event.target.value);
-                      setDomainError("");
-                    }}
-                    placeholder="links.example.com"
-                    className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
-                  />
-                  <button
-                    type="button"
-                    onClick={addCustomDomain}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100"
-                  >
-                    <Plus className="h-4 w-4" /> Add domain
-                  </button>
-                </div>
-                {domainError && <p className="text-xs font-medium text-rose-600">{domainError}</p>}
-              </div>
-
-              {draft.customDomains.filter((domain) => domain.hostname !== PRIMARY_DOMAIN).map((domain) => (
-                <div key={domain.id} className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="flex items-center gap-2 truncate text-sm font-bold text-slate-800">
-                        <Link2 className="h-4 w-4 shrink-0 text-amber-600" />
-                        {domain.hostname}
-                      </p>
-                      <p className="mt-1 text-xs font-semibold text-amber-700">Pending DNS verification</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => copyText(domain.dnsTarget || DEFAULT_DNS_TARGET)}
-                      className="shrink-0 rounded-lg p-2 text-amber-700 hover:bg-amber-100"
-                      title="Copy DNS target"
-                    >
-                      <Copy className="h-4 w-4" />
-                    </button>
-                  </div>
-                  <p className="mt-3 rounded-lg border border-amber-200 bg-white px-3 py-2 font-mono text-[11px] text-slate-600">
-                    CNAME → {domain.dnsTarget || DEFAULT_DNS_TARGET}
-                  </p>
-                  <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-                    Add this record with your DNS provider, then refresh this page after verification in Vercel.
-                  </p>
-                </div>
-              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onNavigateToCustomDomains?.();
+                }}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-indigo-200 hover:bg-indigo-50/50 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+              >
+                <p className="text-xs font-semibold text-slate-800">Need a custom domain?</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                  Click to open <span className="font-semibold text-indigo-700">Custom Domains</span> —
+                  connect, verify DNS, and manage brand domains there.
+                </p>
+              </button>
 
               <div className="flex justify-end pt-1">
                 <button
@@ -341,10 +266,18 @@ export default function PublishModal({
               )}
 
               <div className="flex items-center justify-between pt-2">
-                <button type="button" onClick={() => setStep("domain")} className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setStep("url")}
+                  className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold text-slate-500 hover:bg-slate-100"
+                >
                   <ChevronLeft className="h-4 w-4" /> Back
                 </button>
-                <button type="button" onClick={completePublish} className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700">
+                <button
+                  type="button"
+                  onClick={completePublish}
+                  className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700"
+                >
                   Continue
                 </button>
               </div>
@@ -367,10 +300,19 @@ export default function PublishModal({
                 <p className="mt-1 truncate font-mono text-sm font-semibold text-indigo-700">{draft.primaryUrl}</p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row">
-                <button type="button" onClick={() => copyText(draft.primaryUrl)} className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                <button
+                  type="button"
+                  onClick={() => copyText(draft.primaryUrl)}
+                  className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
                   {copied ? "Copied" : "Copy URL"}
                 </button>
-                <a href={draft.primaryUrl} target="_blank" rel="noreferrer" className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700">
+                <a
+                  href={draft.primaryUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700"
+                >
                   Open website <ExternalLink className="h-4 w-4" />
                 </a>
               </div>

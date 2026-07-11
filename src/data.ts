@@ -316,14 +316,24 @@ export const initialHelpArticles: HelpArticle[] = [
       "Connect a custom domain\n\n1. Open Custom Domains and click Connect Domain.\n2. Enter a hostname such as links.yourbrand.com.\n3. In your DNS provider, create an A record pointing to 74.201.218.45.\n4. Return to ACN Link and click Verify DNS.\n5. After verification, use the domain for white-labeled bio pages and links.\n\nDNS changes can take a few minutes to 48 hours to propagate."
   },
   {
+    id: "faq5b",
+    title: "What is the difference between Publish and Custom Domains?",
+    category: "Getting Started",
+    excerpt:
+      "Publish goes live and sets who can see your site. Custom Domains connects and manages your brand domain.",
+    readTime: "2 mins",
+    content:
+      "Publish vs Custom Domains\n\nPublish (navbar on Dashboard / Account)\n• Makes your ACN Link website live\n• Shows your public URL\n• Lets you choose visibility: Public, Workspace only, or Selected members\n• Lets you copy or open the live link after success\n\nCustom Domains (sidebar)\n• Connect your own domain such as links.yourbrand.com\n• View DNS setup instructions\n• Verify Pending / Verified status\n• Search, filter, and remove domains\n\nRecommended flow\n1. Build your bio pages\n2. Open Custom Domains and connect your brand domain\n3. Click Publish to go live and share the URL\n\nTip: Domain connect/manage is only on Custom Domains. Publish is only for go-live and visibility."
+  },
+  {
     id: "faq6",
     title: "How do I publish my first bio page?",
     category: "Getting Started",
     excerpt:
-      "Open Bio Pages, create or edit a page, then use Publish to make it live on your ACN Link URL or custom domain.",
+      "Open Bio Pages, create or edit a page, then use Publish on the Dashboard to make your site live and set visibility.",
     readTime: "2 mins",
     content:
-      "Publishing checklist\n\n1. Finish your page content and cover image in the editor.\n2. Save a draft anytime — drafts stay private.\n3. Click Publish and choose visibility (public or workspace).\n4. Copy the public URL or generate a QR code from the QR Codes page.\n5. Share the link on social profiles, packaging, or campaigns.\n\nIf something looks wrong on the public page, reopen the editor, fix blocks, and publish again."
+      "Publishing checklist\n\n1. Finish your page content and cover image in the editor.\n2. Save a draft anytime — drafts stay private.\n3. On Dashboard or Account, click Publish and choose visibility (public, workspace, or selected members).\n4. To use your own brand domain, open Custom Domains in the sidebar (not inside Publish).\n5. Copy the public URL or generate a QR code from the QR Codes page.\n6. Share the link on social profiles, packaging, or campaigns.\n\nIf something looks wrong on the public page, reopen the editor, fix blocks, and publish again."
   },
   {
     id: "faq7",

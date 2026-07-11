@@ -216,7 +216,7 @@ export default function CustomDomainsScreen({
     <PageShell>
       <PageHeader
         title="Custom Domains"
-        subtitle="Configure custom domains for fully white-labeled link routing."
+        subtitle="Connect your own domain (like links.yourbrand.com) for a branded link experience."
         actions={
           <button
             type="button"
@@ -231,6 +231,18 @@ export default function CustomDomainsScreen({
           </button>
         }
       />
+
+      <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 px-4 py-4 sm:px-5">
+        <p className="text-xs font-bold text-indigo-900">Why Custom Domains?</p>
+        <p className="mt-1.5 text-xs sm:text-sm leading-relaxed text-indigo-800/90">
+          Use this page to connect, verify, and manage brand domains in one place — DNS setup, status
+          (Pending / Verified), search, and remove. Use the navbar <span className="font-semibold">Publish</span> button
+          when you are ready to go live and set who can see the website.
+        </p>
+        <p className="mt-2 text-[11px] sm:text-xs text-indigo-700/80">
+          Tip: Build pages → connect domain here → Publish to go live and share your URL.
+        </p>
+      </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
         <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
@@ -389,8 +401,9 @@ export default function CustomDomainsScreen({
               <Globe className="h-6 w-6" />
             </div>
             <h4 className="font-display font-bold text-gray-900">No Custom Domains Connected</h4>
-            <p className="text-gray-500 text-sm max-w-xs mt-1">
-              Connect branded domains to white-label your links and bio pages.
+            <p className="text-gray-500 text-sm max-w-sm mt-1">
+              Connect a brand domain like links.yourbrand.com here. When you are ready to go live and set
+              who can view the site, use the Publish button on Dashboard.
             </p>
             <button
               type="button"

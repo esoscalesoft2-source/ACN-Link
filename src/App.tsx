@@ -22,6 +22,17 @@ import Sidebar from "./components/Sidebar";
 import MobileNavDrawer from "./components/MobileNavDrawer";
 import Header from "./components/Header";
 import LoginScreen from "./components/LoginScreen";
+import {
+  AuthUser,
+  clearAuthSession,
+  fetchAuthConfig,
+  fetchMe,
+  getAccessToken,
+  getLastActivity,
+  getStoredAuthUser,
+  logoutRequest,
+  touchActivity
+} from "./lib/authApi";
 import DashboardScreen from "./components/DashboardScreen";
 import BioPagesScreen from "./components/BioPagesScreen";
 import ContactsScreen from "./components/ContactsScreen";
@@ -42,6 +53,7 @@ import {
   buildEditorState,
   cloneBlocks,
   DEFAULT_COVER,
+  deleteDraftByPageId,
   getAllDrafts,
   getAllUserTemplates,
   getTemplateEditorPayload,
@@ -68,6 +80,29 @@ import { getPublishSettings, persistPublishSettings } from "./storage/publishSto
 
 const USER_PROFILE_STORAGE_KEY = "acnlink_user_profile";
 
+function writeLocalStorage(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.warn(`Unable to persist "${key}" in browser storage.`, error);
+  }
+}
+
+function readLocalStorage<T>(key: string, fallback: T): T {
+  try {
+    const saved = localStorage.getItem(key);
+    return saved ? (JSON.parse(saved) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function normalizeExternalUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
 export default function App() {
   // Parse URL search parameters for standalone public preview
   const urlParams = new URLSearchParams(window.location.search);
@@ -75,29 +110,26 @@ export default function App() {
 
   const [currentScreen, setCurrentScreen] = useState<ScreenId>(() => {
     try {
+      if (!getAccessToken()) return ScreenId.LOGIN;
       const saved = sessionStorage.getItem("acnlink_session");
       if (saved) {
         const { screen, loggedIn } = JSON.parse(saved);
         if (loggedIn && screen) return screen as ScreenId;
       }
+      return ScreenId.DASHBOARD;
     } catch {
       /* ignore */
     }
     return ScreenId.LOGIN;
   });
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(() => {
-    try {
-      const saved = sessionStorage.getItem("acnlink_session");
-      if (saved) {
-        const { loggedIn } = JSON.parse(saved);
-        return !!loggedIn;
-      }
-    } catch {
-      /* ignore */
-    }
-    return false;
-  });
+  const [isLoggedIn, setIsLoggedIn] = useState(() => Boolean(getAccessToken() && getStoredAuthUser()));
+  const [authBootstrapping, setAuthBootstrapping] = useState(() => Boolean(getAccessToken()));
+  const [idleTimeoutMs, setIdleTimeoutMs] = useState(1000 * 60 * 30);
+  const authVerifyToken = React.useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("verifyToken") || params.get("token") || "";
+  }, []);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [isPublishOpen, setIsPublishOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>(() => getAllNotifications());
@@ -114,13 +146,9 @@ export default function App() {
   });
   const [publishSettings, setPublishSettings] = useState<PublishSettings>(() => getPublishSettings());
   const [pages, setPages] = useState<BioPage[]>(() => {
-    try {
-      const saved = localStorage.getItem("biolinks_pages_list");
-      return saved ? JSON.parse(saved) : initialBioPages;
-    } catch {
-      return initialBioPages;
-    }
+    return readLocalStorage("biolinks_pages_list", initialBioPages);
   });
+  const [isPagesSyncReady, setIsPagesSyncReady] = useState(false);
 
   // Server state and sync for pages list & analytics metrics
   const [serverMetrics, setServerMetrics] = useState<{
@@ -130,6 +158,75 @@ export default function App() {
     events: any[];
   } | null>(null);
   const [serverHealth, setServerHealth] = useState<"checking" | "online" | "offline">("checking");
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function restoreSession() {
+      if (!getAccessToken()) {
+        setIsLoggedIn(false);
+        setCurrentScreen(ScreenId.LOGIN);
+        setAuthBootstrapping(false);
+        return;
+      }
+      try {
+        const { user: authUser } = await fetchMe();
+        if (cancelled) return;
+        setUser((prev) => ({
+          ...prev,
+          name: authUser.name || prev.name,
+          email: authUser.email,
+          avatarUrl: authUser.avatarUrl || prev.avatarUrl,
+          plan: authUser.plan || prev.plan,
+          isVerified: authUser.isVerified,
+          mfaEnabled: authUser.mfaEnabled
+        }));
+        setIsLoggedIn(true);
+        touchActivity();
+        setCurrentScreen((screen) => (screen === ScreenId.LOGIN ? ScreenId.DASHBOARD : screen));
+      } catch {
+        if (!cancelled) {
+          clearAuthSession();
+          setIsLoggedIn(false);
+          setCurrentScreen(ScreenId.LOGIN);
+        }
+      } finally {
+        if (!cancelled) setAuthBootstrapping(false);
+      }
+    }
+
+    void restoreSession();
+    void fetchAuthConfig()
+      .then((cfg) => {
+        if (!cancelled && cfg.idleTimeoutMs) setIdleTimeoutMs(cfg.idleTimeoutMs);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (!isLoggedIn) return;
+
+    const onActivity = () => touchActivity();
+    const events: Array<keyof WindowEventMap> = ["mousemove", "keydown", "click", "scroll", "touchstart"];
+    events.forEach((event) => window.addEventListener(event, onActivity, { passive: true }));
+
+    const timer = window.setInterval(() => {
+      const last = getLastActivity();
+      if (last && Date.now() - last > idleTimeoutMs) {
+        void handleLogout();
+      }
+    }, 30_000);
+
+    return () => {
+      events.forEach((event) => window.removeEventListener(event, onActivity));
+      window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoggedIn, idleTimeoutMs]);
 
   React.useEffect(() => {
     if (isLoggedIn) {
@@ -250,18 +347,24 @@ export default function App() {
         if (pagesRes.ok) {
           const remotePages = await pagesRes.json();
           if (remotePages && Array.isArray(remotePages) && remotePages.length > 0) {
-            setPages(remotePages);
+            setPages((localPages) => {
+              const merged = new Map(localPages.map((page) => [page.id, page]));
+              remotePages.forEach((page: BioPage) => merged.set(page.id, page));
+              return Array.from(merged.values());
+            });
           } else {
-            // Push initial list to server if server is empty
+            // Seed an empty server from the local workspace, not hardcoded demo data.
             await fetch("/api/pages", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ pages: initialBioPages })
+              body: JSON.stringify({ pages })
             });
           }
         }
       } catch (err) {
         console.error("Failed to load initial pages list from server:", err);
+      } finally {
+        setIsPagesSyncReady(true);
       }
 
       // Fetch Analytics metrics
@@ -305,8 +408,9 @@ export default function App() {
 
   // 2. Whenever pages list is updated, save to local storage AND sync to server
   React.useEffect(() => {
-    localStorage.setItem("biolinks_pages_list", JSON.stringify(pages));
-    
+    writeLocalStorage("biolinks_pages_list", pages);
+    if (!isPagesSyncReady) return;
+
     // Sync to server
     fetch("/api/pages", {
       method: "POST",
@@ -315,13 +419,17 @@ export default function App() {
     }).catch(err => {
       console.error("Failed to save pages list to server:", err);
     });
-  }, [pages]);
+  }, [pages, isPagesSyncReady]);
 
-  const [contacts, setContacts] = useState<Contact[]>(initialContacts);
-  const [whatsAppCampaigns, setWhatsAppCampaigns] = useState<WhatsAppCampaign[]>(initialWhatsAppCampaigns);
-  const [whatsAppTemplates, setWhatsAppTemplates] = useState<WhatsAppTemplate[]>(initialWhatsAppTemplates);
-  const [links, setLinks] = useState<SmartLink[]>(initialSmartLinks);
-  const [qrCodes, setQrCodes] = useState<QRCodeItem[]>(initialQRCodes);
+  const [contacts, setContacts] = useState<Contact[]>(() => readLocalStorage("acnlink_contacts", initialContacts));
+  const [whatsAppCampaigns, setWhatsAppCampaigns] = useState<WhatsAppCampaign[]>(() =>
+    readLocalStorage("acnlink_whatsapp_campaigns", initialWhatsAppCampaigns)
+  );
+  const [whatsAppTemplates, setWhatsAppTemplates] = useState<WhatsAppTemplate[]>(() =>
+    readLocalStorage("acnlink_whatsapp_templates", initialWhatsAppTemplates)
+  );
+  const [links, setLinks] = useState<SmartLink[]>(() => readLocalStorage("acnlink_smart_links", initialSmartLinks));
+  const [qrCodes, setQrCodes] = useState<QRCodeItem[]>(() => readLocalStorage("acnlink_qr_codes", initialQRCodes));
   const [templates] = useState<TemplateItem[]>(initialTemplates);
   
   // Custom elevated states for draft and template persistence across pages/screens
@@ -340,6 +448,7 @@ export default function App() {
 
   const [initialActiveEditPageId, setInitialActiveEditPageId] = useState<string | null>(null);
   const [initialActiveTemplateId, setInitialActiveTemplateId] = useState<string | null>(null);
+  const [quickCreateRequest, setQuickCreateRequest] = useState(0);
 
   React.useEffect(() => {
     persistTemplates(savedTemplates);
@@ -353,14 +462,35 @@ export default function App() {
   }, [savedDrafts]);
 
   React.useEffect(() => {
-    localStorage.setItem("pageBlocksMap", JSON.stringify(pageBlocksMap));
+    writeLocalStorage("pageBlocksMap", pageBlocksMap);
   }, [pageBlocksMap]);
 
-  const [integrations, setIntegrations] = useState<IntegrationItem[]>(initialIntegrations);
-  const [votes, setVotes] = useState<IntegrationVote[]>(initialVotes);
-  const [pixels, setPixels] = useState<TrackingPixel[]>(initialTrackingPixels);
-  const [mediaFiles, setMediaFiles] = useState<MediaFile[]>(initialMediaFiles);
-  const [domains, setDomains] = useState<CustomDomain[]>(initialCustomDomains);
+  React.useEffect(() => writeLocalStorage("acnlink_contacts", contacts), [contacts]);
+  React.useEffect(() => writeLocalStorage("acnlink_whatsapp_campaigns", whatsAppCampaigns), [whatsAppCampaigns]);
+  React.useEffect(() => writeLocalStorage("acnlink_whatsapp_templates", whatsAppTemplates), [whatsAppTemplates]);
+  React.useEffect(() => writeLocalStorage("acnlink_smart_links", links), [links]);
+  React.useEffect(() => writeLocalStorage("acnlink_qr_codes", qrCodes), [qrCodes]);
+
+  const [integrations, setIntegrations] = useState<IntegrationItem[]>(() =>
+    readLocalStorage("acnlink_integrations", initialIntegrations)
+  );
+  const [votes, setVotes] = useState<IntegrationVote[]>(() =>
+    readLocalStorage("acnlink_integration_votes", initialVotes)
+  );
+  React.useEffect(() => writeLocalStorage("acnlink_integrations", integrations), [integrations]);
+  React.useEffect(() => writeLocalStorage("acnlink_integration_votes", votes), [votes]);
+  const [pixels, setPixels] = useState<TrackingPixel[]>(() =>
+    readLocalStorage("acnlink_pixels", initialTrackingPixels)
+  );
+  React.useEffect(() => writeLocalStorage("acnlink_pixels", pixels), [pixels]);
+  const [mediaFiles, setMediaFiles] = useState<MediaFile[]>(() =>
+    readLocalStorage("acnlink_media_files", initialMediaFiles)
+  );
+  React.useEffect(() => writeLocalStorage("acnlink_media_files", mediaFiles), [mediaFiles]);
+  const [domains, setDomains] = useState<CustomDomain[]>(() =>
+    readLocalStorage("acnlink_custom_domains", initialCustomDomains)
+  );
+  React.useEffect(() => writeLocalStorage("acnlink_custom_domains", domains), [domains]);
   const [articles] = useState<HelpArticle[]>(initialHelpArticles);
 
   // If we are in standalone public preview mode, render the public view immediately
@@ -378,30 +508,97 @@ export default function App() {
   }
 
   // Handlers for persistent operations
-  const handleLoginSuccess = (email: string) => {
-    setUser((prev) => ({ ...prev, email }));
+  const handleLoginSuccess = (authUser: AuthUser) => {
+    setUser((prev) => ({
+      ...prev,
+      name: authUser.name || `${authUser.firstName} ${authUser.lastName}`.trim() || prev.name,
+      email: authUser.email,
+      avatarUrl: authUser.avatarUrl || prev.avatarUrl,
+      plan: authUser.plan || prev.plan,
+      isVerified: authUser.isVerified,
+      mfaEnabled: authUser.mfaEnabled
+    }));
     setIsLoggedIn(true);
     setCurrentScreen(ScreenId.DASHBOARD);
+    if (window.location.search.includes("verifyToken") || window.location.search.includes("token=")) {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logoutRequest();
+    } catch {
+      clearAuthSession();
+    }
+    setIsLoggedIn(false);
+    setCurrentScreen(ScreenId.LOGIN);
+    setIsMobileNavOpen(false);
+    window.history.replaceState({}, "", window.location.pathname);
   };
 
   const handleAddPage = (title: string, slug: string) => {
     const newPage: BioPage = {
-      id: "p" + (pages.length + 1),
+      id: `p_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       title,
       slug,
       status: "Live",
       views: 0,
       createdAt: "7 Jul 2026"
     };
-    setPages([newPage, ...pages]);
+    setPages((currentPages) => [newPage, ...currentPages]);
+    return newPage;
+  };
+
+  const handleRefreshPages = async () => {
+    const response = await fetch("/api/pages", { cache: "no-store" });
+    if (!response.ok) throw new Error("Unable to load pages");
+
+    const remotePages = await response.json();
+    if (!Array.isArray(remotePages)) throw new Error("Invalid pages response");
+
+    setPages((localPages) => {
+      const merged = new Map(localPages.map((page) => [page.id, page]));
+      remotePages.forEach((page: BioPage) => merged.set(page.id, page));
+      return Array.from(merged.values());
+    });
   };
 
   const handleDeletePage = (id: string) => {
-    setPages(pages.filter((p) => p.id !== id));
+    const page = pages.find((item) => item.id === id);
+    setPages((currentPages) => currentPages.filter((item) => item.id !== id));
+    setPageBlocksMap((currentBlocks) => {
+      const nextBlocks = { ...currentBlocks };
+      delete nextBlocks[id];
+      if (page?.slug) delete nextBlocks[page.slug];
+      return nextBlocks;
+    });
+    setSavedDrafts((drafts) => deleteDraftByPageId(id, drafts));
+
+    if (page) {
+      try {
+        localStorage.removeItem(`biolink_blocks_${id}`);
+        localStorage.removeItem(`biolink_blocks_${page.slug}`);
+        localStorage.removeItem(`biolink_details_${id}`);
+        localStorage.removeItem(`biolink_details_${page.slug}`);
+      } catch {
+        // Browser storage may be unavailable; the page state was still removed.
+      }
+    }
+
+    fetch(`/api/page/${id}`, { method: "DELETE" }).catch((error) => {
+      console.error("Failed to remove the page from the server:", error);
+    });
   };
 
   const handleUpdatePage = (id: string, title: string, bio?: string, coverPhoto?: string) => {
-    setPages(pages.map((p) => (p.id === id ? { ...p, title, bio: bio !== undefined ? bio : p.bio, coverPhoto: coverPhoto !== undefined ? coverPhoto : p.coverPhoto } : p)));
+    setPages((currentPages) =>
+      currentPages.map((page) =>
+        page.id === id
+          ? { ...page, title, bio: bio !== undefined ? bio : page.bio, coverPhoto: coverPhoto !== undefined ? coverPhoto : page.coverPhoto }
+          : page
+      )
+    );
   };
 
   const handleDuplicatePage = (id: string) => {
@@ -453,14 +650,25 @@ export default function App() {
     });
   };
 
+  const maskContactEmail = (email: string) => {
+    const [local = "", domain = "•••.com"] = email.split("@");
+    const visible = local.slice(0, 1) || "•";
+    return `${visible}••••@${domain || "•••.com"}`;
+  };
+
+  const maskContactPhone = (phone: string) => {
+    const digits = phone.replace(/\D/g, "");
+    return digits.length >= 4 ? `•••••• ${digits.slice(-4)}` : "••••••";
+  };
+
   const handleAddContact = (newContactData: Omit<Contact, "id" | "maskedEmail" | "maskedPhone">) => {
     const newContact: Contact = {
-      id: "c" + (contacts.length + 1),
+      id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       ...newContactData,
-      maskedEmail: newContactData.email[0] + "••••@•••.com",
-      maskedPhone: "•••••• " + newContactData.phone.slice(-4)
+      maskedEmail: maskContactEmail(newContactData.email),
+      maskedPhone: maskContactPhone(newContactData.phone)
     };
-    setContacts([newContact, ...contacts]);
+    setContacts((current) => [newContact, ...current]);
     pushNotification({
       type: "contact_added",
       title: "New contact captured",
@@ -469,59 +677,108 @@ export default function App() {
     });
   };
 
-  const handleAddWhatsAppTemplate = (name: string) => {
+  const handleUpdateContact = (
+    id: string,
+    contactData: Omit<Contact, "id" | "maskedEmail" | "maskedPhone">
+  ) => {
+    setContacts((current) =>
+      current.map((contact) =>
+        contact.id === id
+          ? {
+              ...contact,
+              ...contactData,
+              maskedEmail: maskContactEmail(contactData.email),
+              maskedPhone: maskContactPhone(contactData.phone)
+            }
+          : contact
+      )
+    );
+  };
+
+  const handleDeleteContact = (id: string) => {
+    setContacts((current) => current.filter((contact) => contact.id !== id));
+  };
+
+  const handleAddWhatsAppTemplate = (template: Omit<WhatsAppTemplate, "id">) => {
     const newTpl: WhatsAppTemplate = {
-      id: "tpl" + (whatsAppTemplates.length + 1),
-      name,
-      status: "Approved"
+      id: `tpl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      ...template
     };
-    setWhatsAppTemplates([...whatsAppTemplates, newTpl]);
+    setWhatsAppTemplates((current) => [newTpl, ...current]);
   };
 
-  const handleAddWhatsAppCampaign = (name: string, recipients: string, openRate: string) => {
+  const handleUpdateWhatsAppTemplate = (id: string, template: Omit<WhatsAppTemplate, "id">) => {
+    setWhatsAppTemplates((current) =>
+      current.map((item) => (item.id === id ? { ...item, ...template } : item))
+    );
+  };
+
+  const handleDeleteWhatsAppTemplate = (id: string) => {
+    setWhatsAppTemplates((current) => current.filter((item) => item.id !== id));
+  };
+
+  const handleAddWhatsAppCampaign = (campaign: Omit<WhatsAppCampaign, "id">) => {
     const newCamp: WhatsAppCampaign = {
-      id: "wc" + (whatsAppCampaigns.length + 1),
-      name,
-      status: "Sent",
-      recipients,
-      openRate
+      id: `wc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      ...campaign
     };
-    setWhatsAppCampaigns([newCamp, ...whatsAppCampaigns]);
+    setWhatsAppCampaigns((current) => [newCamp, ...current]);
   };
 
-  const handleCreateLink = (title: string, slug: string, shortUrl: string) => {
+  const handleUpdateWhatsAppCampaign = (id: string, campaign: Omit<WhatsAppCampaign, "id">) => {
+    setWhatsAppCampaigns((current) =>
+      current.map((item) => (item.id === id ? { ...item, ...campaign } : item))
+    );
+  };
+
+  const handleDeleteWhatsAppCampaign = (id: string) => {
+    setWhatsAppCampaigns((current) => current.filter((item) => item.id !== id));
+  };
+
+  const handleCreateLink = (
+    title: string,
+    slug: string,
+    shortUrl: string,
+    destinationUrl: string,
+    retargeting: SmartLink["retargeting"]
+  ) => {
     const newLink: SmartLink = {
-      id: "l" + (links.length + 1),
+      id: `l_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       title,
       slug,
       shortUrl,
+      destinationUrl: normalizeExternalUrl(destinationUrl),
       status: "Live",
-      retargeting: ["fb", "google"],
+      retargeting,
       clicks: 0
     };
-    setLinks([newLink, ...links]);
+    setLinks((current) => [newLink, ...current]);
   };
 
   const handleDeleteLink = (id: string) => {
-    setLinks(links.filter((l) => l.id !== id));
+    setLinks((current) => current.filter((link) => link.id !== id));
   };
 
   const handleUpdateLink = (updated: SmartLink) => {
-    setLinks(links.map((l) => l.id === updated.id ? updated : l));
+    setLinks((current) => current.map((link) => (link.id === updated.id ? updated : link)));
   };
 
   const handleGenerateQR = (name: string, targetUrl: string, customColor: string) => {
+    const normalizedTargetUrl = normalizeExternalUrl(targetUrl);
     const newQR: QRCodeItem = {
-      id: "qr" + (qrCodes.length + 1),
+      id: `qr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       name,
-      targetUrl,
-      qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&color=${customColor.replace("#", "")}&data=https://${targetUrl}`,
+      targetUrl: normalizedTargetUrl,
+      qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&color=${customColor.replace("#", "")}&data=${encodeURIComponent(normalizedTargetUrl)}`,
       scans: "0",
       uniqueScanners: "0",
       status: "Active",
-      customDesign: true
+      customDesign: true,
+      designColor: customColor,
+      designLogo: "none",
+      designPattern: "rounded"
     };
-    setQrCodes([newQR, ...qrCodes]);
+    setQrCodes((current) => [newQR, ...current]);
     pushNotification({
       type: "qr_generated",
       title: "QR code created",
@@ -531,90 +788,104 @@ export default function App() {
   };
 
   const handleUpdateTargetUrl = (id: string, newUrl: string) => {
-    setQrCodes(qrCodes.map((item) => {
-      if (item.id === id) {
+    const normalizedTargetUrl = normalizeExternalUrl(newUrl);
+    setQrCodes((current) =>
+      current.map((item) => {
+        if (item.id !== id) return item;
+        const color = item.designColor || "#4F46E5";
         return {
           ...item,
-          targetUrl: newUrl,
-          qrUrl: item.qrUrl.split("&data=")[0] + `&data=https://${newUrl}`
+          targetUrl: normalizedTargetUrl,
+          qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&color=${color.replace("#", "")}&data=${encodeURIComponent(normalizedTargetUrl)}`
         };
-      }
-      return item;
-    }));
+      })
+    );
   };
 
   const handleDeleteQR = (id: string) => {
-    setQrCodes(qrCodes.filter((qr) => qr.id !== id));
+    setQrCodes((current) => current.filter((qr) => qr.id !== id));
   };
 
   const handleUpdateQR = (updated: QRCodeItem) => {
-    setQrCodes(qrCodes.map((qr) => qr.id === updated.id ? updated : qr));
+    setQrCodes((current) => current.map((qr) => (qr.id === updated.id ? updated : qr)));
   };
 
   const handleVote = (id: string) => {
-    setVotes(votes.map((v) => (v.id === id ? { ...v, votes: v.votes + 1, voted: true } : v)));
+    setVotes((current) =>
+      current.map((v) => (v.id === id && !v.voted ? { ...v, votes: v.votes + 1, voted: true } : v))
+    );
+  };
+
+  const handleUpdateIntegration = (updated: IntegrationItem) => {
+    setIntegrations((current) => current.map((item) => (item.id === updated.id ? updated : item)));
   };
 
   const handleAddPixel = (name: string, type: string, pixelId: string) => {
     const newPixel: TrackingPixel = {
-      id: "px" + (pixels.length + 1),
+      id: `px_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       name,
       type,
       pixelId,
-      status: "Active"
+      status: type.includes("TikTok") ? "Validation Required" : "Active"
     };
-    setPixels([...pixels, newPixel]);
+    setPixels((current) => [newPixel, ...current]);
     pushNotification({
       type: "pixel_added",
       title: "Tracking pixel added",
-      message: `"${name}" (${type}) is now active.`,
+      message: `"${name}" (${type}) is now ${newPixel.status === "Active" ? "active" : "awaiting validation"}.`,
       targetScreen: ScreenId.PIXELS
     });
   };
 
-  const handleDeletePixel = (id: string) => {
-    setPixels(pixels.filter((p) => p.id !== id));
+  const handleUpdatePixel = (updated: TrackingPixel) => {
+    setPixels((current) => current.map((pixel) => (pixel.id === updated.id ? updated : pixel)));
   };
 
-  const handleUploadFile = (name: string, size: string, url: string) => {
+  const handleDeletePixel = (id: string) => {
+    setPixels((current) => current.filter((p) => p.id !== id));
+  };
+
+  const handleUploadFile = (file: Omit<MediaFile, "id">) => {
     const newFile: MediaFile = {
-      id: "f" + (mediaFiles.length + 1),
-      name,
-      type: "image",
-      size,
-      url,
-      uploadedAt: "7 Jul 2026"
+      ...file,
+      id: `media_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
     };
-    setMediaFiles([newFile, ...mediaFiles]);
+    setMediaFiles((current) => [newFile, ...current]);
+  };
+
+  const handleUpdateFile = (updated: MediaFile) => {
+    setMediaFiles((current) => current.map((file) => (file.id === updated.id ? updated : file)));
   };
 
   const handleDeleteFile = (id: string) => {
-    setMediaFiles(mediaFiles.filter((f) => f.id !== id));
+    setMediaFiles((current) => current.filter((f) => f.id !== id));
   };
 
   const handleConnectDomain = (domainName: string) => {
     const newDomain: CustomDomain = {
-      id: "d" + (domains.length + 1),
+      id: `domain_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       domainName,
       type: "A Record",
       targetIp: "74.201.218.45",
-      status: "Verified"
+      status: "Pending"
     };
-    setDomains([...domains, newDomain]);
+    setDomains((current) => [newDomain, ...current]);
+  };
+
+  const handleUpdateDomain = (updated: CustomDomain) => {
+    setDomains((current) => current.map((domain) => (domain.id === updated.id ? updated : domain)));
   };
 
   const handleDeleteDomain = (id: string) => {
-    setDomains(domains.filter((d) => d.id !== id));
+    setDomains((current) => current.filter((d) => d.id !== id));
   };
 
   const handleUpdateUser = (name: string, email: string, avatarUrl: string) => {
     setUser((prev) => ({ ...prev, name, email, avatarUrl }));
   };
 
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    setCurrentScreen(ScreenId.LOGIN);
-    setIsMobileNavOpen(false);
+  const handleUpdateMfa = (enabled: boolean) => {
+    setUser((prev) => ({ ...prev, mfaEnabled: enabled }));
   };
 
   const handleScreenChange = (screen: ScreenId) => {
@@ -624,13 +895,20 @@ export default function App() {
 
   // Quick Action trigger on headers
   const handleQuickCreate = () => {
-    if (currentScreen === ScreenId.BIO_PAGES) {
-      setCurrentScreen(ScreenId.BIO_PAGES);
-    } else if (currentScreen === ScreenId.CONTACTS) {
-      setCurrentScreen(ScreenId.CONTACTS);
-    } else {
-      setCurrentScreen(ScreenId.BIO_PAGES);
+    setCurrentScreen(ScreenId.BIO_PAGES);
+    setQuickCreateRequest((request) => request + 1);
+  };
+
+  const handleNotificationNavigate = (screen: ScreenId, pageId?: string) => {
+    if (screen === ScreenId.BIO_PAGES && pageId) {
+      setInitialActiveEditPageId(pageId);
     }
+    setCurrentScreen(screen);
+  };
+
+  const handleOpenDashboardPage = (pageId: string) => {
+    setInitialActiveEditPageId(pageId);
+    setCurrentScreen(ScreenId.BIO_PAGES);
   };
 
   // Helper object to serve metrics inside dashboard with server-side tracking support
@@ -659,7 +937,9 @@ export default function App() {
       pageBlocksMap,
       pixels,
       mediaFiles,
-      domains
+      domains,
+      integrations,
+      votes
     };
 
     const jsonStr = JSON.stringify(backupData, null, 2);
@@ -686,7 +966,7 @@ export default function App() {
       if (backupData.user) setUser(backupData.user);
       if (backupData.pages) {
         setPages(backupData.pages);
-        localStorage.setItem("biolinks_pages_list", JSON.stringify(backupData.pages));
+        writeLocalStorage("biolinks_pages_list", backupData.pages);
       }
       if (backupData.contacts) setContacts(backupData.contacts);
       if (backupData.whatsAppCampaigns) setWhatsAppCampaigns(backupData.whatsAppCampaigns);
@@ -695,25 +975,27 @@ export default function App() {
       if (backupData.qrCodes) setQrCodes(backupData.qrCodes);
       if (backupData.savedTemplates) {
         const normalized = (backupData.savedTemplates as Record<string, unknown>[]).map((item) =>
-          item.data ? (item as BioPageTemplate) : normalizeTemplate(item)
+          item.data ? (item as unknown as BioPageTemplate) : normalizeTemplate(item)
         );
         setSavedTemplates(normalized);
         persistTemplates(normalized);
       }
       if (backupData.savedDrafts) {
         const normalized = (backupData.savedDrafts as Record<string, unknown>[]).map((item) =>
-          item.data ? (item as BioPageDraft) : normalizeDraft(item)
+          item.data ? (item as unknown as BioPageDraft) : normalizeDraft(item)
         );
         setSavedDrafts(normalized);
         persistDrafts(normalized);
       }
       if (backupData.pageBlocksMap) {
         setPageBlocksMap(backupData.pageBlocksMap);
-        localStorage.setItem("pageBlocksMap", JSON.stringify(backupData.pageBlocksMap));
+        writeLocalStorage("pageBlocksMap", backupData.pageBlocksMap);
       }
       if (backupData.pixels) setPixels(backupData.pixels);
       if (backupData.mediaFiles) setMediaFiles(backupData.mediaFiles);
       if (backupData.domains) setDomains(backupData.domains);
+      if (backupData.integrations) setIntegrations(backupData.integrations);
+      if (backupData.votes) setVotes(backupData.votes);
 
       return true;
     } catch (e) {
@@ -724,11 +1006,26 @@ export default function App() {
 
   // Render relevant content component based on navigation state
   const renderContent = () => {
+    if (!isLoggedIn || currentScreen === ScreenId.LOGIN) {
+      return (
+        <LoginScreen
+          onLoginSuccess={handleLoginSuccess}
+          initialView={authVerifyToken ? "verify" : "login"}
+          initialVerifyToken={authVerifyToken}
+        />
+      );
+    }
     switch (currentScreen) {
-      case ScreenId.LOGIN:
-        return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
       case ScreenId.DASHBOARD:
-        return <DashboardScreen onNavigate={handleScreenChange} metrics={metrics} pages={pages} links={links} />;
+        return (
+          <DashboardScreen
+            onNavigate={handleScreenChange}
+            onOpenPage={handleOpenDashboardPage}
+            user={user}
+            metrics={metrics}
+            pages={pages}
+          />
+        );
       case ScreenId.BIO_PAGES:
         return (
           <BioPagesScreen
@@ -737,6 +1034,8 @@ export default function App() {
             onDeletePage={handleDeletePage}
             onUpdatePage={handleUpdatePage}
             onDuplicatePage={handleDuplicatePage}
+            onRefreshPages={handleRefreshPages}
+            analyticsEvents={serverMetrics?.events || []}
             savedTemplates={savedTemplates}
             setSavedTemplates={setSavedTemplates}
             savedDrafts={savedDrafts}
@@ -747,18 +1046,30 @@ export default function App() {
             clearInitialActiveEditPageId={() => setInitialActiveEditPageId(null)}
             initialActiveTemplateId={initialActiveTemplateId}
             clearInitialActiveTemplateId={() => setInitialActiveTemplateId(null)}
+            quickCreateRequest={quickCreateRequest}
             onNotify={pushNotification}
           />
         );
       case ScreenId.CONTACTS:
-        return <ContactsScreen contacts={contacts} onAddContact={handleAddContact} />;
+        return (
+          <ContactsScreen
+            contacts={contacts}
+            onAddContact={handleAddContact}
+            onUpdateContact={handleUpdateContact}
+            onDeleteContact={handleDeleteContact}
+          />
+        );
       case ScreenId.WHATSAPP:
         return (
           <WhatsAppScreen
             campaigns={whatsAppCampaigns}
             templates={whatsAppTemplates}
             onAddTemplate={handleAddWhatsAppTemplate}
+            onUpdateTemplate={handleUpdateWhatsAppTemplate}
+            onDeleteTemplate={handleDeleteWhatsAppTemplate}
             onAddCampaign={handleAddWhatsAppCampaign}
+            onUpdateCampaign={handleUpdateWhatsAppCampaign}
+            onDeleteCampaign={handleDeleteWhatsAppCampaign}
           />
         );
       case ScreenId.LINKS:
@@ -908,10 +1219,7 @@ export default function App() {
               }));
 
               const details = { title: tplTitle, bio: tplBio, coverPhoto: tplCoverPhoto };
-              localStorage.setItem(`biolink_blocks_${newId}`, JSON.stringify(blocksToLoad));
-              localStorage.setItem(`biolink_blocks_${newSlug}`, JSON.stringify(blocksToLoad));
-              localStorage.setItem(`biolink_details_${newId}`, JSON.stringify(details));
-              localStorage.setItem(`biolink_details_${newSlug}`, JSON.stringify(details));
+              persistPagePreviewStorage(newId, newSlug, blocksToLoad, details);
 
               setPages((prev) => [newPage, ...prev]);
 
@@ -929,12 +1237,21 @@ export default function App() {
           />
         );
       case ScreenId.INTEGRATIONS:
-        return <IntegrationsScreen items={integrations} votes={votes} onVote={handleVote} />;
+        return (
+          <IntegrationsScreen
+            items={integrations}
+            votes={votes}
+            onVote={handleVote}
+            onUpdateIntegration={handleUpdateIntegration}
+            onNavigate={handleScreenChange}
+          />
+        );
       case ScreenId.PIXELS:
         return (
           <PixelsScreen
             pixels={pixels}
             onAddPixel={handleAddPixel}
+            onUpdatePixel={handleUpdatePixel}
             onDeletePixel={handleDeletePixel}
           />
         );
@@ -943,6 +1260,7 @@ export default function App() {
           <MediaLibraryScreen
             files={mediaFiles}
             onUploadFile={handleUploadFile}
+            onUpdateFile={handleUpdateFile}
             onDeleteFile={handleDeleteFile}
           />
         );
@@ -951,31 +1269,53 @@ export default function App() {
           <CustomDomainsScreen
             domains={domains}
             onConnectDomain={handleConnectDomain}
+            onUpdateDomain={handleUpdateDomain}
             onDeleteDomain={handleDeleteDomain}
           />
         );
       case ScreenId.HELP_CENTER:
-        return <HelpCenterScreen articles={articles} />;
+        return <HelpCenterScreen articles={articles} onNavigate={handleScreenChange} />;
       case ScreenId.CONTACT_SUPPORT:
-        return <ContactSupportScreen />;
+        return <ContactSupportScreen user={user} onNavigate={handleScreenChange} />;
       case ScreenId.ACCOUNT:
         return (
           <AccountScreen
             user={user}
             onUpdateUser={handleUpdateUser}
+            onUpdateMfa={handleUpdateMfa}
             onExportData={handleExportData}
             onImportData={handleImportData}
             onLogout={handleLogout}
+            onNavigate={handleScreenChange}
           />
         );
       default:
-        return <DashboardScreen onNavigate={handleScreenChange} metrics={metrics} pages={pages} links={links} />;
+        return (
+          <DashboardScreen
+            onNavigate={handleScreenChange}
+            onOpenPage={handleOpenDashboardPage}
+            user={user}
+            metrics={metrics}
+            pages={pages}
+          />
+        );
     }
   };
 
+  if (authBootstrapping) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center font-sans">
+        <div className="flex flex-col items-center gap-3 text-slate-500">
+          <span className="h-8 w-8 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
+          <p className="text-xs font-semibold uppercase tracking-widest">Restoring session…</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] flex font-sans antialiased">
-      {currentScreen !== ScreenId.LOGIN && (
+      {isLoggedIn && (
         <Sidebar
           currentScreen={currentScreen}
           onScreenChange={handleScreenChange}
@@ -985,7 +1325,7 @@ export default function App() {
       )}
 
       <div className="flex-1 flex flex-col min-w-0 w-full">
-        {currentScreen !== ScreenId.LOGIN && (
+        {isLoggedIn && (
           <Header
             currentScreen={currentScreen}
             user={user}
@@ -997,6 +1337,7 @@ export default function App() {
             unreadCount={unreadNotificationCount}
             onMarkNotificationRead={handleMarkNotificationRead}
             onMarkAllNotificationsRead={handleMarkAllNotificationsRead}
+            onNotificationNavigate={handleNotificationNavigate}
             onPublish={() => setIsPublishOpen(true)}
           />
         )}
@@ -1005,7 +1346,7 @@ export default function App() {
           {renderContent()}
         </main>
 
-        {currentScreen !== ScreenId.LOGIN && (
+        {isLoggedIn && (
           <footer className="h-10 bg-[#F1F5F9] border-t border-slate-200 text-slate-500 px-4 sm:px-6 flex items-center justify-between text-[10px] uppercase tracking-widest font-mono shrink-0 select-none">
             <div className="flex min-w-0">
               <span className="flex items-center truncate" aria-live="polite">
@@ -1030,7 +1371,7 @@ export default function App() {
         )}
       </div>
 
-      {currentScreen !== ScreenId.LOGIN && (
+      {isLoggedIn && (
         <MobileNavDrawer
           isOpen={isMobileNavOpen}
           onClose={() => setIsMobileNavOpen(false)}
@@ -1039,7 +1380,7 @@ export default function App() {
         />
       )}
 
-      {currentScreen !== ScreenId.LOGIN && (
+      {isLoggedIn && (
         <PublishModal
           isOpen={isPublishOpen}
           settings={publishSettings}

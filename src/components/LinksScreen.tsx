@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { SmartLink } from "../types";
 import {
   Link2,
@@ -7,8 +7,6 @@ import {
   Percent,
   Plus,
   Filter,
-  ListFilter,
-  Check,
   X,
   Smartphone,
   Monitor,
@@ -16,19 +14,65 @@ import {
   Globe,
   Trash2,
   Edit2,
-  ExternalLink,
   Sparkles,
   Copy,
-  ToggleLeft,
-  ToggleRight,
-  Share2
+  Search,
+  ExternalLink
 } from "lucide-react";
+import PageShell, { PageHeader } from "./layout/PageShell";
+
+type RetargetPixel = "fb" | "google" | "tiktok";
 
 interface LinksScreenProps {
   links: SmartLink[];
-  onCreateLink: (title: string, slug: string, shortUrl: string) => void;
+  onCreateLink: (
+    title: string,
+    slug: string,
+    shortUrl: string,
+    destinationUrl: string,
+    retargeting: SmartLink["retargeting"]
+  ) => void;
   onDeleteLink: (id: string) => void;
   onUpdateLink: (updated: SmartLink) => void;
+}
+
+const RETARGET_OPTIONS: Array<{ id: RetargetPixel; label: string }> = [
+  { id: "fb", label: "Facebook" },
+  { id: "google", label: "Google Ads" },
+  { id: "tiktok", label: "TikTok Pixel" }
+];
+
+const DEVICE_SHARES = {
+  MOBILE: 0.72,
+  DESKTOP: 0.2,
+  TABLET: 0.08
+} as const;
+
+const GEO_SHARES = [
+  { name: "United States", share: 0.55 },
+  { name: "United Kingdom", share: 0.25 },
+  { name: "Germany", share: 0.2 }
+] as const;
+
+function normalizeSlug(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^\/+/, "")
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-");
+}
+
+function isValidDestination(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  try {
+    const url = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+    return Boolean(url.hostname.includes("."));
+  } catch {
+    return false;
+  }
 }
 
 export default function LinksScreen({
@@ -41,152 +85,275 @@ export default function LinksScreen({
   const [newTitle, setNewTitle] = useState("");
   const [newSlug, setNewSlug] = useState("");
   const [newTarget, setNewTarget] = useState("");
-  const [newRetargeting, setNewRetargeting] = useState<("fb" | "google" | "tiktok")[]>(["fb", "google"]);
+  const [newRetargeting, setNewRetargeting] = useState<RetargetPixel[]>(["fb", "google"]);
+  const [createError, setCreateError] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
 
-  // State for editing links
   const [editingLink, setEditingLink] = useState<SmartLink | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editTarget, setEditTarget] = useState("");
   const [editSlug, setEditSlug] = useState("");
   const [editStatus, setEditStatus] = useState<"Live" | "Paused">("Live");
-  const [editRetargeting, setEditRetargeting] = useState<("fb" | "google" | "tiktok")[]>([]);
+  const [editRetargeting, setEditRetargeting] = useState<RetargetPixel[]>([]);
+  const [editError, setEditError] = useState("");
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
-  const [activeDevice, setActiveDevice] = useState("MOBILE");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"All" | "Live" | "Paused">("All");
+  const [showFilters, setShowFilters] = useState(false);
+  const [activeDevice, setActiveDevice] = useState<keyof typeof DEVICE_SHARES>("MOBILE");
   const [toast, setToast] = useState<string | null>(null);
 
   const triggerToast = (msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 3000);
+    window.setTimeout(() => setToast(null), 3000);
   };
 
-  const handleCopyLink = (url: string) => {
-    navigator.clipboard.writeText(url);
-    triggerToast("📋 Short URL copied to clipboard!");
+  const copyText = async (value: string, successMessage: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      triggerToast(successMessage);
+    } catch {
+      triggerToast("Unable to copy. Please copy the URL manually.");
+    }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTitle || !newSlug) return;
+  const filteredLinks = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return links.filter((link) => {
+      const matchesSearch =
+        !query ||
+        link.title.toLowerCase().includes(query) ||
+        link.shortUrl.toLowerCase().includes(query) ||
+        link.slug.toLowerCase().includes(query) ||
+        (link.destinationUrl || "").toLowerCase().includes(query);
 
-    // Check if slug is already used
-    const cleanSlug = newSlug.trim().replace(/^\//, "");
-    const short = "acn.link/" + cleanSlug;
-
-    onCreateLink(newTitle, "/" + cleanSlug, short);
-
-    setNewTitle("");
-    setNewSlug("");
-    setNewTarget("");
-    setIsAdding(false);
-    triggerToast("✨ Smart Link created successfully!");
-  };
-
-  const handleSaveEdit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingLink) return;
-
-    const cleanSlug = editSlug.trim().replace(/^\//, "");
-    onUpdateLink({
-      ...editingLink,
-      title: editTitle,
-      slug: "/" + cleanSlug,
-      shortUrl: "acn.link/" + cleanSlug,
-      status: editStatus,
-      retargeting: editRetargeting as any
+      const matchesStatus = statusFilter === "All" || link.status === statusFilter;
+      return matchesSearch && matchesStatus;
     });
+  }, [links, searchQuery, statusFilter]);
 
-    setEditingLink(null);
-    triggerToast("💾 Link configuration saved!");
-  };
-
-  const handleToggleStatus = (link: SmartLink) => {
-    const nextStatus = link.status === "Live" ? "Paused" : "Live";
-    onUpdateLink({
-      ...link,
-      status: nextStatus
-    });
-    triggerToast(`Status switched to ${nextStatus}`);
-  };
-
-  // Simulate user click event to increase metrics live!
-  const handleSimulateClick = (link: SmartLink) => {
-    onUpdateLink({
-      ...link,
-      clicks: link.clicks + 1
-    });
-    triggerToast(`⚡ Simulated Click registered on acn.link${link.slug}!`);
-  };
-
-  // Dynamically calculate metrics based on state
   const totalClicks = links.reduce((acc, curr) => acc + curr.clicks, 0);
-  const activeLinks = links.filter((l) => l.status === "Live").length;
-  const clickConversionRate = links.length > 0 ? ((totalClicks / (links.length * 10 || 1)) * 10).toFixed(1) + "%" : "0%";
+  const activeLinks = links.filter((link) => link.status === "Live").length;
+  const avgClicks = links.length > 0 ? totalClicks / links.length : 0;
+  const clickInteraction =
+    links.length === 0 ? "0%" : `${Math.min(100, Math.round((avgClicks / Math.max(avgClicks, 10)) * 100))}%`;
 
-  // Generate trend line based on actual clicks
-  const clickTrendPoints = [
-    { label: "MON", value: Math.round(totalClicks * 0.1) },
-    { label: "TUE", value: Math.round(totalClicks * 0.15) },
-    { label: "WED", value: Math.round(totalClicks * 0.12) },
-    { label: "THU", value: Math.round(totalClicks * 0.22) },
-    { label: "FRI", value: Math.round(totalClicks * 0.18) },
-    { label: "SAT", value: Math.round(totalClicks * 0.35) },
-    { label: "SUN", value: Math.round(totalClicks * 0.45) }
-  ];
+  const deviceClicks = Math.round(totalClicks * DEVICE_SHARES[activeDevice]);
 
-  // Helper to draw clean SVG line
-  const maxVal = Math.max(...clickTrendPoints.map((p) => p.value), 10);
+  const geoBreakdown = GEO_SHARES.map((country) => ({
+    name: country.name,
+    clicks: Math.round(deviceClicks * country.share),
+    percentage: deviceClicks > 0 ? Math.round(country.share * 100) : 0
+  }));
+
+  const clickTrendPoints = useMemo(() => {
+    const weights = [0.1, 0.15, 0.12, 0.22, 0.18, 0.35, 0.45];
+    const weightSum = weights.reduce((sum, weight) => sum + weight, 0);
+    const labels = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+    return labels.map((label, index) => ({
+      label,
+      value: Math.round((totalClicks * weights[index]) / weightSum)
+    }));
+  }, [totalClicks]);
+
+  const maxVal = Math.max(...clickTrendPoints.map((point) => point.value), 1);
   const chartHeight = 150;
   const chartWidth = 500;
   const padding = 25;
-
   const pointsString = clickTrendPoints
-    .map((pt, i) => {
-      const x = padding + (i * (chartWidth - padding * 2)) / (clickTrendPoints.length - 1);
-      const y = chartHeight - padding - (pt.value / maxVal) * (chartHeight - padding * 2);
+    .map((point, index) => {
+      const x = padding + (index * (chartWidth - padding * 2)) / (clickTrendPoints.length - 1);
+      const y = chartHeight - padding - (point.value / maxVal) * (chartHeight - padding * 2);
       return `${x},${y}`;
     })
     .join(" ");
 
+  const resetCreateForm = () => {
+    setNewTitle("");
+    setNewSlug("");
+    setNewTarget("");
+    setNewRetargeting(["fb", "google"]);
+    setCreateError("");
+  };
+
+  const closeCreateModal = () => {
+    if (isCreating) return;
+    setIsAdding(false);
+    resetCreateForm();
+  };
+
+  const openEditModal = (link: SmartLink) => {
+    setEditingLink(link);
+    setEditTitle(link.title);
+    setEditTarget(link.destinationUrl || "");
+    setEditSlug(link.shortUrl.replace(/^acn\.link\//i, "").replace(/^\//, "") || normalizeSlug(link.slug));
+    setEditStatus(link.status);
+    setEditRetargeting((link.retargeting || []).filter((item): item is RetargetPixel =>
+      ["fb", "google", "tiktok"].includes(item)
+    ));
+    setEditError("");
+  };
+
+  const closeEditModal = () => {
+    if (isSavingEdit) return;
+    setEditingLink(null);
+    setEditError("");
+  };
+
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    setCreateError("");
+
+    const title = newTitle.trim();
+    const cleanSlug = normalizeSlug(newSlug || title);
+    const target = newTarget.trim();
+
+    if (!title) {
+      setCreateError("Link title is required.");
+      return;
+    }
+    if (!isValidDestination(target)) {
+      setCreateError("Enter a valid destination URL.");
+      return;
+    }
+    if (!cleanSlug) {
+      setCreateError("Short slug is required.");
+      return;
+    }
+    if (links.some((link) => normalizeSlug(link.slug) === cleanSlug || link.shortUrl.endsWith(`/${cleanSlug}`))) {
+      setCreateError("That short slug is already in use.");
+      return;
+    }
+
+    setIsCreating(true);
+    window.setTimeout(() => {
+      onCreateLink(title, `/${cleanSlug}`, `acn.link/${cleanSlug}`, target, newRetargeting);
+      setIsCreating(false);
+      setIsAdding(false);
+      resetCreateForm();
+      triggerToast("Smart link created successfully.");
+    }, 300);
+  };
+
+  const handleSaveEdit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editingLink) return;
+    setEditError("");
+
+    const title = editTitle.trim();
+    const cleanSlug = normalizeSlug(editSlug);
+    const target = editTarget.trim();
+
+    if (!title) {
+      setEditError("Link title is required.");
+      return;
+    }
+    if (!isValidDestination(target)) {
+      setEditError("Enter a valid destination URL.");
+      return;
+    }
+    if (!cleanSlug) {
+      setEditError("Short slug is required.");
+      return;
+    }
+    if (
+      links.some(
+        (link) =>
+          link.id !== editingLink.id &&
+          (normalizeSlug(link.slug) === cleanSlug || link.shortUrl.endsWith(`/${cleanSlug}`))
+      )
+    ) {
+      setEditError("That short slug is already in use.");
+      return;
+    }
+
+    setIsSavingEdit(true);
+    window.setTimeout(() => {
+      onUpdateLink({
+        ...editingLink,
+        title,
+        slug: `/${cleanSlug}`,
+        shortUrl: `acn.link/${cleanSlug}`,
+        destinationUrl: target,
+        status: editStatus,
+        retargeting: editRetargeting
+      });
+      setIsSavingEdit(false);
+      setEditingLink(null);
+      triggerToast("Link configuration saved.");
+    }, 300);
+  };
+
+  const handleToggleStatus = (link: SmartLink) => {
+    const nextStatus = link.status === "Live" ? "Paused" : "Live";
+    onUpdateLink({ ...link, status: nextStatus });
+    triggerToast(`Status switched to ${nextStatus}.`);
+  };
+
+  const handleSimulateClick = (link: SmartLink) => {
+    if (link.status !== "Live") {
+      triggerToast("Paused links cannot receive clicks. Set the link to Live first.");
+      return;
+    }
+    onUpdateLink({ ...link, clicks: link.clicks + 1 });
+    triggerToast(`Simulated click registered on ${link.shortUrl}.`);
+  };
+
+  const openDestination = (destinationUrl?: string) => {
+    if (!destinationUrl || !isValidDestination(destinationUrl)) {
+      triggerToast("This link has no valid destination URL.");
+      return;
+    }
+    const url = /^https?:\/\//i.test(destinationUrl) ? destinationUrl : `https://${destinationUrl}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const hasActiveFilters = searchQuery.trim().length > 0 || statusFilter !== "All";
+
+  const toggleRetarget = (
+    current: RetargetPixel[],
+    pixel: RetargetPixel,
+    setter: React.Dispatch<React.SetStateAction<RetargetPixel[]>>
+  ) => {
+    setter(
+      current.includes(pixel) ? current.filter((item) => item !== pixel) : [...current, pixel]
+    );
+  };
+
   return (
-    <div className="flex-1 p-6 md:p-8 space-y-8 max-w-7xl mx-auto w-full relative font-sans text-slate-800">
-      
-      {/* Toast Notice */}
+    <PageShell className="font-sans text-slate-800">
       {toast && (
-        <div className="fixed bottom-6 right-6 bg-slate-900 text-white border border-slate-800 text-xs font-black py-3 px-5 rounded-2xl text-center shadow-2xl z-50 animate-in fade-in slide-in-from-bottom-3 flex items-center justify-center gap-2">
-          <span>🔔</span>
-          <span>{toast}</span>
+        <div className="fixed bottom-6 right-6 bg-slate-900 text-white border border-slate-800 text-xs font-bold py-3 px-5 rounded-2xl shadow-2xl z-50">
+          {toast}
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-        <div>
-          <h2 className="font-display font-black text-3xl text-slate-900 tracking-tight">
-            Smart Short Links
-          </h2>
-          <p className="text-slate-500 text-sm mt-1">
-            Deploy, brand, and track lightning-fast URLs with integrated dynamic routing.
-          </p>
-        </div>
+      <PageHeader
+        title="Smart Short Links"
+        subtitle="Deploy, brand, and track lightning-fast URLs with integrated dynamic routing."
+        actions={
+          <button
+            type="button"
+            onClick={() => setIsAdding(true)}
+            className="flex items-center gap-2 bg-[#FF6B4A] hover:bg-[#FF5533] text-white rounded-2xl px-5 py-2.5 text-xs font-extrabold shadow-md transition-all active:scale-95"
+          >
+            <Plus className="h-4.5 w-4.5" />
+            <span>Shorten a Link</span>
+          </button>
+        }
+      />
 
-        <button
-          onClick={() => setIsAdding(true)}
-          className="flex items-center gap-2 bg-[#FF6B4A] hover:bg-[#FF5533] text-white rounded-2xl px-5 py-2.5 text-xs font-extrabold shadow-md transition-all active:scale-95 self-start sm:self-auto"
-        >
-          <Plus className="h-4.5 w-4.5" />
-          <span>Shorten a Link</span>
-        </button>
-      </div>
-
-      {/* Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white border border-slate-200/60 rounded-2xl p-5 shadow-sm flex items-center justify-between">
-          <div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+        <div className="bg-white border border-slate-200/60 rounded-2xl p-5 shadow-sm flex items-center justify-between min-w-0">
+          <div className="min-w-0">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Links</p>
-            <h3 className="font-display font-black text-3xl text-slate-900 mt-1">{activeLinks} / {links.length}</h3>
+            <h3 className="font-display font-black text-3xl text-slate-900 mt-1">
+              {activeLinks} / {links.length}
+            </h3>
             <span className="text-xs text-emerald-600 font-bold flex items-center gap-1 mt-1.5">
               <TrendingUp className="h-3.5 w-3.5" />
-              100% cloud delivery verified
+              {activeLinks} live redirects
             </span>
           </div>
           <div className="h-12 w-12 rounded-xl bg-indigo-50 text-[#4F46E5] flex items-center justify-center shrink-0">
@@ -194,13 +361,15 @@ export default function LinksScreen({
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200/60 rounded-2xl p-5 shadow-sm flex items-center justify-between">
-          <div>
+        <div className="bg-white border border-slate-200/60 rounded-2xl p-5 shadow-sm flex items-center justify-between min-w-0">
+          <div className="min-w-0">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Click Traffic</p>
-            <h3 className="font-display font-black text-3xl text-slate-900 mt-1">{totalClicks.toLocaleString()}</h3>
+            <h3 className="font-display font-black text-3xl text-slate-900 mt-1">
+              {totalClicks.toLocaleString()}
+            </h3>
             <span className="text-xs text-emerald-600 font-bold flex items-center gap-1 mt-1.5">
               <TrendingUp className="h-3.5 w-3.5" />
-              Real-time events logging active
+              Across all short links
             </span>
           </div>
           <div className="h-12 w-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
@@ -208,13 +377,13 @@ export default function LinksScreen({
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200/60 rounded-2xl p-5 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Click Interaction Level</p>
-            <h3 className="font-display font-black text-3xl text-slate-900 mt-1">{clickConversionRate}</h3>
+        <div className="bg-white border border-slate-200/60 rounded-2xl p-5 shadow-sm flex items-center justify-between min-w-0">
+          <div className="min-w-0">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Avg. Engagement</p>
+            <h3 className="font-display font-black text-3xl text-slate-900 mt-1">{clickInteraction}</h3>
             <span className="text-xs text-indigo-600 font-bold flex items-center gap-1 mt-1.5">
-              <Sparkles className="h-3.5 w-3.5 animate-pulse" />
-              Optimized redirects
+              <Sparkles className="h-3.5 w-3.5" />
+              {avgClicks.toFixed(1)} clicks / link
             </span>
           </div>
           <div className="h-12 w-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
@@ -223,198 +392,353 @@ export default function LinksScreen({
         </div>
       </div>
 
-      {/* Main Two-Column Panel */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        {/* Left Columns - Active Links and Click trends */}
-        <div className="lg:col-span-2 space-y-8">
-          
-          {/* Active Links Table */}
-          <div className="bg-white border border-slate-200/60 rounded-3xl p-6 shadow-sm space-y-4">
-            <div className="flex items-center justify-between">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8">
+        <div className="lg:col-span-2 space-y-6 sm:space-y-8 min-w-0">
+          <div className="bg-white border border-slate-200/60 rounded-3xl p-4 sm:p-6 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <h3 className="font-display font-black text-lg text-slate-900">Configured Links</h3>
-              <div className="flex gap-2">
-                <button className="p-2 hover:bg-slate-50 border border-slate-200 rounded-xl text-slate-400">
-                  <ListFilter className="h-4 w-4" />
-                </button>
-                <button className="p-2 hover:bg-slate-50 border border-slate-200 rounded-xl text-slate-400">
-                  <Filter className="h-4 w-4" />
+              <button
+                type="button"
+                onClick={() => setShowFilters((open) => !open)}
+                className={`inline-flex items-center gap-2 px-3 py-2 border rounded-xl text-xs font-bold transition-colors self-start ${
+                  showFilters || hasActiveFilters
+                    ? "bg-slate-900 border-slate-900 text-white"
+                    : "hover:bg-slate-50 border-slate-200 text-slate-500"
+                }`}
+                aria-expanded={showFilters}
+              >
+                <Filter className="h-4 w-4" />
+                Filters
+                {hasActiveFilters && (
+                  <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[10px]">On</span>
+                )}
+              </button>
+            </div>
+
+            {showFilters && (
+              <div className="flex flex-col sm:flex-row gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                  <input
+                    type="search"
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    placeholder="Search title, slug, or destination..."
+                    className="w-full bg-white border border-slate-200 rounded-xl py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    aria-label="Search links"
+                  />
+                </div>
+                <select
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value as "All" | "Live" | "Paused")}
+                  className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium focus:outline-none"
+                  aria-label="Filter by status"
+                >
+                  <option value="All">All statuses</option>
+                  <option value="Live">Live</option>
+                  <option value="Paused">Paused</option>
+                </select>
+                {hasActiveFilters && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery("");
+                      setStatusFilter("All");
+                    }}
+                    className="px-3 py-2 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-white"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            )}
+
+            {links.length === 0 ? (
+              <div className="py-12 text-center space-y-3">
+                <p className="text-slate-500 text-sm">No smart links yet.</p>
+                <button
+                  type="button"
+                  onClick={() => setIsAdding(true)}
+                  className="inline-flex items-center gap-2 bg-[#FF6B4A] text-white rounded-xl px-4 py-2 text-xs font-extrabold"
+                >
+                  <Plus className="h-4 w-4" />
+                  Shorten a Link
                 </button>
               </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-100 text-slate-400 text-[10px] font-black tracking-wider uppercase">
-                    <th className="py-3 px-2">Title & Destination</th>
-                    <th className="py-3 px-2">Short URL</th>
-                    <th className="py-3 px-2">Status</th>
-                    <th className="py-3 px-2">Retargeting</th>
-                    <th className="py-3 px-2 text-right">Clicks (7D)</th>
-                    <th className="py-3 px-2 text-center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {links.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-12 text-center text-slate-400 text-xs">
-                        No custom smart links shortened yet. Click "Shorten a Link" to begin!
-                      </td>
-                    </tr>
-                  ) : (
-                    links.map((link) => (
-                      <tr key={link.id} className="text-sm group hover:bg-slate-50/50 transition-colors">
-                        <td className="py-4 px-2 max-w-xs">
-                          <div className="font-bold text-slate-800 leading-tight truncate">{link.title}</div>
-                          <span className="text-[10px] text-slate-400 font-mono mt-0.5 block truncate">
-                            Redirects to: <span className="font-bold text-slate-500">{link.slug}</span>
-                          </span>
-                        </td>
-                        <td className="py-4 px-2">
-                          <div className="flex items-center gap-1.5">
-                            <span
-                              onClick={() => handleCopyLink(link.shortUrl)}
-                              className="text-indigo-600 font-black font-mono cursor-pointer hover:underline text-xs"
-                              title="Copy Short URL"
-                            >
-                              {link.shortUrl}
-                            </span>
-                            <button
-                              onClick={() => handleCopyLink(link.shortUrl)}
-                              className="text-slate-300 hover:text-indigo-500 transition-colors p-1"
-                              title="Copy URL"
-                            >
-                              <Copy className="h-3 w-3" />
-                            </button>
-                          </div>
-                        </td>
-                        <td className="py-4 px-2">
+            ) : filteredLinks.length === 0 ? (
+              <div className="py-10 text-center text-slate-400 text-sm space-y-2">
+                <p>No links match your filters.</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setStatusFilter("All");
+                  }}
+                  className="text-[#FF6B4A] font-semibold hover:underline"
+                >
+                  Clear filters
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="lg:hidden divide-y divide-slate-100">
+                  {filteredLinks.map((link) => (
+                    <div key={link.id} className="py-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-bold text-slate-800 truncate">{link.title}</p>
+                          <p className="text-[11px] text-slate-400 font-mono mt-1 truncate">
+                            {link.destinationUrl || "No destination"}
+                          </p>
                           <button
-                            onClick={() => handleToggleStatus(link)}
-                            className="focus:outline-none"
-                            title="Toggle link delivery"
+                            type="button"
+                            onClick={() => void copyText(link.shortUrl, "Short URL copied.")}
+                            className="text-indigo-600 font-black font-mono text-xs mt-1 hover:underline"
                           >
-                            <span
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
-                                link.status === "Live"
-                                  ? "bg-emerald-50 text-emerald-600 border border-emerald-100"
-                                  : "bg-slate-100 text-slate-500 border border-slate-200"
-                              }`}
-                            >
-                              <span className={`h-1.5 w-1.5 rounded-full ${link.status === "Live" ? "bg-emerald-500" : "bg-slate-400"}`} />
-                              {link.status}
-                            </span>
+                            {link.shortUrl}
                           </button>
-                        </td>
-                        <td className="py-4 px-2">
-                          <div className="flex gap-1 text-slate-400">
-                            {link.retargeting && link.retargeting.includes("fb") && (
-                              <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-black text-[8px] uppercase tracking-wider border border-blue-100">
-                                FB
-                              </span>
-                            )}
-                            {link.retargeting && link.retargeting.includes("google") && (
-                              <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 font-black text-[8px] uppercase tracking-wider border border-amber-100">
-                                GG
-                              </span>
-                            )}
-                            {link.retargeting && link.retargeting.includes("tiktok") && (
-                              <span className="px-1.5 py-0.5 rounded bg-slate-100 text-gray-800 font-black text-[8px] uppercase tracking-wider border border-slate-200">
-                                TT
-                              </span>
-                            )}
-                            {(!link.retargeting || link.retargeting.length === 0) && (
-                              <span className="text-[10px] text-slate-400 font-medium">None</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-4 px-2 text-right">
-                          <div className="flex flex-col items-end">
-                            <span className="font-mono font-black text-slate-900">{link.clicks}</span>
-                            <div className="w-16 bg-slate-100 h-1 rounded-full mt-1 overflow-hidden">
-                              <div
-                                className="bg-[#FF6B4A] h-full rounded-full transition-all"
-                                style={{
-                                  width: `${Math.min(100, (link.clicks / (totalClicks || 1)) * 100)}%`
-                                }}
-                              />
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-4 px-2 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
-                            {/* Simulate click */}
-                            <button
-                              onClick={() => handleSimulateClick(link)}
-                              className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 p-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 shrink-0"
-                              title="Simulate User Redirect Click"
-                            >
-                              <Sparkles className="h-3 w-3 text-amber-500" />
-                              <span className="text-[9px] font-black">Click</span>
-                            </button>
+                        </div>
+                        <button type="button" onClick={() => handleToggleStatus(link)}>
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                              link.status === "Live"
+                                ? "bg-emerald-50 text-emerald-600 border border-emerald-100"
+                                : "bg-slate-100 text-slate-500 border border-slate-200"
+                            }`}
+                          >
+                            {link.status}
+                          </span>
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-mono font-black text-slate-900">{link.clicks} clicks</span>
+                        {(link.retargeting || []).map((pixel) => (
+                          <span
+                            key={pixel}
+                            className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-black text-[8px] uppercase"
+                          >
+                            {pixel}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleSimulateClick(link)}
+                          className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2.5 py-1.5 rounded-xl text-[10px] font-black"
+                        >
+                          Simulate click
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openDestination(link.destinationUrl)}
+                          className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl"
+                          aria-label="Open destination"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openEditModal(link)}
+                          className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl"
+                          aria-label={`Edit ${link.title}`}
+                        >
+                          <Edit2 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm(`Delete shortened URL "${link.shortUrl}"?`)) {
+                              onDeleteLink(link.id);
+                              triggerToast("Link deleted.");
+                            }
+                          }}
+                          className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl"
+                          aria-label={`Delete ${link.title}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
 
-                            {/* Edit Link Details */}
-                            <button
-                              onClick={() => {
-                                setEditingLink(link);
-                                setEditTitle(link.title);
-                                setEditTarget(link.slug);
-                                setEditSlug(link.shortUrl.split("acn.link/")[1] || "");
-                                setEditStatus(link.status);
-                                setEditRetargeting(link.retargeting || []);
-                              }}
-                              className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl"
-                              title="Edit Link"
-                            >
-                              <Edit2 className="h-3.5 w-3.5" />
-                            </button>
-
-                            {/* Delete Link */}
-                            <button
-                              onClick={() => {
-                                if (confirm(`Are you sure you want to delete shortened URL "${link.shortUrl}"?`)) {
-                                  onDeleteLink(link.id);
-                                  triggerToast("🗑️ Link deleted permanently.");
-                                }
-                              }}
-                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl"
-                              title="Delete Link"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        </td>
+                <div className="hidden lg:block overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-slate-400 text-[10px] font-black tracking-wider uppercase">
+                        <th className="py-3 px-2">Title & Destination</th>
+                        <th className="py-3 px-2">Short URL</th>
+                        <th className="py-3 px-2">Status</th>
+                        <th className="py-3 px-2">Retargeting</th>
+                        <th className="py-3 px-2 text-right">Clicks</th>
+                        <th className="py-3 px-2 text-center">Actions</th>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredLinks.map((link) => (
+                        <tr key={link.id} className="text-sm group hover:bg-slate-50/50 transition-colors">
+                          <td className="py-4 px-2 max-w-xs">
+                            <div className="font-bold text-slate-800 leading-tight truncate">{link.title}</div>
+                            <span className="text-[10px] text-slate-400 font-mono mt-0.5 block truncate">
+                              Redirects to:{" "}
+                              <span className="font-bold text-slate-500">
+                                {link.destinationUrl || "Not configured"}
+                              </span>
+                            </span>
+                          </td>
+                          <td className="py-4 px-2">
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => void copyText(link.shortUrl, "Short URL copied.")}
+                                className="text-indigo-600 font-black font-mono hover:underline text-xs"
+                                title="Copy short URL"
+                              >
+                                {link.shortUrl}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void copyText(link.shortUrl, "Short URL copied.")}
+                                className="text-slate-300 hover:text-indigo-500 transition-colors p-1"
+                                title="Copy URL"
+                              >
+                                <Copy className="h-3 w-3" />
+                              </button>
+                            </div>
+                          </td>
+                          <td className="py-4 px-2">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleStatus(link)}
+                              className="focus:outline-none"
+                              title="Toggle link delivery"
+                            >
+                              <span
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                                  link.status === "Live"
+                                    ? "bg-emerald-50 text-emerald-600 border border-emerald-100"
+                                    : "bg-slate-100 text-slate-500 border border-slate-200"
+                                }`}
+                              >
+                                <span
+                                  className={`h-1.5 w-1.5 rounded-full ${
+                                    link.status === "Live" ? "bg-emerald-500" : "bg-slate-400"
+                                  }`}
+                                />
+                                {link.status}
+                              </span>
+                            </button>
+                          </td>
+                          <td className="py-4 px-2">
+                            <div className="flex gap-1 text-slate-400">
+                              {link.retargeting?.includes("fb") && (
+                                <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-black text-[8px] uppercase tracking-wider border border-blue-100">
+                                  FB
+                                </span>
+                              )}
+                              {link.retargeting?.includes("google") && (
+                                <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 font-black text-[8px] uppercase tracking-wider border border-amber-100">
+                                  GG
+                                </span>
+                              )}
+                              {link.retargeting?.includes("tiktok") && (
+                                <span className="px-1.5 py-0.5 rounded bg-slate-100 text-gray-800 font-black text-[8px] uppercase tracking-wider border border-slate-200">
+                                  TT
+                                </span>
+                              )}
+                              {(!link.retargeting || link.retargeting.length === 0) && (
+                                <span className="text-[10px] text-slate-400 font-medium">None</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-4 px-2 text-right">
+                            <div className="flex flex-col items-end">
+                              <span className="font-mono font-black text-slate-900">{link.clicks}</span>
+                              <div className="w-16 bg-slate-100 h-1 rounded-full mt-1 overflow-hidden">
+                                <div
+                                  className="bg-[#FF6B4A] h-full rounded-full transition-all"
+                                  style={{
+                                    width: `${Math.min(100, (link.clicks / (totalClicks || 1)) * 100)}%`
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-4 px-2 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleSimulateClick(link)}
+                                className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 p-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 shrink-0"
+                                title="Simulate user click"
+                              >
+                                <Sparkles className="h-3 w-3 text-amber-500" />
+                                <span className="text-[9px] font-black">Click</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openDestination(link.destinationUrl)}
+                                className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl"
+                                title="Open destination"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openEditModal(link)}
+                                className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl"
+                                title="Edit link"
+                              >
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (window.confirm(`Delete shortened URL "${link.shortUrl}"?`)) {
+                                    onDeleteLink(link.id);
+                                    triggerToast("Link deleted.");
+                                  }
+                                }}
+                                className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl"
+                                title="Delete link"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
 
-          {/* Click Trends Chart */}
-          <div className="bg-white border border-slate-200/60 rounded-3xl p-6 shadow-sm space-y-4">
-            <div className="flex items-center justify-between">
+          <div className="bg-white border border-slate-200/60 rounded-3xl p-4 sm:p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between gap-3">
               <h3 className="font-display font-black text-lg text-slate-900">Performance Timeline</h3>
               <span className="bg-slate-50 border border-slate-200 text-slate-500 rounded-xl px-3 py-1.5 text-xs font-semibold">
-                Live Click Activity
+                Click activity
               </span>
             </div>
 
-            {/* SVG Line Chart */}
             <div className="relative pt-4">
               {totalClicks === 0 ? (
                 <div className="h-44 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200 flex flex-col items-center justify-center p-4 text-center">
-                  <p className="text-2xl mb-1">📈</p>
-                  <p className="text-xs font-bold text-slate-700">Waiting for live short-link traffic</p>
+                  <p className="text-xs font-bold text-slate-700">Waiting for short-link traffic</p>
                   <p className="text-[10px] text-slate-400 mt-1 max-w-sm">
-                    Click "Click" on any of your links to simulate user interaction and trace analytics instantly!
+                    Use Simulate click on a live link to register activity and update this chart.
                   </p>
                 </div>
               ) : (
-                <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="w-full h-44 overflow-visible">
-                  {/* Horizontal gridlines */}
+                <svg
+                  viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+                  className="w-full h-44 overflow-visible"
+                  role="img"
+                  aria-label="Weekly click performance chart"
+                >
                   {[0, 0.25, 0.5, 0.75, 1].map((ratio, index) => {
                     const y = padding + ratio * (chartHeight - padding * 2);
                     return (
@@ -429,8 +753,6 @@ export default function LinksScreen({
                       />
                     );
                   })}
-
-                  {/* Line Path */}
                   <polyline
                     fill="none"
                     stroke="#FF6B4A"
@@ -438,44 +760,31 @@ export default function LinksScreen({
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     points={pointsString}
-                    className="drop-shadow-md"
                   />
-
-                  {/* Interactive Points on Line */}
-                  {clickTrendPoints.map((pt, i) => {
-                    const x = padding + (i * (chartWidth - padding * 2)) / (clickTrendPoints.length - 1);
-                    const y = chartHeight - padding - (pt.value / maxVal) * (chartHeight - padding * 2);
+                  {clickTrendPoints.map((point, index) => {
+                    const x =
+                      padding + (index * (chartWidth - padding * 2)) / (clickTrendPoints.length - 1);
+                    const y =
+                      chartHeight - padding - (point.value / maxVal) * (chartHeight - padding * 2);
                     return (
-                      <g key={i} className="group cursor-pointer">
-                        <circle
-                          cx={x}
-                          cy={y}
-                          r="5"
-                          fill="#FF6B4A"
-                          stroke="#ffffff"
-                          strokeWidth="2"
-                        />
-                        <title>{pt.label}: {pt.value} clicks</title>
+                      <g key={point.label}>
+                        <circle cx={x} cy={y} r="5" fill="#FF6B4A" stroke="#ffffff" strokeWidth="2">
+                          <title>
+                            {point.label}: {point.value} clicks
+                          </title>
+                        </circle>
+                        <text
+                          x={x}
+                          y={chartHeight - 4}
+                          fill="#94a3b8"
+                          fontSize="9"
+                          fontWeight="black"
+                          fontFamily="monospace"
+                          textAnchor="middle"
+                        >
+                          {point.label}
+                        </text>
                       </g>
-                    );
-                  })}
-
-                  {/* X-Axis labels */}
-                  {clickTrendPoints.map((pt, i) => {
-                    const x = padding + (i * (chartWidth - padding * 2)) / (clickTrendPoints.length - 1);
-                    return (
-                      <text
-                        key={i}
-                        x={x}
-                        y={chartHeight - 4}
-                        fill="#94a3b8"
-                        fontSize="9"
-                        fontWeight="black"
-                        fontFamily="monospace"
-                        textAnchor="middle"
-                      >
-                        {pt.label}
-                      </text>
                     );
                   })}
                 </svg>
@@ -484,120 +793,152 @@ export default function LinksScreen({
           </div>
         </div>
 
-        {/* Right Column - Traffic Breakdown */}
-        <div className="space-y-6">
+        <div className="space-y-6 min-w-0">
           <div className="bg-white border border-slate-200/60 rounded-3xl p-6 shadow-sm space-y-6">
             <h3 className="font-display font-black text-slate-900 text-base">Handoff Diagnostics</h3>
 
-            {/* Country breakdown list */}
             <div className="space-y-4">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Global Traffic</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                  Traffic by region
+                </p>
+                <span className="text-[10px] font-mono text-slate-500">
+                  {activeDevice}: {deviceClicks} clicks
+                </span>
+              </div>
 
-              {[
-                { name: "United States", percentage: totalClicks > 0 ? 55 : 0 },
-                { name: "United Kingdom", percentage: totalClicks > 0 ? 25 : 0 },
-                { name: "Germany", percentage: totalClicks > 0 ? 20 : 0 }
-              ].map((country) => (
+              {geoBreakdown.map((country) => (
                 <div key={country.name} className="space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-bold text-slate-700 flex items-center gap-1.5">
                       <Globe className="h-4 w-4 text-slate-400" />
                       {country.name}
                     </span>
-                    <span className="font-mono font-black text-slate-900">{country.percentage}%</span>
+                    <span className="font-mono font-black text-slate-900">
+                      {country.percentage}% · {country.clicks}
+                    </span>
                   </div>
                   <div className="w-full bg-slate-50 h-2 rounded-full overflow-hidden border border-slate-100">
                     <div
-                      className="bg-indigo-600 h-full rounded-full transition-all duration-1000"
+                      className="bg-indigo-600 h-full rounded-full transition-all duration-500"
                       style={{ width: `${country.percentage}%` }}
                     />
                   </div>
                 </div>
               ))}
+              {totalClicks === 0 && (
+                <p className="text-[11px] text-slate-400">
+                  Region estimates appear after your links receive clicks.
+                </p>
+              )}
             </div>
 
-            {/* Devices grid */}
             <div className="space-y-4 pt-4 border-t border-slate-100">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Device Profiling</p>
-
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                Device profiling
+              </p>
               <div className="grid grid-cols-3 gap-2">
-                {[
-                  { name: "MOBILE", percentage: totalClicks > 0 ? "72%" : "0%", icon: Smartphone },
-                  { name: "DESKTOP", percentage: totalClicks > 0 ? "20%" : "0%", icon: Monitor },
-                  { name: "TABLET", percentage: totalClicks > 0 ? "8%" : "0%", icon: Tablet }
-                ].map((dev) => {
-                  const DevIcon = dev.icon;
-                  const isSelected = activeDevice === dev.name;
+                {(
+                  [
+                    { name: "MOBILE" as const, icon: Smartphone },
+                    { name: "DESKTOP" as const, icon: Monitor },
+                    { name: "TABLET" as const, icon: Tablet }
+                  ]
+                ).map((device) => {
+                  const DevIcon = device.icon;
+                  const isSelected = activeDevice === device.name;
+                  const percentage =
+                    totalClicks > 0 ? `${Math.round(DEVICE_SHARES[device.name] * 100)}%` : "0%";
                   return (
                     <button
-                      key={dev.name}
-                      onClick={() => setActiveDevice(dev.name)}
+                      key={device.name}
+                      type="button"
+                      onClick={() => setActiveDevice(device.name)}
+                      aria-pressed={isSelected}
                       className={`p-3 rounded-2xl border flex flex-col items-center justify-center text-center transition-all ${
                         isSelected
-                          ? "bg-slate-900 border-slate-900 text-white shadow-md shadow-slate-950/10"
-                          : "border-slate-250 bg-white hover:bg-slate-50 text-slate-600"
+                          ? "bg-slate-900 border-slate-900 text-white shadow-md"
+                          : "border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
                       }`}
                     >
                       <DevIcon className={`h-4.5 w-4.5 mb-1 ${isSelected ? "text-white" : "text-slate-400"}`} />
-                      <span className="text-[8px] font-black tracking-wider leading-none">{dev.name}</span>
-                      <span className="text-xs font-black mt-1 font-mono leading-none">{dev.percentage}</span>
+                      <span className="text-[8px] font-black tracking-wider leading-none">{device.name}</span>
+                      <span className="text-xs font-black mt-1 font-mono leading-none">{percentage}</span>
                     </button>
                   );
                 })}
               </div>
+              <p className="text-[11px] text-slate-400">
+                Selecting a device updates the regional breakdown for that profile.
+              </p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Create Link Dialog Modal */}
       {isAdding && (
         <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-link-title"
+            className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100"
+          >
             <div className="flex items-center justify-between mb-5">
-              <h3 className="font-display font-black text-xl text-slate-900">Shorten a Link</h3>
-              <button onClick={() => setIsAdding(false)} className="text-slate-400 hover:text-slate-600 p-1 rounded-full">
+              <h3 id="create-link-title" className="font-display font-black text-xl text-slate-900">
+                Shorten a Link
+              </h3>
+              <button
+                type="button"
+                onClick={closeCreateModal}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-full"
+              >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4" noValidate>
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
-                  LINK TITLE
+                  Link title
                 </label>
                 <input
                   type="text"
                   required
+                  autoFocus
                   placeholder="e.g. Winter Sale Promo"
                   value={newTitle}
-                  onChange={(e) => {
-                    setNewTitle(e.target.value);
-                    if (!newSlug) {
-                      setNewSlug(e.target.value.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""));
-                    }
+                  onChange={(event) => {
+                    const title = event.target.value;
+                    setNewTitle((previousTitle) => {
+                      const previousSlug = normalizeSlug(previousTitle);
+                      if (!newSlug || newSlug === previousSlug) {
+                        setNewSlug(normalizeSlug(title));
+                      }
+                      return title;
+                    });
                   }}
-                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] focus:ring-1 focus:ring-[#4F46E5] rounded-xl py-2.5 px-3.5 text-xs focus:outline-none"
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-xl py-2.5 px-3.5 text-xs focus:outline-none"
                 />
               </div>
 
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
-                  TARGET LONG URL
+                  Target long URL
                 </label>
                 <input
-                  type="text"
+                  type="url"
                   required
-                  placeholder="e.g. mywebsite.com/winter-deal-xyz"
+                  placeholder="e.g. https://mywebsite.com/winter-deal"
                   value={newTarget}
-                  onChange={(e) => setNewTarget(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] focus:ring-1 focus:ring-[#4F46E5] rounded-xl py-2.5 px-3.5 text-xs focus:outline-none"
+                  onChange={(event) => setNewTarget(event.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-xl py-2.5 px-3.5 text-xs focus:outline-none"
                 />
               </div>
 
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
-                  SHORT SLUG
+                  Short slug
                 </label>
                 <div className="flex items-center">
                   <span className="bg-slate-100 border border-slate-200 border-r-0 rounded-l-xl px-3 py-2.5 text-xs text-slate-400 font-mono">
@@ -608,61 +949,58 @@ export default function LinksScreen({
                     required
                     placeholder="winter-sale"
                     value={newSlug}
-                    onChange={(e) => setNewSlug(e.target.value.toLowerCase().replace(/\s+/g, "-"))}
-                    className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] focus:ring-1 focus:ring-[#4F46E5] rounded-r-xl py-2.5 px-3.5 text-xs focus:outline-none"
+                    onChange={(event) => setNewSlug(normalizeSlug(event.target.value))}
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-r-xl py-2.5 px-3.5 text-xs focus:outline-none"
                   />
                 </div>
               </div>
 
-              {/* Retargeting pixels select */}
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
-                  DEPLOY RETARGETING PIXELS
+                  Retargeting pixels
                 </label>
                 <div className="flex gap-2">
-                  {[
-                    { id: "fb", label: "Facebook" },
-                    { id: "google", label: "Google Ads" },
-                    { id: "tiktok", label: "TikTok Pixel" }
-                  ].map((px) => {
-                    const isSelected = newRetargeting.includes(px.id as any);
+                  {RETARGET_OPTIONS.map((pixel) => {
+                    const isSelected = newRetargeting.includes(pixel.id);
                     return (
                       <button
-                        key={px.id}
+                        key={pixel.id}
                         type="button"
-                        onClick={() => {
-                          if (isSelected) {
-                            setNewRetargeting(newRetargeting.filter(r => r !== px.id));
-                          } else {
-                            setNewRetargeting([...newRetargeting, px.id as any]);
-                          }
-                        }}
+                        onClick={() => toggleRetarget(newRetargeting, pixel.id, setNewRetargeting)}
                         className={`flex-1 py-2 px-3 rounded-xl border text-[10px] font-bold transition-all ${
                           isSelected
                             ? "bg-slate-900 border-slate-900 text-white"
                             : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
                         }`}
                       >
-                        {px.label}
+                        {pixel.label}
                       </button>
                     );
                   })}
                 </div>
               </div>
 
+              {createError && (
+                <p className="text-xs font-medium text-rose-600" role="alert">
+                  {createError}
+                </p>
+              )}
+
               <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setIsAdding(false)}
-                  className="px-4 py-2.5 text-xs font-bold text-slate-500 hover:bg-slate-50 rounded-xl"
+                  onClick={closeCreateModal}
+                  disabled={isCreating}
+                  className="px-4 py-2.5 text-xs font-bold text-slate-500 hover:bg-slate-50 rounded-xl disabled:opacity-60"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-[#FF6B4A] hover:bg-[#FF5533] text-white rounded-xl text-xs font-extrabold shadow-sm"
+                  disabled={isCreating}
+                  className="px-5 py-2.5 bg-[#FF6B4A] hover:bg-[#FF5533] disabled:opacity-70 disabled:cursor-not-allowed text-white rounded-xl text-xs font-extrabold shadow-sm"
                 >
-                  Create Short Link
+                  {isCreating ? "Creating…" : "Create Short Link"}
                 </button>
               </div>
             </form>
@@ -670,47 +1008,57 @@ export default function LinksScreen({
         </div>
       )}
 
-      {/* Edit Link Dialog Modal */}
       {editingLink && (
         <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-link-title"
+            className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100"
+          >
             <div className="flex items-center justify-between mb-5">
-              <h3 className="font-display font-black text-xl text-slate-900">Configure Link</h3>
-              <button onClick={() => setEditingLink(null)} className="text-slate-400 hover:text-slate-600 p-1 rounded-full">
+              <h3 id="edit-link-title" className="font-display font-black text-xl text-slate-900">
+                Configure Link
+              </h3>
+              <button
+                type="button"
+                onClick={closeEditModal}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-full"
+              >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveEdit} className="space-y-4">
+            <form onSubmit={handleSaveEdit} className="space-y-4" noValidate>
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
-                  LINK TITLE
+                  Link title
                 </label>
                 <input
                   type="text"
                   required
                   value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] focus:ring-1 focus:ring-[#4F46E5] rounded-xl py-2.5 px-3.5 text-xs focus:outline-none"
+                  onChange={(event) => setEditTitle(event.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-xl py-2.5 px-3.5 text-xs focus:outline-none"
                 />
               </div>
 
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
-                  REDIRECT TARGET URL
+                  Redirect target URL
                 </label>
                 <input
-                  type="text"
+                  type="url"
                   required
                   value={editTarget}
-                  onChange={(e) => setEditTarget(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] focus:ring-1 focus:ring-[#4F46E5] rounded-xl py-2.5 px-3.5 text-xs focus:outline-none"
+                  onChange={(event) => setEditTarget(event.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-xl py-2.5 px-3.5 text-xs focus:outline-none"
                 />
               </div>
 
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
-                  CUSTOM SHORT SLUG
+                  Custom short slug
                 </label>
                 <div className="flex items-center">
                   <span className="bg-slate-100 border border-slate-200 border-r-0 rounded-l-xl px-3 py-2.5 text-xs text-slate-400 font-mono">
@@ -720,95 +1068,91 @@ export default function LinksScreen({
                     type="text"
                     required
                     value={editSlug}
-                    onChange={(e) => setEditSlug(e.target.value.toLowerCase().replace(/\s+/g, "-"))}
-                    className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] focus:ring-1 focus:ring-[#4F46E5] rounded-r-xl py-2.5 px-3.5 text-xs focus:outline-none"
+                    onChange={(event) => setEditSlug(normalizeSlug(event.target.value))}
+                    className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-r-xl py-2.5 px-3.5 text-xs focus:outline-none"
                   />
                 </div>
               </div>
 
-              {/* Status Selector */}
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
-                  ROUTING DELIVERY STATUS
+                  Routing status
                 </label>
                 <div className="flex gap-2">
-                  {[
-                    { id: "Live", label: "Live Redirect (Active)", icon: "🟢" },
-                    { id: "Paused", label: "Pause Redirect (Inactive)", icon: "⏸️" }
-                  ].map((st) => (
+                  {(
+                    [
+                      { id: "Live" as const, label: "Live" },
+                      { id: "Paused" as const, label: "Paused" }
+                    ]
+                  ).map((status) => (
                     <button
-                      key={st.id}
+                      key={status.id}
                       type="button"
-                      onClick={() => setEditStatus(st.id as any)}
-                      className={`flex-1 py-2 px-3 rounded-xl border text-[10px] font-bold flex items-center justify-center gap-1.5 transition-all ${
-                        editStatus === st.id
+                      onClick={() => setEditStatus(status.id)}
+                      className={`flex-1 py-2 px-3 rounded-xl border text-[10px] font-bold transition-all ${
+                        editStatus === status.id
                           ? "bg-slate-900 border-slate-900 text-white"
                           : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
                       }`}
                     >
-                      <span>{st.icon}</span>
-                      <span>{st.label}</span>
+                      {status.label}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Retargeting pixels select */}
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
-                  DEPLOY RETARGETING PIXELS
+                  Retargeting pixels
                 </label>
                 <div className="flex gap-2">
-                  {[
-                    { id: "fb", label: "Facebook" },
-                    { id: "google", label: "Google Ads" },
-                    { id: "tiktok", label: "TikTok Pixel" }
-                  ].map((px) => {
-                    const isSelected = editRetargeting.includes(px.id as any);
+                  {RETARGET_OPTIONS.map((pixel) => {
+                    const isSelected = editRetargeting.includes(pixel.id);
                     return (
                       <button
-                        key={px.id}
+                        key={pixel.id}
                         type="button"
-                        onClick={() => {
-                          if (isSelected) {
-                            setEditRetargeting(editRetargeting.filter(r => r !== px.id));
-                          } else {
-                            setEditRetargeting([...editRetargeting, px.id as any]);
-                          }
-                        }}
+                        onClick={() => toggleRetarget(editRetargeting, pixel.id, setEditRetargeting)}
                         className={`flex-1 py-2 px-3 rounded-xl border text-[10px] font-bold transition-all ${
                           isSelected
                             ? "bg-slate-900 border-slate-900 text-white"
                             : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
                         }`}
                       >
-                        {px.label}
+                        {pixel.label}
                       </button>
                     );
                   })}
                 </div>
               </div>
 
+              {editError && (
+                <p className="text-xs font-medium text-rose-600" role="alert">
+                  {editError}
+                </p>
+              )}
+
               <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setEditingLink(null)}
-                  className="px-4 py-2.5 text-xs font-bold text-slate-500 hover:bg-slate-50 rounded-xl"
+                  onClick={closeEditModal}
+                  disabled={isSavingEdit}
+                  className="px-4 py-2.5 text-xs font-bold text-slate-500 hover:bg-slate-50 rounded-xl disabled:opacity-60"
                 >
                   Discard
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-slate-900 hover:bg-slate-950 text-white rounded-xl text-xs font-black shadow-sm"
+                  disabled={isSavingEdit}
+                  className="px-5 py-2.5 bg-slate-900 hover:bg-slate-950 disabled:opacity-70 disabled:cursor-not-allowed text-white rounded-xl text-xs font-black shadow-sm"
                 >
-                  Save Configuration
+                  {isSavingEdit ? "Saving…" : "Save Configuration"}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-
-    </div>
+    </PageShell>
   );
 }

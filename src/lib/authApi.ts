@@ -1,0 +1,351 @@
+export interface AuthUser {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  name: string;
+  companyName: string;
+  businessName: string;
+  phone: string;
+  country: string;
+  avatarUrl: string;
+  plan: string;
+  isVerified: boolean;
+  emailVerified: boolean;
+  status: string;
+  mfaEnabled?: boolean;
+  newsletterOptIn?: boolean;
+  createdAt?: string;
+  lastLoginAt?: string | null;
+}
+
+export interface AuthTokens {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn?: number;
+}
+
+export interface AuthConfig {
+  googleEnabled: boolean;
+  githubEnabled: boolean;
+  googleClientId: string;
+  githubClientId: string;
+  appUrl: string;
+  exposeTokens: boolean;
+  allowDevOAuth: boolean;
+  demoHint: { email: string; password: string } | null;
+  idleTimeoutMs: number;
+}
+
+const ACCESS_KEY = "acnlink_access_token";
+const REFRESH_KEY = "acnlink_refresh_token";
+const USER_KEY = "acnlink_auth_user";
+const ACTIVITY_KEY = "acnlink_last_activity";
+
+export function saveAuthSession(user: AuthUser, tokens: AuthTokens, rememberMe: boolean) {
+  const storage = rememberMe ? localStorage : sessionStorage;
+  const other = rememberMe ? sessionStorage : localStorage;
+  other.removeItem(ACCESS_KEY);
+  other.removeItem(REFRESH_KEY);
+  other.removeItem(USER_KEY);
+  storage.setItem(ACCESS_KEY, tokens.accessToken);
+  storage.setItem(REFRESH_KEY, tokens.refreshToken);
+  storage.setItem(USER_KEY, JSON.stringify(user));
+  touchActivity();
+}
+
+export function clearAuthSession() {
+  localStorage.removeItem(ACCESS_KEY);
+  localStorage.removeItem(REFRESH_KEY);
+  localStorage.removeItem(USER_KEY);
+  sessionStorage.removeItem(ACCESS_KEY);
+  sessionStorage.removeItem(REFRESH_KEY);
+  sessionStorage.removeItem(USER_KEY);
+  sessionStorage.removeItem("acnlink_session");
+  localStorage.removeItem(ACTIVITY_KEY);
+  sessionStorage.removeItem(ACTIVITY_KEY);
+}
+
+export function touchActivity() {
+  const value = String(Date.now());
+  if (localStorage.getItem(ACCESS_KEY)) localStorage.setItem(ACTIVITY_KEY, value);
+  if (sessionStorage.getItem(ACCESS_KEY)) sessionStorage.setItem(ACTIVITY_KEY, value);
+}
+
+export function getLastActivity(): number {
+  const raw = localStorage.getItem(ACTIVITY_KEY) || sessionStorage.getItem(ACTIVITY_KEY);
+  const parsed = raw ? Number(raw) : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function getAccessToken(): string | null {
+  return localStorage.getItem(ACCESS_KEY) || sessionStorage.getItem(ACCESS_KEY);
+}
+
+export function getRefreshToken(): string | null {
+  return localStorage.getItem(REFRESH_KEY) || sessionStorage.getItem(REFRESH_KEY);
+}
+
+export function getStoredAuthUser(): AuthUser | null {
+  try {
+    const raw = localStorage.getItem(USER_KEY) || sessionStorage.getItem(USER_KEY);
+    return raw ? (JSON.parse(raw) as AuthUser) : null;
+  } catch {
+    return null;
+  }
+}
+
+export class AuthApiError extends Error {
+  code: string;
+  status: number;
+
+  constructor(message: string, code = "UNKNOWN", status = 400) {
+    super(message);
+    this.code = code;
+    this.status = status;
+  }
+}
+
+async function parseResponse<T>(response: Response): Promise<T> {
+  let data: any = null;
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+  if (!response.ok) {
+    throw new AuthApiError(
+      data?.error || "Request failed.",
+      data?.code || "REQUEST_FAILED",
+      response.status
+    );
+  }
+  return data as T;
+}
+
+async function authFetch<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
+  const headers = new Headers(init.headers || {});
+  if (!headers.has("Content-Type") && init.body) {
+    headers.set("Content-Type", "application/json");
+  }
+  const accessToken = getAccessToken();
+  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+
+  let response: Response;
+  try {
+    response = await fetch(path, { ...init, headers, credentials: "include" });
+  } catch {
+    throw new AuthApiError("Network error. Check your connection and try again.", "NETWORK_ERROR", 0);
+  }
+
+  if (response.status === 401 && retry && getRefreshToken()) {
+    try {
+      await refreshSession();
+      return authFetch<T>(path, init, false);
+    } catch {
+      clearAuthSession();
+    }
+  }
+
+  return parseResponse<T>(response);
+}
+
+export async function fetchAuthConfig() {
+  return authFetch<AuthConfig>("/api/auth/config", {}, false);
+}
+
+export async function loginRequest(input: {
+  email: string;
+  password: string;
+  rememberMe: boolean;
+}) {
+  return authFetch<{
+    success: boolean;
+    user: AuthUser;
+    accessToken: string;
+    refreshToken: string;
+    expiresIn: number;
+  }>(
+    "/api/auth/login",
+    {
+      method: "POST",
+      body: JSON.stringify(input)
+    },
+    false
+  );
+}
+
+export async function registerRequest(input: Record<string, unknown>) {
+  return authFetch<{
+    success: boolean;
+    message: string;
+    user: AuthUser;
+    verificationToken?: string;
+  }>(
+    "/api/auth/register",
+    {
+      method: "POST",
+      body: JSON.stringify(input)
+    },
+    false
+  );
+}
+
+export async function forgotPasswordRequest(email: string) {
+  return authFetch<{
+    success: boolean;
+    message: string;
+    otp?: string;
+  }>(
+    "/api/auth/forgot-password",
+    {
+      method: "POST",
+      body: JSON.stringify({ email })
+    },
+    false
+  );
+}
+
+export async function verifyResetOtpRequest(email: string, otp: string) {
+  return authFetch<{ success: boolean }>("/api/auth/verify-reset-otp", {
+    method: "POST",
+    body: JSON.stringify({ email, otp })
+  }, false);
+}
+
+export async function resetPasswordRequest(input: {
+  email: string;
+  otp: string;
+  password: string;
+  confirmPassword: string;
+}) {
+  return authFetch<{ success: boolean; message: string }>("/api/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify(input)
+  }, false);
+}
+
+export async function verifyEmailRequest(token: string) {
+  return authFetch<{ success: boolean; message: string; user: AuthUser }>("/api/auth/verify-email", {
+    method: "POST",
+    body: JSON.stringify({ token })
+  }, false);
+}
+
+export async function resendVerificationRequest(email: string) {
+  return authFetch<{ success: boolean; message: string; verificationToken?: string }>(
+    "/api/auth/resend-verification",
+    {
+      method: "POST",
+      body: JSON.stringify({ email })
+    },
+    false
+  );
+}
+
+export async function fetchMe() {
+  return authFetch<{ user: AuthUser }>("/api/auth/me");
+}
+
+export async function logoutRequest() {
+  try {
+    await authFetch<{ success: boolean }>("/api/auth/logout", { method: "POST" }, false);
+  } finally {
+    clearAuthSession();
+  }
+}
+
+export async function refreshSession() {
+  const refreshToken = getRefreshToken();
+  const data = await authFetch<{
+    success: boolean;
+    user: AuthUser;
+    accessToken: string;
+    refreshToken: string;
+  }>(
+    "/api/auth/refresh-token",
+    {
+      method: "POST",
+      body: JSON.stringify({ refreshToken })
+    },
+    false
+  );
+  const rememberMe = Boolean(localStorage.getItem(ACCESS_KEY));
+  saveAuthSession(data.user, data, rememberMe);
+  return data;
+}
+
+export async function updateProfileRequest(input: Record<string, unknown>) {
+  return authFetch<{ success: boolean; user: AuthUser }>("/api/auth/profile", {
+    method: "PUT",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function changePasswordRequest(input: {
+  currentPassword: string;
+  password: string;
+  confirmPassword: string;
+}) {
+  return authFetch<{ success: boolean; message: string }>("/api/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function deleteAccountRequest() {
+  return authFetch<{ success: boolean }>("/api/auth/account", { method: "DELETE" });
+}
+
+export async function googleLoginRequest(input?: {
+  email?: string;
+  name?: string;
+  avatarUrl?: string;
+  idToken?: string;
+  accessToken?: string;
+  rememberMe?: boolean;
+}) {
+  return authFetch<{
+    success: boolean;
+    user: AuthUser;
+    accessToken: string;
+    refreshToken: string;
+  }>(
+    "/api/auth/google-login",
+    {
+      method: "POST",
+      body: JSON.stringify(input || {})
+    },
+    false
+  );
+}
+
+export async function githubLoginRequest(input?: {
+  email?: string;
+  name?: string;
+  avatarUrl?: string;
+  code?: string;
+  rememberMe?: boolean;
+}) {
+  return authFetch<{
+    success: boolean;
+    user: AuthUser;
+    accessToken: string;
+    refreshToken: string;
+  }>(
+    "/api/auth/github-login",
+    {
+      method: "POST",
+      body: JSON.stringify(input || {})
+    },
+    false
+  );
+}
+
+export async function passwordStrengthRequest(password: string) {
+  const response = await fetch(
+    `/api/auth/password-strength?password=${encodeURIComponent(password)}`,
+    { credentials: "include" }
+  );
+  return parseResponse<{ strength: "weak" | "fair" | "good" | "strong" }>(response);
+}

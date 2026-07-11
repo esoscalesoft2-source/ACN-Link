@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import { AppNotification, ScreenId, UserProfile } from "../types";
 import { Search, Plus, Menu, Rocket } from "lucide-react";
-import { getScreenTitle } from "../navigation";
 import NotificationPanel from "./NotificationPanel";
 
 interface HeaderProps {
@@ -15,6 +14,7 @@ interface HeaderProps {
   unreadCount: number;
   onMarkNotificationRead: (id: string) => void;
   onMarkAllNotificationsRead: () => void;
+  onNotificationNavigate?: (screen: ScreenId, pageId?: string) => void;
   onPublish?: () => void;
 }
 
@@ -29,6 +29,7 @@ export default function Header({
   unreadCount,
   onMarkNotificationRead,
   onMarkAllNotificationsRead,
+  onNotificationNavigate,
   onPublish
 }: HeaderProps) {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -66,7 +67,6 @@ export default function Header({
   };
 
   const details = getUserDetails();
-  const pageTitle = getScreenTitle(currentScreen);
   const hasProfilePhoto = /^(data:image\/|https?:\/\/)/i.test(user.avatarUrl);
 
   const showQuickCreate =
@@ -95,12 +95,9 @@ export default function Header({
         </button>
 
         <div className="lg:hidden min-w-0">
-          <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest leading-none mb-0.5">
+          <p className="font-display font-bold text-base sm:text-lg text-slate-950 tracking-tight truncate">
             ACN Link
           </p>
-          <h1 className="font-display font-bold text-base sm:text-lg text-slate-950 tracking-tight truncate">
-            {pageTitle}
-          </h1>
         </div>
 
         <div className="relative w-full max-w-md hidden md:block">
@@ -145,7 +142,7 @@ export default function Header({
           onClose={() => setNotificationsOpen(false)}
           onMarkRead={onMarkNotificationRead}
           onMarkAllRead={onMarkAllNotificationsRead}
-          onNavigate={onScreenChange}
+          onNavigate={onNotificationNavigate || onScreenChange}
         />
 
         <button

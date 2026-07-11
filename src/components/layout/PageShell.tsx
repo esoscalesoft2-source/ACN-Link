@@ -52,6 +52,7 @@ export function StatCardGrid({ children, columns = "default" }: StatCardGridProp
 }
 
 interface StatCardProps {
+  key?: React.Key;
   label: string;
   value: React.ReactNode;
   sub?: string;

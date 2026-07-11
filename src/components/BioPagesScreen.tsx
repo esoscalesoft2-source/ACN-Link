@@ -4,6 +4,7 @@ import {
   buildEditorState,
   cloneBlocks,
   DEFAULT_COVER,
+  deleteDraftByPageId,
   upsertDraft,
   upsertTemplate,
   syncTemplateToServer,
@@ -163,10 +164,12 @@ const getBlockIcon = (type: string) => {
 
 interface BioPagesScreenProps {
   pages: BioPage[];
-  onAddPage: (title: string, slug: string) => void;
+  onAddPage: (title: string, slug: string) => BioPage;
   onDeletePage: (id: string) => void;
   onUpdatePage: (id: string, title: string, bio?: string, coverPhoto?: string) => void;
   onDuplicatePage: (id: string) => void;
+  onRefreshPages: () => Promise<void>;
+  analyticsEvents: Array<{ pageId?: string; eventType?: string; eventLabel?: string; timestamp?: string }>;
   // New props for shared state
   savedTemplates: BioPageTemplate[];
   setSavedTemplates: React.Dispatch<React.SetStateAction<BioPageTemplate[]>>;
@@ -178,6 +181,7 @@ interface BioPagesScreenProps {
   clearInitialActiveEditPageId: () => void;
   initialActiveTemplateId: string | null;
   clearInitialActiveTemplateId: () => void;
+  quickCreateRequest: number;
   onNotify: (input: CreateNotificationInput) => void;
 }
 
@@ -187,6 +191,8 @@ export default function BioPagesScreen({
   onDeletePage,
   onUpdatePage,
   onDuplicatePage,
+  onRefreshPages,
+  analyticsEvents,
   savedTemplates,
   setSavedTemplates,
   savedDrafts,
@@ -197,13 +203,14 @@ export default function BioPagesScreen({
   clearInitialActiveEditPageId,
   initialActiveTemplateId,
   clearInitialActiveTemplateId,
+  quickCreateRequest,
   onNotify
 }: BioPagesScreenProps) {
   const [isAdding, setIsAdding] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newSlug, setNewSlug] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitleValue, setEditTitleValue] = useState("");
 
@@ -211,6 +218,10 @@ export default function BioPagesScreen({
   const [selectedAnalyticsPage, setSelectedAnalyticsPage] = useState<BioPage | null>(null);
   const [selectedEditPage, setSelectedEditPage] = useState<BioPage | null>(null);
   const [selectedQRPage, setSelectedQRPage] = useState<BioPage | null>(null);
+
+  React.useEffect(() => {
+    if (quickCreateRequest > 0) setIsAdding(true);
+  }, [quickCreateRequest]);
 
   // Analytics tab state
   const [analyticsTab, setAnalyticsTab] = useState<"7 Days" | "30 Days" | "All Time">("7 Days");
@@ -251,6 +262,7 @@ export default function BioPagesScreen({
   const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
   const [templateNameInput, setTemplateNameInput] = useState("");
   const [showPublishSuccess, setShowPublishSuccess] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
 
   // Widget states inside editor to allow live mockup interactivity!
   const [countdownTime, setCountdownTime] = useState({ days: 9, hrs: 20, mins: 18, secs: 1 });
@@ -368,14 +380,23 @@ export default function BioPagesScreen({
 
   const handleCoverPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setEditorCoverPhoto(reader.result as string);
-        triggerToast("✨ Cover photo uploaded successfully!");
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      triggerToast("Choose a valid image file for the cover photo.");
+      return;
     }
+    if (file.size > 5 * 1024 * 1024) {
+      triggerToast("Cover photo must be 5 MB or smaller.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setEditorCoverPhoto(reader.result as string);
+      triggerToast("✨ Cover photo uploaded successfully!");
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
   };
 
   // Custom states to store saved templates, saved drafts, and active blocks mappings (with localStorage persistence)
@@ -660,20 +681,6 @@ export default function BioPagesScreen({
       [selectedEditPage.slug]: cloneBlocks(state.blocks)
     }));
 
-    try {
-      const details = {
-        title: state.pageMeta.title,
-        bio: state.pageMeta.shortBio,
-        coverPhoto: state.pageMeta.coverImage
-      };
-      localStorage.setItem(`biolink_blocks_${selectedEditPage.id}`, JSON.stringify(state.blocks));
-      localStorage.setItem(`biolink_blocks_${selectedEditPage.slug}`, JSON.stringify(state.blocks));
-      localStorage.setItem(`biolink_details_${selectedEditPage.id}`, JSON.stringify(details));
-      localStorage.setItem(`biolink_details_${selectedEditPage.slug}`, JSON.stringify(details));
-    } catch (err) {
-      console.error("Failed to persist draft preview data:", err);
-    }
-
     triggerToast(`💾 Draft for "${editorTitle}" saved successfully!`);
     onNotify({
       type: "draft_saved",
@@ -804,16 +811,47 @@ export default function BioPagesScreen({
     setQrForeground(hex);
   };
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setIsRefreshing(true);
-    setTimeout(() => {
+    try {
+      await onRefreshPages();
+      triggerToast("✓ BioLink pages refreshed.");
+    } catch {
+      triggerToast("Unable to refresh pages. Please try again.");
+    } finally {
       setIsRefreshing(false);
-    }, 600);
+    }
+  };
+
+  const copyText = async (value: string, successMessage: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      triggerToast(successMessage);
+    } catch {
+      triggerToast("Unable to copy the link. Please copy it from the address field.");
+    }
+  };
+
+  const confirmDeletePage = (page: BioPage) => {
+    if (window.confirm(`Delete "${page.title}"? This cannot be undone.`)) {
+      onDeletePage(page.id);
+      triggerToast(`"${page.title}" was deleted.`);
+    }
+  };
+
+  const closeEditor = () => {
+    if (
+      window.confirm(
+        "Close the editor? Changes that have not been saved as a draft or published will be lost."
+      )
+    ) {
+      setSelectedEditPage(null);
+    }
   };
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTitle) return;
+    if (!newTitle.trim()) return;
 
     // Use clean prefix-free suffix, fallback to slugified title
     const cleanSuffix = (newSlug.trim() || newTitle)
@@ -821,29 +859,25 @@ export default function BioPagesScreen({
       .replace(/[^a-z0-9\s-]/g, "")
       .replace(/\s+/g, "-");
       
+    if (!cleanSuffix) {
+      triggerToast("Enter a valid URL ending using letters, numbers, or hyphens.");
+      return;
+    }
     const fullSlug = "acn.link/page-" + cleanSuffix;
-    onAddPage(newTitle, fullSlug);
+    if (pages.some((page) => page.slug.toLowerCase() === fullSlug.toLowerCase())) {
+      triggerToast("That URL ending is already in use. Please choose another.");
+      return;
+    }
+    setIsCreating(true);
+    const newlyCreatedPage = onAddPage(newTitle.trim(), fullSlug);
 
     // Save selected template initial blocks to the map for this new page
     const selectedBlocks = nextInitialBlocks || genericInitialBlocks;
-    const tempId = "p" + (pages.length + 1);
-
     setPageBlocksMap(prev => ({
       ...prev,
-      [tempId]: [...selectedBlocks],
+      [newlyCreatedPage.id]: [...selectedBlocks],
       [fullSlug]: [...selectedBlocks]
     }));
-
-    const newlyCreatedPage: BioPage = {
-      id: tempId,
-      title: newTitle,
-      slug: fullSlug,
-      status: "Live",
-      views: 0,
-      createdAt: "7 Jul 2026",
-      bio: "Write a short bio...",
-      coverPhoto: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800"
-    };
 
     // Reset create modal states
     setNextInitialBlocks(genericInitialBlocks);
@@ -851,7 +885,8 @@ export default function BioPagesScreen({
     setNewTitle("");
     setNewSlug("");
     setIsAdding(false);
-    triggerToast(`✨ BioLink Page "${newTitle}" created successfully!`);
+    setIsCreating(false);
+    triggerToast(`✨ BioLink Page "${newlyCreatedPage.title}" created successfully!`);
 
     setTimeout(() => {
       openEditor(newlyCreatedPage);
@@ -902,8 +937,13 @@ export default function BioPagesScreen({
     }
   }, [initialActiveEditPageId, initialActiveTemplateId, pages]);
 
-  const handlePublishEditor = () => {
-    if (selectedEditPage) {
+  const handlePublishEditor = async () => {
+    if (selectedEditPage && !isPublishing) {
+      if (!editorTitle.trim()) {
+        triggerToast("A page title is required before publishing.");
+        return;
+      }
+      setIsPublishing(true);
       onUpdatePage(selectedEditPage.id, editorTitle, editorBio, editorCoverPhoto);
       
       // Persist blocks in memory map
@@ -915,90 +955,64 @@ export default function BioPagesScreen({
 
       const details = { title: editorTitle, bio: editorBio, coverPhoto: editorCoverPhoto };
 
-      // Persist to localStorage for PublicBioPageView preview
-      try {
-        localStorage.setItem(`biolink_blocks_${selectedEditPage.id}`, JSON.stringify(editorBlocks));
-        localStorage.setItem(`biolink_blocks_${selectedEditPage.slug}`, JSON.stringify(editorBlocks));
-        
-        localStorage.setItem(`biolink_details_${selectedEditPage.id}`, JSON.stringify(details));
-        localStorage.setItem(`biolink_details_${selectedEditPage.slug}`, JSON.stringify(details));
-      } catch (err) {
-        console.error("Failed to write to localStorage for preview: ", err);
-      }
+      // Persist preview data locally when browser storage is available.
+      persistPagePreviewStorage(selectedEditPage.id, selectedEditPage.slug, editorBlocks, details);
 
       // Also save to server backend for cross-device linking (Mobile / QR Code support)
-      fetch(`/api/page/${selectedEditPage.id}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ blocks: editorBlocks, details })
-      }).catch(err => {
-        console.error("Failed to save to server database:", err);
-      });
+      try {
+        const response = await fetch(`/api/page/${selectedEditPage.id}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ blocks: editorBlocks, details })
+        });
+        if (!response.ok) throw new Error("The server could not save this page.");
 
-      onNotify({
-        type: "page_published",
-        title: "Page published",
-        message: `"${editorTitle}" is now live.`,
-        targetScreen: ScreenId.BIO_PAGES,
-        meta: { pageId: selectedEditPage.id }
-      });
+        setSavedDrafts((drafts) => deleteDraftByPageId(selectedEditPage.id, drafts));
+        onNotify({
+          type: "page_published",
+          title: "Page published",
+          message: `"${editorTitle}" is now live.`,
+          targetScreen: ScreenId.BIO_PAGES,
+          meta: { pageId: selectedEditPage.id }
+        });
 
-      setShowPublishSuccess(true);
-      setTimeout(() => {
-        setShowPublishSuccess(false);
-        setSelectedEditPage(null);
-      }, 1500);
+        setShowPublishSuccess(true);
+      } catch {
+        triggerToast("Could not publish to the server. Your draft remains saved locally.");
+      } finally {
+        setIsPublishing(false);
+      }
     }
   };
 
-  // Dummy analytics data based on tabs to look highly realistic and match screenshots
   const getAnalyticsData = () => {
-    if (analyticsTab === "7 Days") {
-      return {
-        views: selectedAnalyticsPage?.views || 0,
-        clicks: 0,
-        widgets: [
-          { name: "Message Us on WhatsApp", type: "WHATSAPP", count: 0, percentage: 0 },
-          { name: "Explore the Toys Section", type: "BUTTON", count: 0, percentage: 0 },
-          { name: "Save Contact", type: "VCARD", count: 0, percentage: 0 },
-          { name: "Spiderman Toy", type: "SHOP", count: 0, percentage: 0 },
-          { name: "Buy Now", type: "LINK_SPIN", count: 0, percentage: 0 },
-          { name: "Get Offer →", type: "COUPON_BUTTON", count: 0, percentage: 0 },
-          { name: "Test", type: "SMART_FORM_PDF", count: 0, percentage: 0 },
-          { name: "Iron Man Toy", type: "SHOP", count: 0, percentage: 0 }
-        ]
-      };
-    } else if (analyticsTab === "30 Days") {
-      return {
-        views: (selectedAnalyticsPage?.views || 0),
-        clicks: 0,
-        widgets: [
-          { name: "Message Us on WhatsApp", type: "WHATSAPP", count: 0, percentage: 0 },
-          { name: "Explore the Toys Section", type: "BUTTON", count: 0, percentage: 0 },
-          { name: "Save Contact", type: "VCARD", count: 0, percentage: 0 },
-          { name: "Spiderman Toy", type: "SHOP", count: 0, percentage: 0 },
-          { name: "Buy Now", type: "LINK_SPIN", count: 0, percentage: 0 },
-          { name: "Get Offer →", type: "COUPON_BUTTON", count: 0, percentage: 0 },
-          { name: "Test", type: "SMART_FORM_PDF", count: 0, percentage: 0 },
-          { name: "Iron Man Toy", type: "SHOP", count: 0, percentage: 0 }
-        ]
-      };
-    } else {
-      return {
-        views: (selectedAnalyticsPage?.views || 0),
-        clicks: 0,
-        widgets: [
-          { name: "Message Us on WhatsApp", type: "WHATSAPP", count: 0, percentage: 0 },
-          { name: "Explore the Toys Section", type: "BUTTON", count: 0, percentage: 0 },
-          { name: "Save Contact", type: "VCARD", count: 0, percentage: 0 },
-          { name: "Spiderman Toy", type: "SHOP", count: 0, percentage: 0 },
-          { name: "Buy Now", type: "LINK_SPIN", count: 0, percentage: 0 },
-          { name: "Get Offer →", type: "COUPON_BUTTON", count: 0, percentage: 0 },
-          { name: "Test", type: "SMART_FORM_PDF", count: 0, percentage: 0 },
-          { name: "Iron Man Toy", type: "SHOP", count: 0, percentage: 0 }
-        ]
-      };
-    }
+    const days = analyticsTab === "7 Days" ? 7 : analyticsTab === "30 Days" ? 30 : null;
+    const rangeStart = days ? Date.now() - days * 24 * 60 * 60 * 1000 : null;
+    const pageEvents = analyticsEvents.filter((event) => {
+      if (event.pageId !== selectedAnalyticsPage?.id) return false;
+      if (!rangeStart) return true;
+      const timestamp = new Date(event.timestamp || "").getTime();
+      return Number.isFinite(timestamp) && timestamp >= rangeStart;
+    });
+    const pageBlocks = selectedAnalyticsPage ? resolvePageBlocks(selectedAnalyticsPage) : [];
+    const clicks = pageEvents.filter((event) => event.eventType === "click");
+    const widgets = pageBlocks
+      .filter((block) => block.type !== "Header" && block.type !== "Text")
+      .map((block) => {
+        const count = clicks.filter((event) => event.eventLabel?.includes(block.label)).length;
+        return {
+          name: block.label,
+          type: block.type.toUpperCase().replace(/\s+/g, "_"),
+          count,
+          percentage: clicks.length ? Math.round((count / clicks.length) * 100) : 0
+        };
+      });
+
+    return {
+      views: pageEvents.filter((event) => event.eventType === "visit").length,
+      clicks: clicks.length,
+      widgets
+    };
   };
 
   const currentAnalytics = getAnalyticsData();
@@ -1164,9 +1178,10 @@ export default function BioPagesScreen({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-[#FF6B4A] hover:bg-[#E55B3C] text-white rounded-xl text-sm font-semibold shadow-md shadow-orange-100"
+                  disabled={isCreating}
+                  className="px-5 py-2 bg-[#FF6B4A] hover:bg-[#E55B3C] disabled:cursor-not-allowed disabled:opacity-70 text-white rounded-xl text-sm font-semibold shadow-md shadow-orange-100"
                 >
-                  Create
+                  {isCreating ? "Creating…" : "Create"}
                 </button>
               </div>
             </form>
@@ -1239,7 +1254,15 @@ export default function BioPagesScreen({
 
                 <div className="flex flex-wrap items-center gap-3 sm:gap-4 lg:gap-6 w-full lg:w-auto lg:justify-end pl-14 lg:pl-0">
                   {/* Status */}
-                  <span className="bg-emerald-50 text-emerald-600 text-xs px-2.5 py-1 rounded-full font-semibold">
+                  <span
+                    className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
+                      page.status === "Live"
+                        ? "bg-emerald-50 text-emerald-600"
+                        : page.status === "Paused"
+                          ? "bg-amber-50 text-amber-700"
+                          : "bg-slate-100 text-slate-600"
+                    }`}
+                  >
                     {page.status}
                   </span>
 
@@ -1263,37 +1286,41 @@ export default function BioPagesScreen({
                     </span>
                   </div>
 
-                  {/* Toolbar Actions matching mockup exactly */}
-                  <div className="flex flex-wrap items-center gap-1 bg-gray-50 p-1 rounded-xl border border-gray-100 shadow-sm w-full sm:w-auto justify-start sm:justify-center">
+                  {/* Toolbar Actions — 7 icons in one centered row on mobile */}
+                  <div className="grid grid-cols-7 gap-0.5 bg-gray-50 p-1.5 rounded-xl border border-gray-100 shadow-sm w-full max-w-[320px] sm:max-w-none sm:w-auto sm:flex sm:flex-wrap sm:items-center sm:justify-center sm:gap-1 mx-auto sm:mx-0">
                     {/* 1st - Analytics */}
                     <button
+                      type="button"
                       onClick={() => setSelectedAnalyticsPage(page)}
                       title={`Analytics — ${page.title}`}
-                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#FF6B4A] transition-all"
+                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#FF6B4A] transition-all flex items-center justify-center"
                     >
                       <BarChart2 className="h-4.5 w-4.5" />
                     </button>
 
                     {/* 2nd - Edit */}
                     <button
+                      type="button"
                       onClick={() => openEditor(page)}
                       title="Edit"
-                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#FF6B4A] transition-all"
+                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#FF6B4A] transition-all flex items-center justify-center"
                     >
                       <Edit3 className="h-4.5 w-4.5" />
                     </button>
 
                     {/* 3rd - Duplicate */}
                     <button
+                      type="button"
                       onClick={() => onDuplicatePage(page.id)}
                       title="Duplicate"
-                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#FF6B4A] transition-all"
+                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#FF6B4A] transition-all flex items-center justify-center"
                     >
                       <Layers className="h-4.5 w-4.5" />
                     </button>
 
                     {/* 4th - QR Code */}
                     <button
+                      type="button"
                       onClick={() => {
                         setSelectedQRPage(page);
                         setQrColor("Default");
@@ -1303,7 +1330,7 @@ export default function BioPagesScreen({
                         setHasLogo(false);
                       }}
                       title={`QR — ${page.title}`}
-                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#FF6B4A] transition-all"
+                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#FF6B4A] transition-all flex items-center justify-center"
                     >
                       <QrCode className="h-4.5 w-4.5" />
                     </button>
@@ -1321,10 +1348,12 @@ export default function BioPagesScreen({
 
                     {/* Copy Shareable Link (WhatsApp & Mobile) */}
                     <button
+                      type="button"
                       onClick={() => {
-                        const publicLink = `${getShareableOrigin()}/?previewPageId=${page.id}`;
-                        navigator.clipboard.writeText(publicLink);
-                        triggerToast("🔗 Public Shareable Link copied for WhatsApp & Mobile!");
+                        void copyText(
+                          `${getShareableOrigin()}/?previewPageId=${page.id}`,
+                          "🔗 Public shareable link copied!"
+                        );
                       }}
                       title="Copy Public Share Link (WhatsApp & Mobile)"
                       className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-emerald-600 transition-all flex items-center justify-center"
@@ -1332,11 +1361,12 @@ export default function BioPagesScreen({
                       <Copy className="h-4.5 w-4.5" />
                     </button>
 
-                    {/* 6th - Delete */}
+                    {/* Delete */}
                     <button
-                      onClick={() => onDeletePage(page.id)}
+                      type="button"
+                      onClick={() => confirmDeletePage(page)}
                       title="Delete"
-                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-rose-600 transition-all"
+                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-rose-600 transition-all flex items-center justify-center"
                     >
                       <Trash2 className="h-4.5 w-4.5" />
                     </button>
@@ -1410,6 +1440,11 @@ export default function BioPagesScreen({
               </h4>
 
               <div className="space-y-3.5 max-h-72 overflow-y-auto pr-1">
+                {currentAnalytics.widgets.length === 0 && (
+                  <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs text-slate-500">
+                    Add an interactive block to track its engagement here.
+                  </p>
+                )}
                 {currentAnalytics.widgets.map((widget, idx) => {
                   // Find a fitting icon
                   let IconComponent = Link;
@@ -1463,7 +1498,7 @@ export default function BioPagesScreen({
           <header className="bg-white border-b border-slate-200 px-3 sm:px-6 py-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between shadow-sm shrink-0">
             <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
               <button
-                onClick={() => setSelectedEditPage(null)}
+                onClick={closeEditor}
                 className="text-slate-600 hover:text-slate-900 hover:bg-slate-50 flex items-center gap-1.5 text-sm font-semibold bg-white rounded-xl px-3 py-2 transition-all border border-slate-200 shadow-sm shrink-0"
               >
                 <X className="h-4 w-4" />
@@ -1563,11 +1598,13 @@ export default function BioPagesScreen({
                 )}
               </div>
               <button
+                type="button"
                 onClick={handlePublishEditor}
-                className="bg-gradient-to-r from-[#FF6B4A] to-[#FF4B6B] hover:from-[#E55B3C] hover:to-[#E53C5D] text-white text-xs font-extrabold rounded-xl px-4 sm:px-5 py-2 shadow-md shadow-orange-100 active:scale-95 transition-all flex items-center gap-1.5 shrink-0"
+                disabled={isPublishing}
+                className="bg-gradient-to-r from-[#FF6B4A] to-[#FF4B6B] hover:from-[#E55B3C] hover:to-[#E53C5D] disabled:cursor-not-allowed disabled:opacity-70 text-white text-xs font-extrabold rounded-xl px-4 sm:px-5 py-2 shadow-md shadow-orange-100 active:scale-95 transition-all flex items-center gap-1.5 shrink-0"
               >
                 <Save className="h-3.5 w-3.5" />
-                <span>Publish</span>
+                <span>{isPublishing ? "Publishing…" : "Publish"}</span>
               </button>
             </div>
           </header>
@@ -1620,19 +1657,30 @@ export default function BioPagesScreen({
                       rel="noreferrer"
                       className="underline font-bold text-[#FF6B4A] hover:text-[#FF4B6B] ml-1"
                     >
-                      {selectedEditPage.slug} (Click to Visit)
+                      {`${getShareableOrigin()}/?previewPageId=${selectedEditPage.id}`}
                     </a>
                   </p>
                   <div className="mt-4 flex flex-col items-center justify-center gap-2">
                     <button
                       onClick={() => {
-                        const publicLink = `${getShareableOrigin()}/?previewPageId=${selectedEditPage.id}`;
-                        navigator.clipboard.writeText(publicLink);
-                        triggerToast("🔗 Public Shareable Link copied for WhatsApp!");
+                        void copyText(
+                          `${getShareableOrigin()}/?previewPageId=${selectedEditPage.id}`,
+                          "🔗 Public shareable link copied!"
+                        );
                       }}
                       className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1.5 px-4 rounded-xl text-xs transition-colors shadow-sm"
                     >
                       Copy Public Share Link (for WhatsApp)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowPublishSuccess(false);
+                        setSelectedEditPage(null);
+                      }}
+                      className="text-xs font-bold text-emerald-700 hover:underline"
+                    >
+                      Done
                     </button>
                   </div>
                 </div>
@@ -1669,11 +1717,11 @@ export default function BioPagesScreen({
                       <span className="text-[10px] font-bold text-[#FF6B4A] uppercase tracking-widest block">
                         Drafts & Recovery
                       </span>
-                      {savedDrafts.length === 0 ? (
+                      {savedDrafts.filter((draft) => draft.pageId === selectedEditPage.id).length === 0 ? (
                         <p className="text-xs text-slate-400 font-medium leading-relaxed">No saved drafts for this session yet. Click "Save Draft" in the top bar to create one.</p>
                       ) : (
                         <div className="space-y-2">
-                          {savedDrafts.map((draft) => (
+                          {savedDrafts.filter((draft) => draft.pageId === selectedEditPage.id).map((draft) => (
                             <div key={draft.id} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-xl hover:border-slate-300 transition-all">
                               <div className="min-w-0">
                                 <span className="text-xs font-bold block text-slate-800 truncate">{getDraftDisplayName(draft)}</span>
@@ -2038,11 +2086,11 @@ export default function BioPagesScreen({
                           </div>
                         )}
 
-                        {savedDrafts.length > 0 && (
+                        {savedDrafts.some((draft) => draft.pageId === selectedEditPage.id) && (
                           <div className="space-y-2">
                             <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Session Drafts</span>
                             <div className="grid grid-cols-1 gap-2">
-                              {savedDrafts.map((draft) => (
+                              {savedDrafts.filter((draft) => draft.pageId === selectedEditPage.id).map((draft) => (
                                 <div key={draft.id} className="flex items-center justify-between p-2.5 bg-white border border-slate-200 rounded-xl shadow-sm hover:border-slate-300 transition-all">
                                   <div className="min-w-0">
                                     <span className="text-xs font-bold text-slate-800 block truncate">📝 {getDraftDisplayName(draft)}</span>
@@ -3422,9 +3470,10 @@ export default function BioPagesScreen({
                 <button
                   type="button"
                   onClick={() => {
-                    const publicLink = `${getShareableOrigin()}/?previewPageId=${selectedQRPage.id}`;
-                    navigator.clipboard.writeText(publicLink);
-                    triggerToast("🔗 Public Shareable Link copied!");
+                    void copyText(
+                      `${getShareableOrigin()}/?previewPageId=${selectedQRPage.id}`,
+                      "🔗 Public shareable link copied!"
+                    );
                   }}
                   className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-1 px-3 rounded-lg text-[10px] transition-colors"
                 >
@@ -3557,7 +3606,8 @@ export default function BioPagesScreen({
                 href={`https://api.qrserver.com/v1/create-qr-code/?size=500x500&color=${qrForeground.replace(
                   "#",
                   ""
-                )}&bgcolor=${qrBackground.replace("#", "")}&data=${encodeURIComponent(`${getShareableOrigin()}/?previewPageId=${selectedQRPage.id}`)}`}
+                )}&bgcolor=${qrBackground.replace("#", "")}&format=svg&data=${encodeURIComponent(`${getShareableOrigin()}/?previewPageId=${selectedQRPage.id}`)}`}
+                download="qrcode.svg"
                 target="_blank"
                 rel="noreferrer"
                 className="border border-gray-200 hover:bg-gray-50 text-gray-700 py-3 rounded-xl text-xs font-bold text-center transition-all flex items-center justify-center gap-2"

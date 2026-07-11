@@ -22,6 +22,7 @@ export interface UserProfile {
   avatarUrl: string;
   plan: string;
   isVerified: boolean;
+  mfaEnabled?: boolean;
 }
 
 export interface BioPage {
@@ -45,6 +46,7 @@ export interface Contact {
   capturedAt: string;
   maskedEmail: string;
   maskedPhone: string;
+  marketingOptIn?: boolean;
 }
 
 export interface WhatsAppCampaign {
@@ -53,12 +55,16 @@ export interface WhatsAppCampaign {
   status: "Sent" | "Active" | "Draft";
   recipients: string;
   openRate: string;
+  templateId?: string;
+  createdAt?: string;
 }
 
 export interface WhatsAppTemplate {
   id: string;
   name: string;
   status: "Approved" | "Pending" | "Rejected";
+  body?: string;
+  createdAt?: string;
 }
 
 export interface SmartLink {
@@ -66,6 +72,7 @@ export interface SmartLink {
   title: string;
   slug: string;
   shortUrl: string;
+  destinationUrl?: string;
   status: "Live" | "Paused";
   clicks: number;
   retargeting: ("fb" | "google" | "tiktok" | "snapchat")[];
@@ -82,6 +89,9 @@ export interface QRCodeItem {
   qrUrl: string;
   targetUrl: string;
   customDesign: boolean;
+  designColor?: string;
+  designLogo?: "none" | "user" | "link" | "whatsapp" | "star";
+  designPattern?: "rounded" | "square" | "compact";
 }
 
 export interface TemplateItem {
@@ -101,6 +111,9 @@ export interface IntegrationItem {
   status: "Locked" | "Connected" | "Coming Soon";
   description: string;
   upgradeMessage: string;
+  waitlisted?: boolean;
+  apiKeyHint?: string;
+  connectedAt?: string;
 }
 
 export interface IntegrationVote {
@@ -143,6 +156,7 @@ export interface HelpArticle {
   category: string;
   excerpt: string;
   readTime: string;
+  content?: string;
 }
 
 /** Bio Page Editor block — supports extra widget fields via index signature */

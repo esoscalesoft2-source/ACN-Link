@@ -10,7 +10,7 @@ interface NotificationPanelProps {
   onClose: () => void;
   onMarkRead: (id: string) => void;
   onMarkAllRead: () => void;
-  onNavigate: (screen: ScreenId) => void;
+  onNavigate: (screen: ScreenId, pageId?: string) => void;
 }
 
 function formatTime(iso: string): string {
@@ -65,7 +65,7 @@ export default function NotificationPanel({
   const handleItemClick = (notification: AppNotification) => {
     onMarkRead(notification.id);
     if (notification.targetScreen) {
-      onNavigate(notification.targetScreen);
+      onNavigate(notification.targetScreen, notification.meta?.pageId);
       onClose();
     }
   };

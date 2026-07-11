@@ -64,6 +64,7 @@ export const initialSmartLinks: SmartLink[] = [
     title: "Summer Campaign 2024",
     slug: "/summer-promo",
     shortUrl: "acn.link/sum24",
+    destinationUrl: "https://example.com/summer-promo",
     status: "Live",
     clicks: 0,
     retargeting: ["fb", "google", "tiktok"]
@@ -73,6 +74,7 @@ export const initialSmartLinks: SmartLink[] = [
     title: "New Product Launch",
     slug: "/launch-v2",
     shortUrl: "acn.link/v2-live",
+    destinationUrl: "https://example.com/launch-v2",
     status: "Paused",
     clicks: 0,
     retargeting: ["fb", "google", "tiktok"]
@@ -267,35 +269,80 @@ export const initialHelpArticles: HelpArticle[] = [
     id: "faq1",
     title: "How do I get started with ACN Link?",
     category: "Getting Started",
-    excerpt: "Simply sign up for a free account, go to Bio Pages or Links, and create your first smart resource. You can customize the theme, add multiple widgets, and configure tracking pixels or custom domains instantly.",
-    readTime: "2 mins"
+    excerpt:
+      "Simply sign up for a free account, go to Bio Pages or Links, and create your first smart resource. You can customize the theme, add multiple widgets, and configure tracking pixels or custom domains instantly.",
+    readTime: "2 mins",
+    content:
+      "Welcome to ACN Link.\n\n1. Create your account and open the Dashboard.\n2. Go to Bio Pages and create your first page from scratch or a template.\n3. Add widgets (buttons, forms, WhatsApp, shop blocks) in the editor.\n4. Publish when ready, then share your public URL or QR code.\n5. Optionally connect Custom Domains, Pixels, and Integrations for branding and tracking.\n\nTip: Use Templates to launch faster, then save your own layouts under My Templates."
   },
   {
     id: "faq2",
     title: "What's the difference between the Free and Pro plans?",
     category: "Billing",
-    excerpt: "The Free plan includes 1 Bio page, 13 core widgets, and up to 100MB of media storage. The Pro plan unlocks unlimited Bio Pages, high-speed custom shortened links, professional templates, full tracking integrations (AiSensy, Flodesk), custom domains, and comprehensive retargeting tracking pixels.",
-    readTime: "3 mins"
+    excerpt:
+      "The Free plan includes 1 Bio page, 13 core widgets, and up to 100MB of media storage. The Pro plan unlocks unlimited Bio Pages, high-speed custom shortened links, professional templates, full tracking integrations, custom domains, and retargeting pixels.",
+    readTime: "3 mins",
+    content:
+      "Free Plan\n• 1 bio page\n• Core widgets\n• Basic analytics\n• Limited media storage\n\nPro / Smart Marketing\n• Unlimited bio pages\n• Smart links & QR codes\n• Custom domains\n• Tracking pixels\n• Messaging & email integrations\n• Priority support\n\nYou can review your current plan under Account Settings. Contact Support if you need help upgrading or comparing features for your team."
   },
   {
     id: "faq3",
     title: "Can I cancel or get a refund?",
     category: "Billing",
-    excerpt: "Yes, you can cancel your subscription at any time from your billing settings. We offer a 14-day money-back guarantee for all annual subscriptions if you are not fully satisfied.",
-    readTime: "1 min"
+    excerpt:
+      "Yes, you can cancel your subscription at any time from your billing settings. We offer a 14-day money-back guarantee for all annual subscriptions if you are not fully satisfied.",
+    readTime: "1 min",
+    content:
+      "Cancellation\nYou can cancel anytime from Account Settings. Access continues through the end of your current billing period.\n\nRefunds\nAnnual plans include a 14-day money-back guarantee. Monthly plans are generally non-refundable after the billing date, except where required by law.\n\nNeed help? Open Contact Support with your workspace email and we will assist with cancellation or refund requests."
   },
   {
     id: "faq4",
     title: "How do I connect my Amazon Advertising account?",
     category: "APIs & Webhooks",
-    excerpt: "You can navigate to the Help Center or contact support to guide you through the integration under 'Amazon Ads Setup' inside the help center, allowing you to synchronize TACoS and advertising performance metrics.",
-    readTime: "4 mins"
+    excerpt:
+      "Contact support or follow the Amazon Ads setup guide to synchronize advertising performance metrics with your workspace.",
+    readTime: "4 mins",
+    content:
+      "Amazon Ads setup overview\n\n1. Open Integrations and confirm your workspace plan supports advertising connectors.\n2. Request Amazon Ads access from Contact Support if the connector is not yet unlocked.\n3. Provide your Amazon Advertising account ID and authorized email.\n4. Once connected, metrics sync on a scheduled interval.\n\nWebhooks\nFor custom automation, ask Support for webhook endpoints that can receive form leads and page events from ACN Link."
   },
   {
     id: "faq5",
     title: "Can I use my own custom domain?",
     category: "Custom Domains",
-    excerpt: "Yes, under 'Custom Domains' in the sidebar, you can link domains like links.yourbrand.com. Simply point your DNS A Record to 74.201.218.45 and wait for propagation.",
-    readTime: "3 mins"
+    excerpt:
+      "Yes, under Custom Domains in the sidebar, you can link domains like links.yourbrand.com. Point your DNS A Record to 74.201.218.45 and wait for propagation.",
+    readTime: "3 mins",
+    content:
+      "Connect a custom domain\n\n1. Open Custom Domains and click Connect Domain.\n2. Enter a hostname such as links.yourbrand.com.\n3. In your DNS provider, create an A record pointing to 74.201.218.45.\n4. Return to ACN Link and click Verify DNS.\n5. After verification, use the domain for white-labeled bio pages and links.\n\nDNS changes can take a few minutes to 48 hours to propagate."
+  },
+  {
+    id: "faq6",
+    title: "How do I publish my first bio page?",
+    category: "Getting Started",
+    excerpt:
+      "Open Bio Pages, create or edit a page, then use Publish to make it live on your ACN Link URL or custom domain.",
+    readTime: "2 mins",
+    content:
+      "Publishing checklist\n\n1. Finish your page content and cover image in the editor.\n2. Save a draft anytime — drafts stay private.\n3. Click Publish and choose visibility (public or workspace).\n4. Copy the public URL or generate a QR code from the QR Codes page.\n5. Share the link on social profiles, packaging, or campaigns.\n\nIf something looks wrong on the public page, reopen the editor, fix blocks, and publish again."
+  },
+  {
+    id: "faq7",
+    title: "How is my workspace data protected?",
+    category: "Security & Privacy",
+    excerpt:
+      "Account data is stored in your browser workspace backup and server sync where available. Enable MFA from Account Settings for stronger sign-in protection.",
+    readTime: "2 mins",
+    content:
+      "Security basics\n\n• Keep your account email up to date under Account Settings.\n• Enable MFA for two-factor protection.\n• Export regular JSON backups before major imports or device changes.\n• Only share public bio URLs — drafts remain private until published.\n\nPrivacy\nLeads captured by forms stay in your Contacts list. Do not share backup files that contain customer data outside your organization."
+  },
+  {
+    id: "faq8",
+    title: "What DNS record do I need for custom domains?",
+    category: "Custom Domains",
+    excerpt:
+      "Create an A record for your subdomain pointing to 74.201.218.45, then verify DNS from the Custom Domains page.",
+    readTime: "2 mins",
+    content:
+      "DNS record details\n\nType: A\nHost: your subdomain (for example links)\nValue / Points to: 74.201.218.45\nTTL: Auto or 300 seconds\n\nAfter saving the record, open Custom Domains in ACN Link and use Verify DNS. If verification fails, wait for propagation and try again."
   }
 ];

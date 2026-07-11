@@ -75,6 +75,7 @@ const getCurrencySymbol = (currency: string = "₹ INR") => {
 export default function PublicBioPageView({ pageId, pageTitle, pageSlug, pageBio, pageCoverPhoto }: PublicBioPageViewProps) {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [customDetails, setCustomDetails] = useState<{ title: string; bio: string; coverPhoto: string } | null>(null);
+  const [pageLoadStatus, setPageLoadStatus] = useState<"loading" | "ready" | "not_found">("loading");
   const [toast, setToast] = useState<string | null>(null);
   const [leadEmail, setLeadEmail] = useState("");
   const [showSpinWheel, setShowSpinWheel] = useState(false);
@@ -115,6 +116,21 @@ export default function PublicBioPageView({ pageId, pageTitle, pageSlug, pageBio
       }
     } catch (err) {
       console.warn("WhatsApp redirect blocked by popup blocker or iframe policy:", err);
+    }
+  };
+
+  const openExternalLink = (value: string) => {
+    const target = value.trim();
+    if (!target) {
+      triggerToast("This link has not been configured yet.");
+      return;
+    }
+
+    const url = /^https?:\/\//i.test(target) ? target : `https://${target}`;
+    try {
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      triggerToast("Your browser blocked this link. Please try again.");
     }
   };
 
@@ -161,20 +177,17 @@ export default function PublicBioPageView({ pageId, pageTitle, pageSlug, pageBio
         if (res.ok) {
           const data = await res.json();
           if (isMounted && data) {
-            if (data.blocks && Array.isArray(data.blocks) && data.blocks.length > 0) {
+            if (Array.isArray(data.blocks) && data.blocks.length > 0) {
               setBlocks(data.blocks);
-            } else {
-              // Fallback based on title if blocks are empty
-              if (pageTitle.toLowerCase().includes("marvel")) {
-                setBlocks(marvelFallbackBlocks);
-              } else {
-                setBlocks(genericFallbackBlocks);
+              setPageLoadStatus("ready");
+              if (data.details) {
+                setCustomDetails(data.details);
               }
+              return;
             }
             if (data.details) {
               setCustomDetails(data.details);
             }
-            return; // Successfully loaded from server, exit early!
           }
         }
       } catch (err) {
@@ -198,13 +211,9 @@ export default function PublicBioPageView({ pageId, pageTitle, pageSlug, pageBio
       if (isMounted) {
         if (loadedBlocks) {
           setBlocks(loadedBlocks);
+          setPageLoadStatus("ready");
         } else {
-          // Fallback based on title
-          if (pageTitle.toLowerCase().includes("marvel")) {
-            setBlocks(marvelFallbackBlocks);
-          } else {
-            setBlocks(genericFallbackBlocks);
-          }
+          setPageLoadStatus("not_found");
         }
       }
 
@@ -287,6 +296,16 @@ export default function PublicBioPageView({ pageId, pageTitle, pageSlug, pageBio
 
         {/* Render Blocks Container */}
         <div className="px-6 mt-6 space-y-4">
+          {pageLoadStatus === "loading" && (
+            <p className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-center text-xs text-slate-500">
+              Loading this page…
+            </p>
+          )}
+          {pageLoadStatus === "not_found" && (
+            <p className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-center text-xs leading-relaxed text-amber-800">
+              This page is not available yet. Ask the owner to publish it and try again.
+            </p>
+          )}
           {blocks.map((block) => {
             switch (block.type) {
               case "Header":
@@ -310,7 +329,7 @@ export default function PublicBioPageView({ pageId, pageTitle, pageSlug, pageBio
                     key={block.id}
                     onClick={() => {
                       trackAction("click", `Button: ${block.label}`);
-                      triggerToast(`🔗 Redirecting to: ${block.value || "https://acn.link"}`);
+                      openExternalLink(block.value || "");
                     }}
                     style={{
                       backgroundColor: (block as any).bgColor || "#FFFFFF",

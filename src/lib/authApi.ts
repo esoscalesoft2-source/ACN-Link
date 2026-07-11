@@ -42,6 +42,108 @@ const REFRESH_KEY = "acnlink_refresh_token";
 const USER_KEY = "acnlink_auth_user";
 const ACTIVITY_KEY = "acnlink_last_activity";
 
+/** Client-only preview sessions (no backend). Prefix keeps real JWT path reusable later. */
+export const PREVIEW_TOKEN_PREFIX = "preview_";
+
+export function isPreviewToken(token: string | null | undefined): boolean {
+  return Boolean(token && token.startsWith(PREVIEW_TOKEN_PREFIX));
+}
+
+/**
+ * Preview mode for static hosts (e.g. Vercel) without an API.
+ * - Set VITE_AUTH_PREVIEW=true to force on
+ * - Set VITE_AUTH_PREVIEW=false to force off
+ * - Default: on when auth backend is unreachable
+ */
+export function isAuthPreviewForced(): boolean {
+  return import.meta.env.VITE_AUTH_PREVIEW === "true";
+}
+
+export function isAuthPreviewDisabled(): boolean {
+  return import.meta.env.VITE_AUTH_PREVIEW === "false";
+}
+
+export async function probeAuthBackend(): Promise<boolean> {
+  try {
+    const response = await fetch("/api/auth/config", {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store"
+    });
+    if (!response.ok) return false;
+    const data = await response.json();
+    return Boolean(data && typeof data === "object" && "appUrl" in data);
+  } catch {
+    return false;
+  }
+}
+
+export function createPreviewAuthUser(
+  input: {
+    email?: string;
+    name?: string;
+    avatarUrl?: string;
+    provider?: "google" | "github" | "password";
+  } = {}
+): AuthUser {
+  const provider = input.provider || "password";
+  const email =
+    (input.email || "").trim().toLowerCase() ||
+    (provider === "google"
+      ? "preview.google@acnlink.local"
+      : provider === "github"
+        ? "preview.github@acnlink.local"
+        : "preview.user@acnlink.local");
+  const name =
+    (input.name || "").trim() ||
+    (provider === "google" ? "Google Preview" : provider === "github" ? "GitHub Preview" : "Preview User");
+  const parts = name.split(/\s+/);
+  const firstName = parts[0] || "Preview";
+  const lastName = parts.slice(1).join(" ") || "User";
+  const now = new Date().toISOString();
+
+  return {
+    id: `preview_${provider}_${email.replace(/[^a-z0-9]/gi, "_").slice(0, 24)}`,
+    email,
+    firstName,
+    lastName,
+    name: `${firstName} ${lastName}`.trim(),
+    companyName: "ACN Link Preview",
+    businessName: "ACN Link Preview",
+    phone: "",
+    country: "United States",
+    avatarUrl:
+      input.avatarUrl ||
+      `https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=${encodeURIComponent(email)}`,
+    plan: "Free Plan",
+    isVerified: true,
+    emailVerified: true,
+    status: "active",
+    mfaEnabled: false,
+    newsletterOptIn: false,
+    createdAt: now,
+    lastLoginAt: now
+  };
+}
+
+export function createPreviewTokens(): AuthTokens {
+  const stamp = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  return {
+    accessToken: `${PREVIEW_TOKEN_PREFIX}access_${stamp}`,
+    refreshToken: `${PREVIEW_TOKEN_PREFIX}refresh_${stamp}`,
+    expiresIn: 60 * 60 * 24 * 7
+  };
+}
+
+export function enterPreviewSession(
+  user: AuthUser,
+  rememberMe: boolean
+): { user: AuthUser; accessToken: string; refreshToken: string } {
+  const tokens = createPreviewTokens();
+  saveAuthSession(user, tokens, rememberMe);
+  return { user, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
+}
+
 export function saveAuthSession(user: AuthUser, tokens: AuthTokens, rememberMe: boolean) {
   const storage = rememberMe ? localStorage : sessionStorage;
   const other = rememberMe ? sessionStorage : localStorage;

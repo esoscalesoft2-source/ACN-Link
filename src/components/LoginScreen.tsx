@@ -18,12 +18,17 @@ import {
   AuthApiError,
   AuthConfig,
   AuthUser,
+  createPreviewAuthUser,
+  enterPreviewSession,
   fetchAuthConfig,
   forgotPasswordRequest,
   githubLoginRequest,
   googleLoginRequest,
+  isAuthPreviewDisabled,
+  isAuthPreviewForced,
   loginRequest,
   passwordStrengthRequest,
+  probeAuthBackend,
   registerRequest,
   resendVerificationRequest,
   resetPasswordRequest,
@@ -170,6 +175,7 @@ export default function LoginScreen({
   const [passwordStrength, setPasswordStrength] = useState<"weak" | "fair" | "good" | "strong" | "">("");
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [previewMode, setPreviewMode] = useState(isAuthPreviewForced() && !isAuthPreviewDisabled());
   const autoVerifyDone = useRef(false);
 
   const [firstName, setFirstName] = useState("");
@@ -183,9 +189,47 @@ export default function LoginScreen({
   const [newsletterOptIn, setNewsletterOptIn] = useState(true);
 
   useEffect(() => {
-    fetchAuthConfig()
-      .then(setConfig)
-      .catch(() => setConfig(null));
+    let cancelled = false;
+
+    async function loadAuthSurface() {
+      if (isAuthPreviewDisabled()) {
+        setPreviewMode(false);
+        try {
+          const cfg = await fetchAuthConfig();
+          if (!cancelled) setConfig(cfg);
+        } catch {
+          if (!cancelled) setConfig(null);
+        }
+        return;
+      }
+
+      if (isAuthPreviewForced()) {
+        setPreviewMode(true);
+        setInfo("Preview mode — client demo only. Backend auth will be reused later.");
+      }
+
+      const backendOk = await probeAuthBackend();
+      if (cancelled) return;
+
+      if (backendOk) {
+        setPreviewMode(isAuthPreviewForced());
+        try {
+          const cfg = await fetchAuthConfig();
+          if (!cancelled) setConfig(cfg);
+        } catch {
+          if (!cancelled) setConfig(null);
+        }
+      } else {
+        setPreviewMode(true);
+        setConfig(null);
+        setInfo("Preview mode — no auth API on this host. Google / Sign In opens the UI for client review.");
+      }
+    }
+
+    void loadAuthSurface();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -261,6 +305,19 @@ export default function LoginScreen({
     return "bg-slate-200";
   }, [passwordStrength]);
 
+  const finishPreviewLogin = (
+    provider: "google" | "github" | "password",
+    input?: { email?: string; name?: string }
+  ) => {
+    const user = createPreviewAuthUser({
+      provider,
+      email: input?.email,
+      name: input?.name
+    });
+    const session = enterPreviewSession(user, rememberMe);
+    onLoginSuccess(session.user);
+  };
+
   const finishLogin = (user: AuthUser, accessToken: string, refreshToken: string, remember: boolean) => {
     saveAuthSession(user, { accessToken, refreshToken }, remember);
     onLoginSuccess(user);
@@ -284,6 +341,11 @@ export default function LoginScreen({
       return;
     }
 
+    if (previewMode) {
+      finishPreviewLogin("password", { email: normalizedEmail, name: normalizedEmail.split("@")[0] });
+      return;
+    }
+
     setLoading(true);
     try {
       const result = await loginRequest({
@@ -294,6 +356,18 @@ export default function LoginScreen({
       finishLogin(result.user, result.accessToken, result.refreshToken, rememberMe);
     } catch (err) {
       const apiError = err as AuthApiError;
+      // Static host / missing API → fall back to client preview (unless explicitly disabled).
+      if (
+        !isAuthPreviewDisabled() &&
+        (apiError.status === 404 ||
+          apiError.code === "NETWORK_ERROR" ||
+          apiError.code === "REQUEST_FAILED" ||
+          apiError.message === "Request failed.")
+      ) {
+        setPreviewMode(true);
+        finishPreviewLogin("password", { email: normalizedEmail, name: normalizedEmail.split("@")[0] });
+        return;
+      }
       if (apiError.code === "EMAIL_UNVERIFIED") {
         setInfo("Your email is not verified yet. Enter the verification link or token from your inbox.");
         setView("verify");
@@ -502,6 +576,14 @@ export default function LoginScreen({
     setError("");
     setLoading(true);
     try {
+      if (previewMode) {
+        finishPreviewLogin("google", {
+          email: email.trim() || "preview.google@acnlink.local",
+          name: "Google Preview"
+        });
+        return;
+      }
+
       if (config?.googleEnabled && config.googleClientId) {
         await loadGoogleScript();
         await new Promise<void>((resolve, reject) => {
@@ -541,6 +623,15 @@ export default function LoginScreen({
       }
 
       if (!config?.allowDevOAuth) {
+        // No backend OAuth config (typical on Vercel static) → client preview.
+        if (!isAuthPreviewDisabled()) {
+          setPreviewMode(true);
+          finishPreviewLogin("google", {
+            email: email.trim() || "preview.google@acnlink.local",
+            name: "Google Preview"
+          });
+          return;
+        }
         setError("Google Sign-In is not configured. Set GOOGLE_CLIENT_ID in your environment.");
         return;
       }
@@ -550,14 +641,46 @@ export default function LoginScreen({
         setError("Google sign-in was cancelled.");
         return;
       }
-      const result = await googleLoginRequest({
-        email: devEmail.trim().toLowerCase(),
-        name: "Google User",
-        rememberMe
-      });
-      finishLogin(result.user, result.accessToken, result.refreshToken, rememberMe);
+      try {
+        const result = await googleLoginRequest({
+          email: devEmail.trim().toLowerCase(),
+          name: "Google User",
+          rememberMe
+        });
+        finishLogin(result.user, result.accessToken, result.refreshToken, rememberMe);
+      } catch (err) {
+        const apiError = err as AuthApiError;
+        if (
+          !isAuthPreviewDisabled() &&
+          (apiError.status === 404 ||
+            apiError.code === "NETWORK_ERROR" ||
+            apiError.code === "REQUEST_FAILED" ||
+            apiError.code === "OAUTH_NOT_CONFIGURED")
+        ) {
+          setPreviewMode(true);
+          finishPreviewLogin("google", {
+            email: devEmail.trim().toLowerCase(),
+            name: "Google Preview"
+          });
+          return;
+        }
+        throw err;
+      }
     } catch (err) {
       const apiError = err as AuthApiError;
+      if (
+        !isAuthPreviewDisabled() &&
+        (apiError.status === 404 ||
+          apiError.code === "NETWORK_ERROR" ||
+          apiError.code === "REQUEST_FAILED")
+      ) {
+        setPreviewMode(true);
+        finishPreviewLogin("google", {
+          email: email.trim() || "preview.google@acnlink.local",
+          name: "Google Preview"
+        });
+        return;
+      }
       setError(
         apiError.code === "OAUTH_FAILED" || apiError.code === "OAUTH_NOT_CONFIGURED"
           ? apiError.message
@@ -571,6 +694,15 @@ export default function LoginScreen({
   const handleGitHub = async () => {
     setError("");
     try {
+      if (previewMode) {
+        setLoading(true);
+        finishPreviewLogin("github", {
+          email: email.trim() || "preview.github@acnlink.local",
+          name: "GitHub Preview"
+        });
+        return;
+      }
+
       if (config?.githubEnabled && config.githubClientId) {
         sessionStorage.setItem("acnlink_oauth_remember", rememberMe ? "true" : "false");
         const redirectUri = encodeURIComponent(`${config.appUrl || window.location.origin}/`);
@@ -582,6 +714,15 @@ export default function LoginScreen({
       }
 
       if (!config?.allowDevOAuth) {
+        if (!isAuthPreviewDisabled()) {
+          setLoading(true);
+          setPreviewMode(true);
+          finishPreviewLogin("github", {
+            email: email.trim() || "preview.github@acnlink.local",
+            name: "GitHub Preview"
+          });
+          return;
+        }
         setError("GitHub Sign-In is not configured. Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET.");
         return;
       }
@@ -595,14 +736,46 @@ export default function LoginScreen({
         setError("GitHub sign-in was cancelled.");
         return;
       }
-      const result = await githubLoginRequest({
-        email: devEmail.trim().toLowerCase(),
-        name: "GitHub User",
-        rememberMe
-      });
-      finishLogin(result.user, result.accessToken, result.refreshToken, rememberMe);
+      try {
+        const result = await githubLoginRequest({
+          email: devEmail.trim().toLowerCase(),
+          name: "GitHub User",
+          rememberMe
+        });
+        finishLogin(result.user, result.accessToken, result.refreshToken, rememberMe);
+      } catch (err) {
+        const apiError = err as AuthApiError;
+        if (
+          !isAuthPreviewDisabled() &&
+          (apiError.status === 404 ||
+            apiError.code === "NETWORK_ERROR" ||
+            apiError.code === "REQUEST_FAILED" ||
+            apiError.code === "OAUTH_NOT_CONFIGURED")
+        ) {
+          setPreviewMode(true);
+          finishPreviewLogin("github", {
+            email: devEmail.trim().toLowerCase(),
+            name: "GitHub Preview"
+          });
+          return;
+        }
+        throw err;
+      }
     } catch (err) {
       const apiError = err as AuthApiError;
+      if (
+        !isAuthPreviewDisabled() &&
+        (apiError.status === 404 ||
+          apiError.code === "NETWORK_ERROR" ||
+          apiError.code === "REQUEST_FAILED")
+      ) {
+        setPreviewMode(true);
+        finishPreviewLogin("github", {
+          email: email.trim() || "preview.github@acnlink.local",
+          name: "GitHub Preview"
+        });
+        return;
+      }
       setError(apiError.message || "GitHub sign-in failed.");
     } finally {
       setLoading(false);
@@ -671,6 +844,11 @@ export default function LoginScreen({
           </div>
           <h2 className="font-sans font-bold text-2xl text-slate-900 tracking-tight">{title}</h2>
           <p className="text-slate-500 text-sm mt-1.5 font-medium">{subtitle}</p>
+          {previewMode && view === "login" && (
+            <p className="mt-2 inline-flex items-center rounded-full bg-amber-50 border border-amber-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest text-amber-700">
+              Client preview
+            </p>
+          )}
         </div>
 
         {view !== "login" &&

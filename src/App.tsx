@@ -30,6 +30,7 @@ import {
   getAccessToken,
   getLastActivity,
   getStoredAuthUser,
+  isPreviewToken,
   logoutRequest,
   touchActivity
 } from "./lib/authApi";
@@ -163,12 +164,39 @@ export default function App() {
     let cancelled = false;
 
     async function restoreSession() {
-      if (!getAccessToken()) {
+      const accessToken = getAccessToken();
+      if (!accessToken) {
         setIsLoggedIn(false);
         setCurrentScreen(ScreenId.LOGIN);
         setAuthBootstrapping(false);
         return;
       }
+
+      // Client preview sessions skip /api/auth/me so static hosts still restore UI.
+      if (isPreviewToken(accessToken)) {
+        const previewUser = getStoredAuthUser();
+        if (previewUser) {
+          setUser((prev) => ({
+            ...prev,
+            name: previewUser.name || prev.name,
+            email: previewUser.email || prev.email,
+            avatarUrl: previewUser.avatarUrl || prev.avatarUrl,
+            plan: previewUser.plan || prev.plan,
+            isVerified: previewUser.isVerified,
+            mfaEnabled: previewUser.mfaEnabled
+          }));
+          setIsLoggedIn(true);
+          touchActivity();
+          setCurrentScreen((screen) => (screen === ScreenId.LOGIN ? ScreenId.DASHBOARD : screen));
+        } else {
+          clearAuthSession();
+          setIsLoggedIn(false);
+          setCurrentScreen(ScreenId.LOGIN);
+        }
+        setAuthBootstrapping(false);
+        return;
+      }
+
       try {
         const { user: authUser } = await fetchMe();
         if (cancelled) return;
@@ -527,7 +555,11 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
-      await logoutRequest();
+      if (isPreviewToken(getAccessToken())) {
+        clearAuthSession();
+      } else {
+        await logoutRequest();
+      }
     } catch {
       clearAuthSession();
     }

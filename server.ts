@@ -339,8 +339,6 @@ function isProductionMode(): boolean {
 }
 
 async function startServer() {
-  await initRootStore();
-
   const isProd = isProductionMode();
 
   if (!isProd) {
@@ -379,6 +377,14 @@ async function startServer() {
       }
       throw err;
     });
+  }
+
+  // Init DB after bind so Railway healthchecks can pass during Supabase warmup.
+  try {
+    await initRootStore();
+    console.log("Data store ready:", getDataStoreStatus());
+  } catch (error) {
+    console.error("Data store init failed (continuing with file fallback):", error);
   }
 }
 

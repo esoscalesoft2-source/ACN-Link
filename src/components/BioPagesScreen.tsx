@@ -12,6 +12,7 @@ import {
 } from "../storage/bioBuilderStorage";
 import { CreateNotificationInput } from "../storage/notificationStorage";
 import { apiUrl } from "../lib/apiBase";
+import { getAccessToken } from "../lib/authApi";
 import {
   RefreshCw,
   Plus,
@@ -963,7 +964,10 @@ export default function BioPagesScreen({
       try {
         const response = await fetch(apiUrl(`/api/page/${selectedEditPage.id}`), {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {})
+          },
           body: JSON.stringify({ blocks: editorBlocks, details })
         });
         if (!response.ok) throw new Error("The server could not save this page.");

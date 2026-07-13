@@ -187,6 +187,7 @@ export async function syncRootToNormalizedTables(
           created_at: p.createdAt || null,
           bio: p.bio ?? null,
           cover_photo: p.coverPhoto ?? null,
+          owner_user_id: p.ownerUserId ?? null,
           updated_at: new Date().toISOString()
         }))
       );
@@ -514,7 +515,6 @@ export function mergeWorkspaceIntoRoot(
     "integration_votes",
     "tracking_pixels",
     "media_files",
-    "custom_domains",
     "help_articles",
     "support_tickets",
     "notifications",

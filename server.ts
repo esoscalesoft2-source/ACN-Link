@@ -3,10 +3,13 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import cookieParser from "cookie-parser";
-import { createAuthRouter } from "./server/auth/routes";
+import { createAuthRouter, requireAuth } from "./server/auth/routes";
 import { getDataStoreStatus, getRootStore, initRootStore, setRootStore } from "./server/db/rootStore";
 import { getSupabase, isSupabaseConfigured } from "./server/db/supabase";
 import { mergeWorkspaceIntoRoot, syncRootToNormalizedTables } from "./server/db/syncNormalized";
+import { createDomainsRouter } from "./server/domains/routes";
+import { findVerifiedDomainByHostname } from "./server/domains/repository";
+import { isCloudflareForSaasConfigured } from "./server/domains/cloudflare";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -68,14 +71,20 @@ app.get("/api/health", (_req, res) => {
   res.status(200).json({
     status: "ok",
     timestamp: new Date().toISOString(),
-    database: storeStatus
+    database: storeStatus,
+    customDomains: {
+      provider: isCloudflareForSaasConfigured() ? "cloudflare" : "manual",
+      cnameTarget:
+        process.env.CUSTOM_DOMAIN_CNAME_TARGET || "domains.acnlink.mindflo.today"
+    }
   });
 });
 
 app.use("/api/auth", createAuthRouter());
+app.use("/api/domains", createDomainsRouter());
 
 /** Import browser localStorage workspace collections → root + normalized Supabase tables */
-app.post("/api/workspace/import", async (req, res) => {
+app.post("/api/workspace/import", requireAuth, async (req, res) => {
   try {
     const workspace = (req.body?.workspace || req.body || {}) as Record<string, unknown>;
     const root = mergeWorkspaceIntoRoot(getRootStore(), workspace);
@@ -107,7 +116,7 @@ app.post("/api/workspace/import", async (req, res) => {
 });
 
 /** Force re-migrate root blob → all typed tables */
-app.post("/api/admin/migrate-normalized", async (_req, res) => {
+app.post("/api/admin/migrate-normalized", requireAuth, async (_req, res) => {
   if (!isSupabaseConfigured()) {
     res.status(400).json({ error: "Supabase is not configured." });
     return;
@@ -136,16 +145,39 @@ function writeStore(data: any) {
 }
 
 // API Routes
-app.get("/api/pages", (req, res) => {
+app.get("/api/pages", requireAuth, (req, res) => {
   const store = readStore();
-  const pages = store["pages_list"] || [];
-  res.json(pages);
+  const userId = (req as any).authUser.id as string;
+  const pages = Array.isArray(store["pages_list"]) ? store["pages_list"] : [];
+  let changed = false;
+  const claimed = pages.map((page: any) => {
+    if (!page.ownerUserId) {
+      changed = true;
+      return { ...page, ownerUserId: userId };
+    }
+    return page;
+  });
+  if (changed) {
+    store["pages_list"] = claimed;
+    writeStore(store);
+  }
+  res.json(claimed.filter((page: any) => page.ownerUserId === userId));
 });
 
-app.post("/api/pages", (req, res) => {
+app.post("/api/pages", requireAuth, (req, res) => {
   const { pages } = req.body;
+  if (!Array.isArray(pages)) {
+    res.status(400).json({ error: "pages must be an array" });
+    return;
+  }
+  const userId = (req as any).authUser.id as string;
   const store = readStore();
-  store["pages_list"] = pages;
+  const existing = Array.isArray(store["pages_list"]) ? store["pages_list"] : [];
+  const otherUsers = existing.filter((page: any) => page.ownerUserId && page.ownerUserId !== userId);
+  store["pages_list"] = [
+    ...otherUsers,
+    ...pages.map((page: any) => ({ ...page, ownerUserId: userId }))
+  ];
   writeStore(store);
   res.json({ success: true });
 });
@@ -161,18 +193,32 @@ app.get("/api/page/:id", (req, res) => {
   }
 });
 
-app.post("/api/page/:id", (req, res) => {
+app.post("/api/page/:id", requireAuth, (req, res) => {
   const { id } = req.params;
   const { blocks, details } = req.body;
   const store = readStore();
+  const userId = (req as any).authUser.id as string;
+  const pages = Array.isArray(store["pages_list"]) ? store["pages_list"] : [];
+  const page = pages.find((item: any) => item.id === id);
+  if (!page || page.ownerUserId !== userId) {
+    res.status(404).json({ error: "Page not found." });
+    return;
+  }
   store[id] = { blocks, details, updatedAt: new Date().toISOString() };
   writeStore(store);
   res.json({ success: true });
 });
 
-app.delete("/api/page/:id", (req, res) => {
+app.delete("/api/page/:id", requireAuth, (req, res) => {
   const { id } = req.params;
   const store = readStore();
+  const userId = (req as any).authUser.id as string;
+  const pages = Array.isArray(store["pages_list"]) ? store["pages_list"] : [];
+  const page = pages.find((item: any) => item.id === id);
+  if (!page || page.ownerUserId !== userId) {
+    res.status(404).json({ error: "Page not found" });
+    return;
+  }
   if (!(id in store)) {
     res.status(404).json({ error: "Page not found" });
     return;
@@ -319,6 +365,73 @@ app.get("/api/analytics", (req, res) => {
       totalPages: store["pages_list"]?.length || 0
     }
   });
+});
+
+function requestHostname(req: express.Request) {
+  return String(req.headers["x-forwarded-host"] || req.headers.host || "")
+    .split(",")[0]
+    .trim()
+    .toLowerCase()
+    .replace(/:\d+$/, "");
+}
+
+function isPlatformHostname(hostname: string) {
+  if (!hostname) return true;
+  if (hostname === "localhost" || hostname === "127.0.0.1") return true;
+  if (hostname.endsWith(".up.railway.app")) return true;
+
+  const configured = [
+    process.env.APP_URL,
+    process.env.API_URL,
+    process.env.RAILWAY_PUBLIC_DOMAIN
+  ];
+  return configured.some((value) => {
+    if (!value) return false;
+    try {
+      const url = new URL(String(value).includes("://") ? String(value) : `https://${value}`);
+      return url.hostname.toLowerCase() === hostname;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * Customer hostnames reach the Railway origin through Cloudflare for SaaS.
+ * Keep the hostname and redirect only the path so the SPA can render the
+ * correct published page and continue serving it at the branded URL.
+ */
+app.use(async (req, res, next) => {
+  if (req.path.startsWith("/api/") || req.method !== "GET") {
+    next();
+    return;
+  }
+  const hostname = requestHostname(req);
+  if (isPlatformHostname(hostname)) {
+    next();
+    return;
+  }
+
+  try {
+    const domain = await findVerifiedDomainByHostname(hostname);
+    if (!domain) {
+      res
+        .status(404)
+        .type("html")
+        .send("<!doctype html><title>Domain not connected</title><h1>Domain not connected</h1><p>This hostname is not verified in ACN Link.</p>");
+      return;
+    }
+    if (!req.query.previewPageId) {
+      const params = new URLSearchParams();
+      params.set("previewPageId", domain.pageId);
+      res.redirect(302, `/?${params.toString()}`);
+      return;
+    }
+    next();
+  } catch (error) {
+    console.error("Custom hostname routing failed:", error);
+    res.status(503).send("Custom domain routing is temporarily unavailable.");
+  }
 });
 
 // Vite middleware setup

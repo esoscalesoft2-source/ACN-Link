@@ -287,12 +287,40 @@ create table if not exists public.media_files (
 create table if not exists public.custom_domains (
   id text primary key,
   domain_name text not null,
-  type text not null default 'A',
+  type text not null default 'CNAME',
   target_ip text not null default '',
-  status text not null default 'Pending',
+  status text not null default 'Pending DNS',
   owner_user_id text,
+  page_id text,
+  dns_target text not null default '',
+  dns_verified_at timestamptz,
+  provider text not null default 'manual',
+  provider_hostname_id text,
+  provider_status text not null default 'pending',
+  ssl_status text not null default 'pending',
+  ownership_verification jsonb,
+  last_checked_at timestamptz,
+  error_message text,
+  created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Existing projects may already have the earlier minimal custom_domains table.
+alter table public.custom_domains add column if not exists page_id text;
+alter table public.custom_domains add column if not exists dns_target text not null default '';
+alter table public.custom_domains add column if not exists dns_verified_at timestamptz;
+alter table public.custom_domains add column if not exists provider text not null default 'manual';
+alter table public.custom_domains add column if not exists provider_hostname_id text;
+alter table public.custom_domains add column if not exists provider_status text not null default 'pending';
+alter table public.custom_domains add column if not exists ssl_status text not null default 'pending';
+alter table public.custom_domains add column if not exists ownership_verification jsonb;
+alter table public.custom_domains add column if not exists last_checked_at timestamptz;
+alter table public.custom_domains add column if not exists error_message text;
+alter table public.custom_domains add column if not exists created_at timestamptz not null default now();
+create unique index if not exists custom_domains_hostname_unique
+  on public.custom_domains (lower(domain_name));
+create index if not exists custom_domains_owner_idx
+  on public.custom_domains (owner_user_id);
 
 create table if not exists public.help_articles (
   id text primary key,

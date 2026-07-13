@@ -11,7 +11,6 @@ import {
   IntegrationVote,
   TrackingPixel,
   MediaFile,
-  CustomDomain,
   HelpArticle
 } from "./types";
 
@@ -247,23 +246,6 @@ export const initialMediaFiles: MediaFile[] = [
   }
 ];
 
-export const initialCustomDomains: CustomDomain[] = [
-  {
-    id: "d1",
-    domainName: "links.mybrand.com",
-    type: "A Record",
-    targetIp: "74.201.218.45",
-    status: "Verified"
-  },
-  {
-    id: "d2",
-    domainName: "go.travelhub.io",
-    type: "A Record",
-    targetIp: "74.201.218.45",
-    status: "Pending"
-  }
-];
-
 export const initialHelpArticles: HelpArticle[] = [
   {
     id: "faq1",
@@ -310,10 +292,10 @@ export const initialHelpArticles: HelpArticle[] = [
     title: "Can I use my own custom domain?",
     category: "Custom Domains",
     excerpt:
-      "Yes, under Custom Domains in the sidebar, you can link domains like links.yourbrand.com. Point your DNS A Record to 74.201.218.45 and wait for propagation.",
+      "Yes. Connect a hostname such as links.yourbrand.com, select its website, then add the exact CNAME shown by ACN Link.",
     readTime: "3 mins",
     content:
-      "Connect a custom domain\n\n1. Open Custom Domains and click Connect Domain.\n2. Enter a hostname such as links.yourbrand.com.\n3. In your DNS provider, create an A record pointing to 74.201.218.45.\n4. Return to ACN Link and click Verify DNS.\n5. After verification, use the domain for white-labeled bio pages and links.\n\nDNS changes can take a few minutes to 48 hours to propagate."
+      "Connect a custom domain\n\n1. Open Custom Domains and click Connect Domain.\n2. Enter a hostname such as links.yourbrand.com and select the website it should open.\n3. At your DNS provider, create the CNAME record shown by ACN Link.\n4. Return to ACN Link and click Check DNS and SSL.\n5. The domain becomes Verified only after live DNS and managed HTTPS are active.\n\nDNS changes and certificate provisioning can take several minutes."
   },
   {
     id: "faq5b",
@@ -350,9 +332,9 @@ export const initialHelpArticles: HelpArticle[] = [
     title: "What DNS record do I need for custom domains?",
     category: "Custom Domains",
     excerpt:
-      "Create an A record for your subdomain pointing to 74.201.218.45, then verify DNS from the Custom Domains page.",
+      "Create the CNAME record displayed for your hostname in Custom Domains, then run the DNS and SSL check.",
     readTime: "2 mins",
     content:
-      "DNS record details\n\nType: A\nHost: your subdomain (for example links)\nValue / Points to: 74.201.218.45\nTTL: Auto or 300 seconds\n\nAfter saving the record, open Custom Domains in ACN Link and use Verify DNS. If verification fails, wait for propagation and try again."
+      "DNS record details\n\nType: CNAME\nHost: your subdomain (for example links)\nTarget: use the exact target displayed in Custom Domains\nTTL: Auto or 300 seconds\n\nAfter saving the record, open Custom Domains and use Check DNS and SSL. The status progresses from Pending DNS to Provisioning SSL and finally Verified."
   }
 ];

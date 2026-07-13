@@ -13,7 +13,6 @@ import {
   initialVotes,
   initialTrackingPixels,
   initialMediaFiles,
-  initialCustomDomains,
   initialHelpArticles
 } from "./data";
 
@@ -35,6 +34,12 @@ import {
   touchActivity
 } from "./lib/authApi";
 import { apiUrl } from "./lib/apiBase";
+import {
+  connectDomain,
+  deleteDomain,
+  fetchDomains,
+  verifyDomain
+} from "./lib/domainApi";
 import DashboardScreen from "./components/DashboardScreen";
 import BioPagesScreen from "./components/BioPagesScreen";
 import ContactsScreen from "./components/ContactsScreen";
@@ -97,6 +102,14 @@ function readLocalStorage<T>(key: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function authenticatedHeaders(json = false): Record<string, string> {
+  const token = getAccessToken();
+  return {
+    ...(json ? { "Content-Type": "application/json" } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {})
+  };
 }
 
 function normalizeExternalUrl(value: string): string {
@@ -369,10 +382,14 @@ export default function App() {
 
   // 1. Initial fetch of pages list and analytics from the server
   React.useEffect(() => {
+    if (!isLoggedIn || isPreviewToken(getAccessToken())) return;
+
     async function loadInitialData() {
       try {
         // Fetch Pages List
-        const pagesRes = await fetch(apiUrl("/api/pages"));
+        const pagesRes = await fetch(apiUrl("/api/pages"), {
+          headers: authenticatedHeaders()
+        });
         if (pagesRes.ok) {
           const remotePages = await pagesRes.json();
           if (remotePages && Array.isArray(remotePages) && remotePages.length > 0) {
@@ -385,7 +402,7 @@ export default function App() {
             // Seed an empty server from the local workspace, not hardcoded demo data.
             await fetch(apiUrl("/api/pages"), {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: authenticatedHeaders(true),
               body: JSON.stringify({ pages })
             });
           }
@@ -433,17 +450,17 @@ export default function App() {
     }, 5000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [isLoggedIn]);
 
   // 2. Whenever pages list is updated, save to local storage AND sync to server
   React.useEffect(() => {
     writeLocalStorage("biolinks_pages_list", pages);
-    if (!isPagesSyncReady) return;
+    if (!isPagesSyncReady || !getAccessToken() || isPreviewToken(getAccessToken())) return;
 
     // Sync to server
     fetch(apiUrl("/api/pages"), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authenticatedHeaders(true),
       body: JSON.stringify({ pages })
     }).catch(err => {
       console.error("Failed to save pages list to server:", err);
@@ -516,10 +533,27 @@ export default function App() {
     readLocalStorage("acnlink_media_files", initialMediaFiles)
   );
   React.useEffect(() => writeLocalStorage("acnlink_media_files", mediaFiles), [mediaFiles]);
-  const [domains, setDomains] = useState<CustomDomain[]>(() =>
-    readLocalStorage("acnlink_custom_domains", initialCustomDomains)
-  );
-  React.useEffect(() => writeLocalStorage("acnlink_custom_domains", domains), [domains]);
+  const [domains, setDomains] = useState<CustomDomain[]>([]);
+  const [domainsLoading, setDomainsLoading] = useState(false);
+  const [domainsLoadError, setDomainsLoadError] = useState<string | null>(null);
+
+  const loadDomains = React.useCallback(async () => {
+    if (!getAccessToken() || isPreviewToken(getAccessToken())) return;
+    setDomainsLoading(true);
+    setDomainsLoadError(null);
+    try {
+      setDomains(await fetchDomains());
+    } catch (error) {
+      setDomainsLoadError(error instanceof Error ? error.message : "Unable to load domains.");
+    } finally {
+      setDomainsLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (isLoggedIn) void loadDomains();
+    else setDomains([]);
+  }, [isLoggedIn, loadDomains]);
   const [articles] = useState<HelpArticle[]>(initialHelpArticles);
 
   // Push browser workspace fields → Railway → Supabase normalized tables
@@ -536,7 +570,10 @@ export default function App() {
 
       fetch(apiUrl("/api/workspace/import"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {})
+        },
         credentials: "include",
         body: JSON.stringify({
           workspace: {
@@ -550,7 +587,6 @@ export default function App() {
             integration_votes: votes,
             tracking_pixels: pixels,
             media_files: mediaFiles,
-            custom_domains: domains,
             help_articles: articles,
             support_tickets: supportTickets,
             notifications: getAllNotifications(),
@@ -576,7 +612,6 @@ export default function App() {
     votes,
     pixels,
     mediaFiles,
-    domains,
     articles,
     savedDrafts
   ]);
@@ -643,7 +678,10 @@ export default function App() {
   };
 
   const handleRefreshPages = async () => {
-    const response = await fetch(apiUrl("/api/pages"), { cache: "no-store" });
+    const response = await fetch(apiUrl("/api/pages"), {
+      cache: "no-store",
+      headers: authenticatedHeaders()
+    });
     if (!response.ok) throw new Error("Unable to load pages");
 
     const remotePages = await response.json();
@@ -678,7 +716,10 @@ export default function App() {
       }
     }
 
-    fetch(apiUrl(`/api/page/${id}`), { method: "DELETE" }).catch((error) => {
+    fetch(apiUrl(`/api/page/${id}`), {
+      method: "DELETE",
+      headers: authenticatedHeaders()
+    }).catch((error) => {
       console.error("Failed to remove the page from the server:", error);
     });
   };
@@ -953,22 +994,18 @@ export default function App() {
     setMediaFiles((current) => current.filter((f) => f.id !== id));
   };
 
-  const handleConnectDomain = (domainName: string) => {
-    const newDomain: CustomDomain = {
-      id: `domain_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      domainName,
-      type: "A Record",
-      targetIp: "74.201.218.45",
-      status: "Pending"
-    };
-    setDomains((current) => [newDomain, ...current]);
+  const handleConnectDomain = async (domainName: string, pageId: string) => {
+    const created = await connectDomain(domainName, pageId);
+    setDomains((current) => [created, ...current.filter((domain) => domain.id !== created.id)]);
   };
 
-  const handleUpdateDomain = (updated: CustomDomain) => {
+  const handleVerifyDomain = async (id: string) => {
+    const updated = await verifyDomain(id);
     setDomains((current) => current.map((domain) => (domain.id === updated.id ? updated : domain)));
   };
 
-  const handleDeleteDomain = (id: string) => {
+  const handleDeleteDomain = async (id: string) => {
+    await deleteDomain(id);
     setDomains((current) => current.filter((d) => d.id !== id));
   };
 
@@ -1360,8 +1397,12 @@ export default function App() {
         return (
           <CustomDomainsScreen
             domains={domains}
+            pages={pages}
+            isLoading={domainsLoading}
+            loadError={domainsLoadError}
+            onReload={loadDomains}
             onConnectDomain={handleConnectDomain}
-            onUpdateDomain={handleUpdateDomain}
+            onVerifyDomain={handleVerifyDomain}
             onDeleteDomain={handleDeleteDomain}
           />
         );

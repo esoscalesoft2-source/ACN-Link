@@ -144,10 +144,20 @@ export interface MediaFile {
 
 export interface CustomDomain {
   id: string;
+  pageId: string;
   domainName: string;
-  type: string;
-  targetIp: string;
-  status: "Verified" | "Pending";
+  type: "CNAME";
+  dnsTarget: string;
+  status: "Pending DNS" | "DNS Verified" | "Provisioning SSL" | "Verified" | "Error";
+  dnsVerifiedAt: string | null;
+  provider: "cloudflare" | "manual";
+  providerStatus: string;
+  sslStatus: string;
+  ownershipVerification: Record<string, unknown> | null;
+  lastCheckedAt: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface HelpArticle {

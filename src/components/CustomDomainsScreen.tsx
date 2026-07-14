@@ -104,11 +104,11 @@ export default function CustomDomainsScreen({
     event.preventDefault();
     const hostname = normaliseHostname(domainName);
     if (!isValidHostname(hostname)) {
-      setFormError("Enter a valid hostname, for example links.mybrand.com.");
+      setFormError("Enter a full website address, for example links.yourbrand.com.");
       return;
     }
     if (!pageId) {
-      setFormError("Select the website that this domain should open.");
+      setFormError("Choose which published page should open when someone visits this address.");
       return;
     }
     setFormError("");
@@ -117,7 +117,7 @@ export default function CustomDomainsScreen({
       await onConnectDomain(hostname, pageId);
       setIsAdding(false);
       resetForm();
-      triggerToast(`"${hostname}" was registered. Add the shown DNS record, then verify.`);
+      triggerToast(`"${hostname}" was added. Open DNS setup and add the record, then verify.`);
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "Unable to connect domain.");
     } finally {
@@ -161,13 +161,14 @@ export default function CustomDomainsScreen({
     <PageShell>
       <PageHeader
         title="Custom Domains"
-        subtitle="Connect a domain to a published website with real DNS verification and managed HTTPS."
+        subtitle="Connect your own domain so visitors open links.yourbrand.com instead of the default ACN Link address."
         actions={
           <button
             type="button"
             onClick={openAdd}
             disabled={pages.length === 0}
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#4F46E5] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+            title={pages.length === 0 ? "Publish a website first, then connect your domain" : undefined}
           >
             <Plus className="h-4 w-4" />
             Connect Domain
@@ -178,8 +179,8 @@ export default function CustomDomainsScreen({
       <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4 text-sm text-indigo-900">
         <p className="font-bold">How it works</p>
         <p className="mt-1 text-indigo-800">
-          Choose a website → add the CNAME at your DNS provider → Verify DNS → wait for SSL to become
-          Active. ACN Link never marks a domain verified without checking live DNS and provider status.
+          Pick your published page → enter your own website address (e.g. links.yourbrand.com) → add one
+          DNS record at GoDaddy/Namecheap → click Verify. Your brand address goes live with HTTPS.
         </p>
       </div>
 
@@ -233,8 +234,8 @@ export default function CustomDomainsScreen({
             <h3 className="mt-3 font-bold">No custom domains connected</h3>
             <p className="mt-1 text-sm text-slate-500">
               {pages.length
-                ? "Connect a subdomain such as links.yourbrand.com."
-                : "Create and publish a website before connecting a domain."}
+                ? "Use your own address like links.yourbrand.com so visitors see your brand, not acnlink.mindflo.today."
+                : "Publish a website first, then come back here to connect your own domain."}
             </p>
           </div>
         ) : (
@@ -306,39 +307,49 @@ export default function CustomDomainsScreen({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
           <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold">Connect Custom Domain</h3>
+              <h3 className="text-lg font-bold">Connect Your Own Website Address</h3>
               <button type="button" onClick={() => setIsAdding(false)} disabled={isSubmitting}>
                 <X className="h-5 w-5" />
               </button>
             </div>
+            <p className="mt-2 text-sm text-slate-500 leading-relaxed">
+              Use your brand domain (e.g. links.yourbrand.com) instead of the default ACN Link URL.
+            </p>
             <form onSubmit={submit} className="mt-5 space-y-4">
-              <label className="block text-xs font-bold text-slate-600">
-                Domain name
+              <label className="block text-xs font-bold text-slate-700">
+                Your website address (domain)
                 <input
                   autoFocus
                   value={domainName}
                   onChange={(event) => setDomainName(event.target.value)}
-                  placeholder="links.mybrand.com"
+                  placeholder="e.g. links.yourbrand.com"
                   className="mt-1.5 w-full rounded-xl border bg-slate-50 px-3.5 py-2.5 text-sm"
                 />
+                <span className="mt-1 block text-[11px] font-normal text-slate-500">
+                  The address you own or bought from GoDaddy, Namecheap, Cloudflare, etc.
+                </span>
               </label>
-              <label className="block text-xs font-bold text-slate-600">
-                Website to open
+              <label className="block text-xs font-bold text-slate-700">
+                Which published page should open on this address?
                 <select
                   value={pageId}
                   onChange={(event) => setPageId(event.target.value)}
                   className="mt-1.5 w-full rounded-xl border bg-slate-50 px-3.5 py-2.5 text-sm"
                 >
-                  <option value="">Select a website</option>
+                  <option value="">Choose your live page</option>
                   {pages.map((page) => (
                     <option key={page.id} value={page.id}>
                       {page.title} ({page.status})
                     </option>
                   ))}
                 </select>
+                <span className="mt-1 block text-[11px] font-normal text-slate-500">
+                  When someone visits your domain, this published page will open.
+                </span>
               </label>
               <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4 text-xs text-indigo-800">
-                After registration, ACN Link will show the exact CNAME target and SSL validation status.
+                Next step: we will show exactly what to add in your domain settings (DNS). Usually
+                takes 5–10 minutes after you save the record.
               </div>
               {formError && <p className="text-xs font-medium text-rose-600">{formError}</p>}
               <div className="flex justify-end gap-2">
@@ -356,7 +367,7 @@ export default function CustomDomainsScreen({
                   className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2 text-sm font-semibold text-white disabled:opacity-60"
                 >
                   {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                  Register Domain
+                  Connect This Address
                 </button>
               </div>
             </form>
@@ -368,24 +379,25 @@ export default function CustomDomainsScreen({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
           <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold">DNS & SSL setup</h3>
+              <h3 className="text-lg font-bold">Add this record in your domain settings</h3>
               <button type="button" onClick={() => setDnsHelpDomain(null)}>
                 <X className="h-5 w-5" />
               </button>
             </div>
             <p className="mt-2 text-sm text-slate-600">
-              At the DNS provider for <strong>{dnsHelpDomain.domainName}</strong>, create:
+              Log in to where you bought <strong>{dnsHelpDomain.domainName}</strong> (GoDaddy, Namecheap,
+              etc.) and add this DNS record:
             </p>
             <div className="mt-4 space-y-3 rounded-2xl bg-slate-50 p-4 text-sm">
               <div className="flex justify-between gap-4">
-                <span className="text-slate-400">Type</span><strong>CNAME</strong>
+                <span className="text-slate-400">Record type</span><strong>CNAME</strong>
               </div>
               <div className="flex justify-between gap-4">
-                <span className="text-slate-400">Name</span>
+                <span className="text-slate-400">Host / Name</span>
                 <code className="break-all text-right">{dnsHelpDomain.domainName}</code>
               </div>
               <div className="flex items-center justify-between gap-4">
-                <span className="text-slate-400">Target</span>
+                <span className="text-slate-400">Points to (Target)</span>
                 <button
                   type="button"
                   onClick={() => void copy("target", dnsHelpDomain.dnsTarget)}

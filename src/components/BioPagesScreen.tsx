@@ -11,6 +11,7 @@ import {
   persistPagePreviewStorage
 } from "../storage/bioBuilderStorage";
 import { CreateNotificationInput } from "../storage/notificationStorage";
+import { PRIMARY_DOMAIN } from "../storage/publishStorage";
 import { apiUrl } from "../lib/apiBase";
 import { getAccessToken } from "../lib/authApi";
 import {
@@ -1026,7 +1027,7 @@ export default function BioPagesScreen({
     <PageShell>
       <PageHeader
         title="BioLink Pages"
-        subtitle={`${pages.length} page${pages.length !== 1 ? "s" : ""}`}
+        subtitle={`Create link pages to share on Instagram, WhatsApp & business cards · ${pages.length} page${pages.length !== 1 ? "s" : ""}`}
         actions={
           <>
             <button
@@ -1051,22 +1052,25 @@ export default function BioPagesScreen({
       {isAdding && (
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-50 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="font-display font-bold text-lg text-gray-950">Create BioLink Page</h3>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-display font-bold text-lg text-gray-950">Create Your Link Page</h3>
               <button onClick={() => setIsAdding(false)} className="text-gray-400 hover:text-gray-600">
                 <X className="h-5 w-5" />
               </button>
             </div>
+            <p className="mb-5 text-sm text-slate-500 leading-relaxed">
+              One page for all your social links, contact info, and business details.
+            </p>
 
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
-                <label className="block text-[10px] font-extrabold text-gray-400 uppercase tracking-widest mb-1.5">
-                  PAGE TITLE
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  What should we call this page?
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. My Instagram Links & Portfolio"
+                  placeholder="e.g. My Business Links"
                   value={newTitle}
                   onChange={(e) => {
                     const title = e.target.value;
@@ -1082,19 +1086,18 @@ export default function BioPagesScreen({
                   className="w-full bg-slate-50 border border-slate-200 focus:border-[#FF6B4A] rounded-xl py-2.5 px-3.5 text-sm text-gray-900 focus:outline-none focus:ring-4 focus:ring-orange-100 transition-all"
                 />
                 <p className="mt-1 text-[11px] text-slate-500 leading-normal">
-                  Give your page a friendly name (e.g., your personal name, your brand, or handle) so visitors know what this page is about.
+                  Visitors will see this name. Use your name, shop name, or brand.
                 </p>
               </div>
 
               <div>
-                <label className="block text-[10px] font-extrabold text-gray-400 uppercase tracking-widest mb-1.5 flex items-center justify-between">
-                  <span>CUSTOM URL ENDING (SLUG)</span>
-                  <span className="text-[9px] font-semibold text-slate-400 normal-case">No prefix needed</span>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Your page link ending
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder={newTitle ? newTitle.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-") : "e.g. instagram-links"}
+                  placeholder={newTitle ? newTitle.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-") : "e.g. my-business"}
                   value={newSlug}
                   onChange={(e) => {
                     // Keep it prefix-free by stripping any pasted full URL prefix
@@ -1110,14 +1113,18 @@ export default function BioPagesScreen({
                   className="w-full bg-slate-50 border border-slate-200 focus:border-[#FF6B4A] rounded-xl py-2.5 px-3.5 text-sm text-gray-900 focus:outline-none focus:ring-4 focus:ring-orange-100 transition-all"
                 />
                 <p className="mt-1 text-[11px] text-slate-500 leading-normal">
-                  This is the unique web ending for your page link where users can access all your shared social networks and forms.
+                  Your page opens at:{" "}
+                  <span className="font-mono text-slate-600">
+                    {PRIMARY_DOMAIN}/{newSlug.trim() || "my-business"}
+                  </span>
+                  {" "}— use only letters, numbers, and hyphens.
                 </p>
               </div>
 
               {/* Template Selection */}
               <div className="space-y-3 pt-1">
-                <label className="block text-[10px] font-extrabold text-gray-400 uppercase tracking-widest">
-                  START WITH TEMPLATE
+                <label className="block text-xs font-bold text-slate-700">
+                  Choose a starting design
                 </label>
                 <div className="grid grid-cols-1">
                   <button
@@ -1139,8 +1146,8 @@ export default function BioPagesScreen({
 
                 {savedTemplates.length > 0 && (
                   <div className="space-y-1.5 pt-1">
-                    <span className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">
-                      OR YOUR SAVED TEMPLATES
+                    <span className="block text-[10px] font-bold text-slate-500">
+                      Or pick a saved design
                     </span>
                     <div className="flex flex-wrap gap-1.5">
                       {savedTemplates.map((tpl) => (
@@ -1186,7 +1193,7 @@ export default function BioPagesScreen({
                   disabled={isCreating}
                   className="px-5 py-2 bg-[#FF6B4A] hover:bg-[#E55B3C] disabled:cursor-not-allowed disabled:opacity-70 text-white rounded-xl text-sm font-semibold shadow-md shadow-orange-100"
                 >
-                  {isCreating ? "Creating…" : "Create"}
+                  {isCreating ? "Creating…" : "Create My Page"}
                 </button>
               </div>
             </form>
@@ -1201,8 +1208,10 @@ export default function BioPagesScreen({
             <div className="h-14 w-14 bg-orange-50 text-[#FF6B4A] rounded-2xl flex items-center justify-center mb-4">
               <Smartphone className="h-6 w-6" />
             </div>
-            <h4 className="font-display font-bold text-gray-900">No BioLink Pages yet</h4>
-            <p className="text-gray-500 text-sm max-w-xs mt-1">Create your first responsive landing bio page to house your shortcuts.</p>
+            <h4 className="font-display font-bold text-gray-900">No link pages yet</h4>
+            <p className="text-gray-500 text-sm max-w-xs mt-1">
+              Click <strong>New Page</strong> to create your first shareable link page for Instagram, WhatsApp, and your business.
+            </p>
             <button
               onClick={() => setIsAdding(true)}
               className="mt-4 px-4 py-2 bg-[#FF6B4A] text-white rounded-xl text-sm font-semibold"

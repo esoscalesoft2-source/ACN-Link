@@ -88,10 +88,13 @@ declare global {
           initTokenClient: (config: {
             client_id: string;
             scope: string;
-            callback: (response: { access_token?: string; error?: string }) => void;
-          }) => {
-            requestAccessToken: (overrideConfig?: { prompt?: string }) => void;
-          };
+            callback: (response: {
+              access_token?: string;
+              error?: string;
+              error_description?: string;
+            }) => void;
+            error_callback?: (error: { type?: string; message?: string }) => void;
+          }) => { requestAccessToken: (overrideConfig?: { prompt?: string }) => void };
         };
       };
     };
@@ -140,8 +143,33 @@ function loadGoogleScript(): Promise<void> {
   });
 }
 
-function oauthRedirectBase(config: AuthConfig | null) {
-  return (config?.appUrl || window.location.origin).replace(/\/$/, "");
+function requestGoogleAccessToken(clientId: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    if (!window.google?.accounts?.oauth2) {
+      reject(new Error("Google Sign-In is unavailable."));
+      return;
+    }
+    const client = window.google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: "openid email profile",
+      callback: (response) => {
+        if (response.error || !response.access_token) {
+          reject(
+            new AuthApiError(
+              response.error_description || response.error || "Google sign-in was cancelled.",
+              "OAUTH_FAILED"
+            )
+          );
+          return;
+        }
+        resolve(response.access_token);
+      },
+      error_callback: (error) => {
+        reject(new AuthApiError(error?.message || "Google sign-in failed.", "OAUTH_FAILED"));
+      }
+    });
+    client.requestAccessToken({ prompt: "select_account" });
+  });
 }
 
 function loginErrorMessage(err: AuthApiError): string {
@@ -284,11 +312,7 @@ export default function LoginScreen({
       sessionStorage.getItem("acnlink_oauth_remember") !== "false";
     sessionStorage.removeItem("acnlink_oauth_remember");
     setLoading(true);
-    githubLoginRequest({
-      code,
-      rememberMe: remember,
-      redirectUri: `${window.location.origin.replace(/\/$/, "")}/`
-    })
+    githubLoginRequest({ code, rememberMe: remember })
       .then((result) => {
         finishLogin(result.user, result.accessToken, result.refreshToken, remember);
         window.history.replaceState({}, "", window.location.pathname);
@@ -603,36 +627,9 @@ export default function LoginScreen({
 
       if (config?.googleEnabled && config.googleClientId) {
         await loadGoogleScript();
-        await new Promise<void>((resolve, reject) => {
-          const oauth2 = window.google?.accounts?.oauth2;
-          if (!oauth2) {
-            reject(new AuthApiError("Google Sign-In failed to load.", "OAUTH_FAILED"));
-            return;
-          }
-          const client = oauth2.initTokenClient({
-            client_id: config.googleClientId,
-            scope: "openid email profile",
-            callback: (response) => {
-              void (async () => {
-                try {
-                  if (response.error || !response.access_token) {
-                    reject(new AuthApiError("Google sign-in was cancelled.", "OAUTH_FAILED"));
-                    return;
-                  }
-                  const result = await googleLoginRequest({
-                    accessToken: response.access_token,
-                    rememberMe
-                  });
-                  finishLogin(result.user, result.accessToken, result.refreshToken, rememberMe);
-                  resolve();
-                } catch (err) {
-                  reject(err);
-                }
-              })();
-            }
-          });
-          client.requestAccessToken({ prompt: "select_account" });
-        });
+        const accessToken = await requestGoogleAccessToken(config.googleClientId);
+        const result = await googleLoginRequest({ accessToken, rememberMe });
+        finishLogin(result.user, result.accessToken, result.refreshToken, rememberMe);
         return;
       }
 
@@ -646,7 +643,7 @@ export default function LoginScreen({
           });
           return;
         }
-        setError("Google Sign-In is not configured. Set GOOGLE_CLIENT_ID on Railway (see docs/oauth-production.md).");
+        setError("Google Sign-In is not configured. Set GOOGLE_CLIENT_ID in your environment.");
         return;
       }
 
@@ -719,7 +716,9 @@ export default function LoginScreen({
 
       if (config?.githubEnabled && config.githubClientId) {
         sessionStorage.setItem("acnlink_oauth_remember", rememberMe ? "true" : "false");
-        const redirectUri = encodeURIComponent(`${oauthRedirectBase(config)}/`);
+        const redirectUri = encodeURIComponent(
+          config.githubRedirectUri || `${config.appUrl || window.location.origin}/`
+        );
         const url = `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(
           config.githubClientId
         )}&redirect_uri=${redirectUri}&scope=${encodeURIComponent("read:user user:email")}`;
@@ -737,7 +736,7 @@ export default function LoginScreen({
           });
           return;
         }
-        setError("GitHub Sign-In is not configured. Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET on Railway (see docs/oauth-production.md).");
+        setError("GitHub Sign-In is not configured. Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET.");
         return;
       }
 

@@ -59,12 +59,6 @@ function appOrigin() {
   return (process.env.APP_URL || "http://localhost:3000").replace(/\/$/, "");
 }
 
-function normalizeOAuthRedirectUri(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return `${appOrigin()}/`;
-  return trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
-}
-
 function extraAllowedOrigins(): string[] {
   return (process.env.CORS_ORIGINS || "")
     .split(",")
@@ -274,6 +268,7 @@ export function createAuthRouter() {
       githubEnabled: Boolean(githubClientId && process.env.GITHUB_CLIENT_SECRET),
       googleClientId,
       githubClientId,
+      githubRedirectUri: `${appOrigin()}/`,
       appUrl: appOrigin(),
       exposeTokens: shouldExposeAuthTokens(),
       allowDevOAuth: allowDevOAuth(),
@@ -1033,9 +1028,6 @@ export function createAuthRouter() {
             res.status(401).json({ error: "Google email is not verified.", code: "OAUTH_FAILED" });
             return;
           }
-        } else if (!String(profile.email || "").trim()) {
-          res.status(401).json({ error: "Google account email is unavailable.", code: "OAUTH_FAILED" });
-          return;
         }
         await completeOAuthLogin(
           req,
@@ -1109,7 +1101,7 @@ export function createAuthRouter() {
             client_id: clientId,
             client_secret: clientSecret,
             code,
-            redirect_uri: normalizeOAuthRedirectUri(String(req.body?.redirectUri || `${appOrigin()}/`))
+            redirect_uri: `${appOrigin()}/`
           })
         });
         const tokenJson = (await tokenRes.json()) as { access_token?: string; error?: string };

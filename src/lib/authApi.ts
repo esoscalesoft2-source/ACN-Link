@@ -32,6 +32,7 @@ export interface AuthConfig {
   githubEnabled: boolean;
   googleClientId: string;
   githubClientId: string;
+  githubRedirectUri?: string;
   appUrl: string;
   exposeTokens: boolean;
   allowDevOAuth: boolean;
@@ -429,7 +430,6 @@ export async function githubLoginRequest(input?: {
   name?: string;
   avatarUrl?: string;
   code?: string;
-  redirectUri?: string;
   rememberMe?: boolean;
 }) {
   return authFetch<{

@@ -469,12 +469,6 @@ app.use(async (req, res, next) => {
         .send("<!doctype html><title>Domain not connected</title><h1>Domain not connected</h1><p>This hostname is not verified in ACN Link.</p>");
       return;
     }
-    if (req.path === "/" && !req.query.previewPageId) {
-      const params = new URLSearchParams();
-      params.set("previewPageId", domain.pageId);
-      res.redirect(302, `/?${params.toString()}`);
-      return;
-    }
     next();
   } catch (error) {
     console.error("Custom hostname routing failed:", error);

@@ -35,6 +35,11 @@ import {
 } from "./lib/authApi";
 import { apiUrl } from "./lib/apiBase";
 import {
+  isPlatformHostname,
+  resolveBrandedDomainPageId,
+  stripPreviewQueryFromUrl
+} from "./lib/customDomain";
+import {
   connectDomain,
   deleteDomain,
   fetchDomains,
@@ -119,9 +124,36 @@ function normalizeExternalUrl(value: string): string {
 }
 
 export default function App() {
-  // Parse URL search parameters for standalone public preview
+  const isBrandedHost = !isPlatformHostname();
+  const [brandedPageId, setBrandedPageId] = useState<string | null>(null);
+  const [brandedResolveState, setBrandedResolveState] = useState<"pending" | "ready" | "missing">(
+    isBrandedHost ? "pending" : "missing"
+  );
+
+  // Parse URL search parameters for standalone public preview on the platform host
   const urlParams = new URLSearchParams(window.location.search);
   const previewPageId = urlParams.get("previewPageId");
+
+  React.useEffect(() => {
+    if (!isBrandedHost) return;
+    let cancelled = false;
+
+    void (async () => {
+      const pageId = await resolveBrandedDomainPageId();
+      if (cancelled) return;
+      if (pageId) {
+        setBrandedPageId(pageId);
+        setBrandedResolveState("ready");
+        stripPreviewQueryFromUrl();
+      } else {
+        setBrandedResolveState("missing");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isBrandedHost]);
 
   const [currentScreen, setCurrentScreen] = useState<ScreenId>(() => {
     try {
@@ -616,7 +648,35 @@ export default function App() {
     savedDrafts
   ]);
 
-  // If we are in standalone public preview mode, render the public view immediately
+  // Live custom domain — clean URL without ?previewPageId=
+  if (isBrandedHost) {
+    if (brandedResolveState === "pending") {
+      return <div className="min-h-screen bg-slate-50" />;
+    }
+    if (brandedPageId) {
+      const pageToPreview = pages.find((p) => p.id === brandedPageId);
+      return (
+        <PublicBioPageView
+          pageId={brandedPageId}
+          pageTitle={pageToPreview?.title || "BioLink"}
+          pageSlug={pageToPreview?.slug || "biolink"}
+          pageBio={pageToPreview?.bio}
+          pageCoverPhoto={pageToPreview?.coverPhoto}
+          mode="live"
+        />
+      );
+    }
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 text-center text-sm text-slate-600">
+        <div>
+          <h1 className="text-lg font-bold text-slate-900">Domain not connected</h1>
+          <p className="mt-2">This hostname is not verified in ACN Link.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Platform preview while building pages (?previewPageId= on acnlink.mindflo.today)
   if (previewPageId) {
     const pageToPreview = pages.find((p) => p.id === previewPageId);
     return (
@@ -626,6 +686,7 @@ export default function App() {
         pageSlug={pageToPreview?.slug || "biolink"}
         pageBio={pageToPreview?.bio}
         pageCoverPhoto={pageToPreview?.coverPhoto}
+        mode="preview"
       />
     );
   }

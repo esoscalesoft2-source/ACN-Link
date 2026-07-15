@@ -15,6 +15,8 @@ interface PublicBioPageViewProps {
   pageSlug: string;
   pageBio?: string;
   pageCoverPhoto?: string;
+  /** Platform ?previewPageId= testing shows the sandbox banner; live custom domains do not. */
+  mode?: "preview" | "live";
 }
 
 const marvelFallbackBlocks = [
@@ -73,7 +75,14 @@ const getCurrencySymbol = (currency: string = "₹ INR") => {
   return currency.split(" ")[0] || "₹";
 };
 
-export default function PublicBioPageView({ pageId, pageTitle, pageSlug, pageBio, pageCoverPhoto }: PublicBioPageViewProps) {
+export default function PublicBioPageView({
+  pageId,
+  pageTitle,
+  pageSlug,
+  pageBio,
+  pageCoverPhoto,
+  mode = "preview"
+}: PublicBioPageViewProps) {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [customDetails, setCustomDetails] = useState<{ title: string; bio: string; coverPhoto: string } | null>(null);
   const [pageLoadStatus, setPageLoadStatus] = useState<"loading" | "ready" | "not_found">("loading");
@@ -250,19 +259,20 @@ export default function PublicBioPageView({ pageId, pageTitle, pageSlug, pageBio
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-start py-8 px-4 font-sans text-slate-800">
-      {/* Informational Domain Explanation Banner */}
-      <div className="w-full max-w-md bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6 shadow-sm text-xs text-amber-900 leading-relaxed space-y-1">
-        <div className="flex items-center gap-1.5 font-bold text-amber-800">
-          <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
-          <span>Secure Sandboxed Preview Mode</span>
+      {mode === "preview" && (
+        <div className="w-full max-w-md bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6 shadow-sm text-xs text-amber-900 leading-relaxed space-y-1">
+          <div className="flex items-center gap-1.5 font-bold text-amber-800">
+            <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
+            <span>Secure Sandboxed Preview Mode</span>
+          </div>
+          <p>
+            You are viewing your live BioLink output safely hosted on our secure origin.
+          </p>
+          <p className="text-amber-700/90 text-[11px] mt-1">
+            <strong>Note on Privacy Error:</strong> Custom mock domains (like <code className="bg-amber-100 px-1 rounded">acn.link</code>) require real DNS records and SSL certificates to work globally. Our sandbox securely routes this preview for you to test functionality instantly!
+          </p>
         </div>
-        <p>
-          You are viewing your live BioLink output safely hosted on our secure origin.
-        </p>
-        <p className="text-amber-700/90 text-[11px] mt-1">
-          <strong>Note on Privacy Error:</strong> Custom mock domains (like <code className="bg-amber-100 px-1 rounded">acn.link</code>) require real DNS records and SSL certificates to work globally. Our sandbox securely routes this preview for you to test functionality instantly!
-        </p>
-      </div>
+      )}
 
       {/* Main Glassmorphic Mobile-Optimized Page Card */}
       <div className="w-full max-w-md bg-white border border-slate-200/80 rounded-3xl shadow-xl overflow-hidden flex flex-col relative pb-8">

@@ -34,6 +34,7 @@ import {
   User,
   Download,
   ArrowRight,
+  ArrowLeft,
   Sparkles,
   TrendingUp,
   MousePointerClick,
@@ -52,12 +53,12 @@ import {
   Palette,
   Globe,
   Image as ImageIcon,
-  MoreVertical,
   LayoutGrid,
   Eye
 } from "lucide-react";
 import PageShell, { PageHeader, Workspace } from "./layout/PageShell";
 import { BIO_LINK, getLinkArrowColor, getLinkButtonStyle, isDefaultBrightLink } from "../lib/bioLinkColors";
+import type { AppTheme } from "../lib/themeStorage";
 
 export function getShareableOrigin() {
   let origin = window.location.origin;
@@ -124,43 +125,44 @@ const getCurrencySymbol = (currency: string = "₹ INR") => {
 };
 
 const getBlockIcon = (type: string) => {
+  const iconClass = "acn-editor-block-icon";
   switch (type) {
     case "Button":
-      return <div className="h-9 w-9 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center shrink-0"><Link className="h-4 w-4" /></div>;
+      return <div className={`${iconClass} acn-editor-block-icon--purple`}><Link className="h-4 w-4" /></div>;
     case "Text":
-      return <div className="h-9 w-9 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center shrink-0"><FileText className="h-4 w-4" /></div>;
+      return <div className={`${iconClass} acn-editor-block-icon--slate`}><FileText className="h-4 w-4" /></div>;
     case "Header":
-      return <div className="h-9 w-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-extrabold text-xs shrink-0">H1</div>;
+      return <div className={`${iconClass} acn-editor-block-icon--blue font-extrabold text-xs`}>H1</div>;
     case "Socials":
-      return <div className="h-9 w-9 rounded-xl bg-pink-50 text-pink-600 flex items-center justify-center shrink-0"><Share2 className="h-4 w-4" /></div>;
+      return <div className={`${iconClass} acn-editor-block-icon--pink`}><Share2 className="h-4 w-4" /></div>;
     case "Shop":
-      return <div className="h-9 w-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0"><ShoppingBag className="h-4 w-4" /></div>;
+      return <div className={`${iconClass} acn-editor-block-icon--green`}><ShoppingBag className="h-4 w-4" /></div>;
     case "Coupon":
-      return <div className="h-9 w-9 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center shrink-0"><Gift className="h-4 w-4" /></div>;
+      return <div className={`${iconClass} acn-editor-block-icon--sky`}><Gift className="h-4 w-4" /></div>;
     case "Countdown":
-      return <div className="h-9 w-9 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0"><Clock className="h-4 w-4" /></div>;
+      return <div className={`${iconClass} acn-editor-block-icon--rose`}><Clock className="h-4 w-4" /></div>;
     case "Deep Link":
-      return <div className="h-9 w-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0"><Sparkles className="h-4 w-4" /></div>;
+      return <div className={`${iconClass} acn-editor-block-icon--indigo`}><Sparkles className="h-4 w-4" /></div>;
     case "Link Spin":
-      return <div className="h-9 w-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0"><RefreshCw className="h-4 w-4" /></div>;
+      return <div className={`${iconClass} acn-editor-block-icon--amber`}><RefreshCw className="h-4 w-4" /></div>;
     case "WhatsApp":
-      return <div className="h-9 w-9 rounded-xl bg-green-50 text-green-600 flex items-center justify-center shrink-0"><MessageSquare className="h-4 w-4" /></div>;
+      return <div className={`${iconClass} acn-editor-block-icon--whatsapp`}><MessageSquare className="h-4 w-4" /></div>;
     case "Smart Form":
-      return <div className="h-9 w-9 rounded-xl bg-violet-50 text-violet-600 flex items-center justify-center shrink-0"><User className="h-4 w-4" /></div>;
+      return <div className={`${iconClass} acn-editor-block-icon--violet`}><User className="h-4 w-4" /></div>;
     case "vCard":
-      return <div className="h-9 w-9 rounded-xl bg-neutral-100 text-neutral-800 flex items-center justify-center shrink-0"><User className="h-4 w-4" /></div>;
+      return <div className={`${iconClass} acn-editor-block-icon--neutral`}><User className="h-4 w-4" /></div>;
     case "Video":
-      return <div className="h-9 w-9 rounded-xl bg-red-50 text-red-600 flex items-center justify-center shrink-0"><Play className="h-4 w-4" /></div>;
+      return <div className={`${iconClass} acn-editor-block-icon--red`}><Play className="h-4 w-4" /></div>;
     case "Music":
-      return <div className="h-9 w-9 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center text-sm shrink-0">🎵</div>;
+      return <div className={`${iconClass} acn-editor-block-icon--teal text-sm`}>🎵</div>;
     case "Gallery":
-      return <div className="h-9 w-9 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center text-sm shrink-0">📸</div>;
+      return <div className={`${iconClass} acn-editor-block-icon--indigo text-sm`}>📸</div>;
     case "PDF":
-      return <div className="h-9 w-9 rounded-xl bg-rose-100 text-[#7c3aed] flex items-center justify-center text-sm shrink-0">📄</div>;
+      return <div className={`${iconClass} acn-editor-block-icon--pdf text-sm`}>📄</div>;
     case "Events":
-      return <div className="h-9 w-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0"><Calendar className="h-4 w-4" /></div>;
+      return <div className={`${iconClass} acn-editor-block-icon--indigo`}><Calendar className="h-4 w-4" /></div>;
     default:
-      return <div className="h-9 w-9 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center shrink-0"><Link className="h-4 w-4" /></div>;
+      return <div className={`${iconClass} acn-editor-block-icon--slate`}><Link className="h-4 w-4" /></div>;
   }
 };
 
@@ -185,6 +187,7 @@ interface BioPagesScreenProps {
   clearInitialActiveTemplateId: () => void;
   quickCreateRequest: number;
   onNotify: (input: CreateNotificationInput) => void;
+  theme?: AppTheme;
 }
 
 export default function BioPagesScreen({
@@ -206,7 +209,8 @@ export default function BioPagesScreen({
   initialActiveTemplateId,
   clearInitialActiveTemplateId,
   quickCreateRequest,
-  onNotify
+  onNotify,
+  theme = "dark"
 }: BioPagesScreenProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -224,6 +228,15 @@ export default function BioPagesScreen({
   React.useEffect(() => {
     if (quickCreateRequest > 0) setIsAdding(true);
   }, [quickCreateRequest]);
+
+  React.useEffect(() => {
+    if (selectedEditPage) {
+      document.body.classList.add("acn-editor-open");
+    } else {
+      document.body.classList.remove("acn-editor-open");
+    }
+    return () => document.body.classList.remove("acn-editor-open");
+  }, [selectedEditPage]);
 
   // Analytics tab state
   const [analyticsTab, setAnalyticsTab] = useState<"7 Days" | "30 Days" | "All Time">("7 Days");
@@ -259,7 +272,6 @@ export default function BioPagesScreen({
   const [editorCoverPhoto, setEditorCoverPhoto] = useState<string>("https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800");
   const [editorTab, setEditorTab] = useState<"Edit" | "Settings">("Edit");
   const [editorViewPanel, setEditorViewPanel] = useState<"blocks" | "edit" | "preview">("edit");
-  const [showEditorMoreMenu, setShowEditorMoreMenu] = useState(false);
   const [linkedTemplateId, setLinkedTemplateId] = useState<string | null>(null);
   const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
   const [templateNameInput, setTemplateNameInput] = useState("");
@@ -1013,7 +1025,6 @@ export default function BioPagesScreen({
     setSelectedEditPage(page);
     setEditorTab("Edit");
     setEditorViewPanel("edit");
-    setShowEditorMoreMenu(false);
     setLinkedTemplateId(options?.templateId ?? null);
 
     const pageDraft = savedDrafts.find((draft) => draft.pageId === page.id);
@@ -1609,115 +1620,77 @@ export default function BioPagesScreen({
 
       {/* 2nd - High-fidelity full-page Editor Modal exactly matching the builder screen with sidebar and live interactive preview in pristine Light Mode */}
       {selectedEditPage && (
-        <div className="fixed inset-0 bg-slate-50 z-50 flex flex-col animate-in fade-in duration-200 text-slate-800">
+        <div className={`fixed inset-0 z-50 flex flex-col animate-in fade-in duration-200 acn-bio-editor-shell acn-theme-${theme}`}>
           {/* Editor Header — same fixed height as main app navbar */}
-          <header className="acn-app-navbar bg-white border-b border-slate-200 px-3 sm:px-6 flex items-center justify-between gap-2 shadow-sm">
-            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 overflow-hidden">
+          <header className="acn-app-navbar acn-editor-header shrink-0">
+            <div className="acn-editor-header__left">
               <button
+                type="button"
                 onClick={closeEditor}
-                className="text-slate-600 hover:text-slate-900 hover:bg-slate-50 flex items-center gap-1.5 text-sm font-semibold bg-white rounded-xl px-2.5 sm:px-3 py-1.5 transition-all border border-slate-200 shadow-sm shrink-0"
+                className="acn-editor-back-btn shrink-0"
+                aria-label="Go back"
+                title="Back"
               >
-                <X className="h-4 w-4" />
-                <span className="hidden sm:inline">Close Editor</span>
+                <ArrowLeft className="h-5 w-5" />
               </button>
-
-              <div className="h-5 w-px bg-slate-200 hidden sm:block shrink-0" />
-
-              <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1 overflow-hidden">
-                <span className="text-[#4F46E5] font-extrabold text-sm tracking-tight font-mono shrink-0">acn.link</span>
-                <span className="text-slate-400 text-sm shrink-0">/</span>
-                <div className="flex items-center gap-1 min-w-0 flex-1 overflow-hidden">
-                  <input
-                    type="text"
-                    value={editorTitle}
-                    onChange={(e) => setEditorTitle(e.target.value)}
-                    className="bg-transparent text-slate-900 text-sm font-bold border-b border-dashed border-slate-300 focus:border-[#6366f1] focus:outline-none py-0.5 px-1 min-w-0 w-full max-w-[100px] sm:max-w-[200px]"
-                  />
-                  <Edit3 className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                </div>
+              <span className="acn-editor-header__divider" aria-hidden />
+              <div className="acn-editor-header__brand min-w-0">
+                <span className="acn-editor-header__domain shrink-0">acn.link</span>
+                <span className="acn-editor-header__slash shrink-0">/</span>
+                <input
+                  type="text"
+                  value={editorTitle}
+                  onChange={(e) => setEditorTitle(e.target.value)}
+                  className="acn-editor-header__title-input min-w-0"
+                  aria-label="Page title"
+                />
+                <Edit3 className="h-3.5 w-3.5 acn-editor-header__edit-icon shrink-0" aria-hidden />
               </div>
             </div>
 
-            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-              <div className="flex bg-slate-100 p-0.5 sm:p-1 rounded-xl border border-slate-200 shadow-sm">
+            <div className="acn-editor-header__center">
+              <div className="acn-editor-tab-switch" role="tablist" aria-label="Editor mode">
                 <button
+                  type="button"
+                  role="tab"
+                  aria-selected={editorTab === "Edit"}
                   onClick={() => setEditorTab("Edit")}
-                  className={`px-2.5 sm:px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                    editorTab === "Edit" ? "bg-white text-slate-900 shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-900"
-                  }`}
+                  className={editorTab === "Edit" ? "is-active" : ""}
                 >
                   Edit
                 </button>
                 <button
+                  type="button"
+                  role="tab"
+                  aria-selected={editorTab === "Settings"}
                   onClick={() => setEditorTab("Settings")}
-                  className={`px-2.5 sm:px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                    editorTab === "Settings" ? "bg-white text-slate-900 shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-900"
-                  }`}
+                  className={editorTab === "Settings" ? "is-active" : ""}
                 >
                   Settings
                 </button>
               </div>
+            </div>
 
+            <div className="acn-editor-header__right">
               <button
+                type="button"
                 onClick={handleSaveAsTemplate}
-                className="hidden md:inline-flex text-xs font-bold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 rounded-xl px-3 py-1.5 border border-slate-200 shadow-sm transition-all"
+                className="acn-editor-nav-btn"
               >
                 Save as Template
               </button>
               <button
+                type="button"
                 onClick={handleSaveDraft}
-                className="hidden md:inline-flex text-xs font-bold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 rounded-xl px-3 py-1.5 border border-slate-200 shadow-sm transition-all"
+                className="acn-editor-nav-btn"
               >
                 Save Draft
               </button>
-              <div className="relative md:hidden">
-                <button
-                  type="button"
-                  onClick={() => setShowEditorMoreMenu((open) => !open)}
-                  className="p-2 text-slate-500 hover:text-slate-900 hover:bg-slate-50 rounded-xl border border-slate-200 bg-white shadow-sm"
-                  aria-label="More editor actions"
-                  aria-expanded={showEditorMoreMenu}
-                >
-                  <MoreVertical className="h-4 w-4" />
-                </button>
-                {showEditorMoreMenu && (
-                  <>
-                    <button
-                      type="button"
-                      className="fixed inset-0 z-10"
-                      aria-label="Close menu"
-                      onClick={() => setShowEditorMoreMenu(false)}
-                    />
-                    <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 min-w-[160px]">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleSaveAsTemplate();
-                          setShowEditorMoreMenu(false);
-                        }}
-                        className="w-full text-left px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
-                      >
-                        Save as Template
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleSaveDraft();
-                          setShowEditorMoreMenu(false);
-                        }}
-                        className="w-full text-left px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
-                      >
-                        Save Draft
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
               <button
                 type="button"
                 onClick={handlePublishEditor}
                 disabled={isPublishing}
-                className="bg-gradient-to-r from-[#6366f1] to-[#7c3aed] hover:from-[#4f46e5] hover:to-[#6d28d9] disabled:cursor-not-allowed disabled:opacity-70 text-white text-xs font-extrabold rounded-xl px-3 sm:px-5 py-1.5 shadow-md shadow-indigo-500/20 active:scale-95 transition-all flex items-center gap-1.5 shrink-0"
+                className="acn-editor-nav-btn acn-editor-nav-btn--primary"
               >
                 <Save className="h-3.5 w-3.5" />
                 <span>{isPublishing ? "Publishing…" : "Publish"}</span>
@@ -1726,7 +1699,7 @@ export default function BioPagesScreen({
           </header>
 
           {editorTab === "Edit" && !showPublishSuccess && (
-            <div className="xl:hidden bg-white border-b border-slate-200 px-3 sm:px-6 py-2 shrink-0">
+            <div className="xl:hidden acn-editor-subnav px-3 sm:px-6 py-2 shrink-0">
               <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 gap-1">
                 {(
                   [
@@ -1754,10 +1727,10 @@ export default function BioPagesScreen({
           )}
 
           {/* Editor Body */}
-          <div className="flex-1 overflow-hidden flex flex-col xl:flex-row min-h-0">
-            {/* Left Panel: Toolbar and Widget list */}
+          <div className="acn-editor-body flex-1 overflow-hidden flex flex-col xl:flex-row min-h-0">
+            {/* Main: Block library + Page editor */}
             <div
-              className={`flex-1 overflow-y-auto acn-workspace acn-workspace--stack bg-slate-50 text-slate-800 min-h-0 min-w-0 ${
+              className={`acn-editor-body__main flex-1 overflow-y-auto min-h-0 min-w-0 ${
                 editorViewPanel === "preview" ? "hidden xl:block" : "block"
               }`}
             >
@@ -1803,7 +1776,7 @@ export default function BioPagesScreen({
               ) : editorTab === "Settings" ? (
                 <div className="max-w-xl mx-auto acn-workspace acn-workspace--stack w-full">
                   <h3 className="font-display font-bold text-xl text-slate-900">Page Settings</h3>
-                  <div className="bg-white border border-slate-200 rounded-2xl acn-workspace-panel acn-workspace-panel--stack shadow-sm">
+                  <div className="acn-editor-panel acn-workspace-panel acn-workspace-panel--stack shadow-sm">
                     <div>
                       <label className="block text-xs text-slate-500 font-semibold mb-2">Meta Title</label>
                       <input
@@ -1861,14 +1834,19 @@ export default function BioPagesScreen({
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-col xl:grid xl:grid-cols-12 xl:gap-4 acn-workspace-grid">
-                  {/* Left subcol: CORE, GROWTH, MEDIA, OTHERS Blocks */}
+                <div className="acn-editor-body__grid">
+                  {/* Block Library */}
                   <div
-                    className={`acn-workspace--stack min-w-0 ${
+                    className={`acn-editor-zone acn-editor-zone--blocks ${
                       editorViewPanel === "blocks" ? "block" : "hidden"
-                    } xl:block xl:col-span-4`}
+                    } xl:block`}
                   >
-                    <div>
+                    <div className="acn-editor-zone__head">
+                      <LayoutGrid className="h-3.5 w-3.5" />
+                      Block Library
+                    </div>
+                    <div className="acn-editor-zone__body acn-workspace--stack">
+                    <div className="acn-editor-blocks-palette">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-3">
                         CORE BLOCKS
                       </span>
@@ -1939,7 +1917,7 @@ export default function BioPagesScreen({
                       </div>
                     </div>
 
-                    <div>
+                    <div className="acn-editor-blocks-palette">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-3">
                         GROWTH & SALES BLOCKS
                       </span>
@@ -2058,7 +2036,7 @@ export default function BioPagesScreen({
                       </div>
                     </div>
 
-                    <div>
+                    <div className="acn-editor-blocks-palette">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-3">
                         MEDIA BLOCKS
                       </span>
@@ -2129,7 +2107,7 @@ export default function BioPagesScreen({
                       </div>
                     </div>
 
-                    <div>
+                    <div className="acn-editor-blocks-palette">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-3">
                         OTHERS BLOCKS
                       </span>
@@ -2229,16 +2207,22 @@ export default function BioPagesScreen({
                         )}
                       </div>
                     )}
+                    </div>
                   </div>
 
-                  {/* Right subcol: Replaced with Cover Image Dropzone + Bio + Accordion Blocks List */}
+                  {/* Page Editor: Cover + Accordions */}
                   <div
-                    className={`acn-workspace--stack min-w-0 ${
+                    className={`acn-editor-zone acn-editor-zone--compose ${
                       editorViewPanel === "edit" ? "block" : "hidden"
-                    } xl:block xl:col-span-8`}
+                    } xl:block`}
                   >
+                    <div className="acn-editor-zone__head">
+                      <Edit3 className="h-3.5 w-3.5" />
+                      Page Editor
+                    </div>
+                    <div className="acn-editor-zone__body acn-workspace--stack">
                     {/* COVER IMAGE & BIO CARD */}
-                    <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-6">
+                    <div className="acn-editor-panel p-5 shadow-sm space-y-6">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
                           COVER IMAGE & HEADER
@@ -2357,12 +2341,12 @@ export default function BioPagesScreen({
                         onDragEnter={handleDragEnterManager}
                         onDragLeave={handleDragLeaveManager}
                         onDrop={handleDropOnManager}
-                        className={`space-y-3 p-4 rounded-3xl border transition-all max-h-[50vh] xl:max-h-[580px] overflow-y-auto shadow-inner ${
+                        className={`acn-editor-accordions space-y-3 p-4 rounded-3xl border transition-all max-h-[50vh] xl:max-h-[580px] overflow-y-auto shadow-inner ${
                           isDraggingOverManager
-                            ? "bg-indigo-500/10 border-indigo-400 ring-2 ring-indigo-400 ring-opacity-50"
+                            ? "ring-2 ring-indigo-400 ring-opacity-50 border-indigo-400"
                             : isAccordionReorderDrag
-                              ? "bg-indigo-500/5 border-indigo-300/80"
-                              : "bg-slate-100/80 border-slate-200"
+                              ? "border-indigo-300/80"
+                              : ""
                         }`}
                       >
                         {editorBlocks.length === 0 ? (
@@ -2386,11 +2370,11 @@ export default function BioPagesScreen({
                                 data-accordion-block
                                 onDragOver={(e) => handleBlockDragOver(e, idx)}
                                 onDrop={(e) => handleBlockDrop(e, idx)}
-                                className={`relative flex flex-col bg-white border rounded-2xl overflow-hidden transition-all duration-200 ${
+                                className={`relative flex flex-col acn-editor-accordion-item rounded-2xl overflow-hidden transition-all duration-200 ${
                                   isExpanded
                                     ? "border-[#6366f1] shadow-md ring-1 ring-[#6366f1]/15"
-                                    : "border-slate-200/80 shadow-sm hover:shadow hover:border-slate-300"
-                                } ${isCurrentlyDragged ? "opacity-40 scale-[0.98] border-dashed border-[#6366f1] bg-indigo-50/30" : ""}`}
+                                    : "shadow-sm hover:shadow"
+                                } ${isCurrentlyDragged ? "opacity-40 scale-[0.98] border-dashed border-[#6366f1]" : ""}`}
                               >
                                 {showDropBefore && (
                                   <div className="absolute -top-[7px] left-2 right-2 z-30 flex items-center gap-2 pointer-events-none">
@@ -2411,7 +2395,7 @@ export default function BioPagesScreen({
                                 {/* Accordion Header */}
                                 <div
                                   onClick={() => setExpandedBlockId(isExpanded ? null : block.id)}
-                                  className="flex items-center justify-between p-3.5 cursor-pointer select-none hover:bg-slate-50/40 transition-colors"
+                                  className="flex items-center justify-between p-3.5 cursor-pointer select-none acn-editor-accordion-header transition-colors"
                                 >
                                   <div className="flex items-center gap-3 min-w-0">
                                     <div
@@ -2450,7 +2434,7 @@ export default function BioPagesScreen({
 
                                 {/* Accordion Content */}
                                 {isExpanded && (
-                                  <div className="border-t border-slate-100 p-4 bg-slate-50/50 space-y-6 text-left animate-in fade-in slide-in-from-top-1 duration-200">
+                                  <div className="border-t p-4 acn-editor-accordion-body space-y-6 text-left animate-in fade-in slide-in-from-top-1 duration-200">
                                     {/* Widget Title */}
                                     {block.type !== "Shop" && (
                                       <div>
@@ -2911,50 +2895,52 @@ export default function BioPagesScreen({
                         )}
                       </div>
                     </div>
+                    </div>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Right Panel: Immersive Live Phone Preview in Light Mode with Full Interactivity */}
+            {/* Live phone preview */}
             <div
-              className={`w-full xl:w-[420px] 2xl:w-[460px] acn-glass-deep border-l border-slate-700/30 acn-workspace flex-col items-center justify-start overflow-y-auto min-h-0 shrink-0 ${
+              className={`acn-editor-zone acn-editor-zone--preview acn-editor-preview-rail flex flex-col h-full min-h-0 shrink-0 ${
                 editorViewPanel === "preview" ? "flex" : "hidden"
               } xl:flex`}
             >
-              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3.5 flex items-center gap-1.5 shrink-0">
-                <Smartphone className="h-3.5 w-3.5 text-[#6366f1]" />
-                LIVE PREVIEW
-              </span>
+              <div className="acn-editor-zone__head">
+                <Smartphone className="h-3.5 w-3.5" />
+                Live Preview
+              </div>
 
-              {/* iPhone simulator frame */}
-              <div className="w-[min(340px,calc(100vw-2rem))] h-[min(680px,calc((100vw-2rem)*2))] max-h-[calc(100vh-10rem)] bg-[#0F1420] rounded-[42px] p-3.5 shadow-2xl border-4 border-slate-800 relative flex flex-col overflow-hidden shrink-0 mx-auto">
-                {/* Dynamic Notch */}
-                <div className="absolute top-2 left-1/2 -translate-x-1/2 w-32 h-4.5 bg-slate-800 rounded-full z-20 flex items-center justify-center">
-                  <span className="w-2.5 h-2.5 rounded-full bg-slate-900/60 block mr-12" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-slate-900/50 block" />
-                </div>
+              <div className="acn-editor-preview-rail__stage">
+                <div className="acn-phone-preview" aria-label="Mobile live preview">
+                  <div className="acn-phone-preview__side-btn acn-phone-preview__side-btn--silent" />
+                  <div className="acn-phone-preview__side-btn acn-phone-preview__side-btn--volume-up" />
+                  <div className="acn-phone-preview__side-btn acn-phone-preview__side-btn--volume-down" />
+                  <div className="acn-phone-preview__side-btn acn-phone-preview__side-btn--power" />
 
-                {/* Phone Screen Canvas - 100% Light Mode */}
-                <div
-                  ref={previewScrollRef}
-                  onMouseDown={handleMouseDownScroll}
-                  onMouseLeave={handleMouseLeaveScroll}
-                  onMouseUp={handleMouseUpScroll}
-                  onMouseMove={handleMouseMoveScroll}
-                  onDragOver={handleDragOverTarget}
-                  onDragEnter={handleDragEnterPreview}
-                  onDragLeave={handleDragLeavePreview}
-                  onDrop={handleDropOnPreview}
-                  style={{ cursor: "grab" }}
-                  className={`acn-preview-isolate flex-1 rounded-[32px] overflow-y-auto overflow-x-hidden relative text-slate-800 pb-6 no-scrollbar transition-all duration-200 ${
-                    isDraggingOverPreview
-                      ? "bg-indigo-500/10 border-4 border-dashed border-indigo-400"
-                      : "bg-slate-50"
-                  }`}
-                >
-                  {/* Header Cover Cover */}
-                  <div className="h-40 w-full relative overflow-hidden bg-cover bg-center bg-slate-200">
+                  <div className="acn-phone-preview__bezel">
+                    <div className="acn-phone-preview__island" aria-hidden>
+                      <span className="acn-phone-preview__island-lens" />
+                    </div>
+
+                    <div
+                      ref={previewScrollRef}
+                      onMouseDown={handleMouseDownScroll}
+                      onMouseLeave={handleMouseLeaveScroll}
+                      onMouseUp={handleMouseUpScroll}
+                      onMouseMove={handleMouseMoveScroll}
+                      onDragOver={handleDragOverTarget}
+                      onDragEnter={handleDragEnterPreview}
+                      onDragLeave={handleDragLeavePreview}
+                      onDrop={handleDropOnPreview}
+                      style={{ cursor: "grab" }}
+                      className={`acn-preview-isolate acn-phone-preview__screen no-scrollbar transition-all duration-200 ${
+                        isDraggingOverPreview ? "acn-phone-preview__screen--drop-target" : ""
+                      }`}
+                    >
+                  {/* Header Cover */}
+                  <div className="h-48 w-full relative overflow-hidden bg-cover bg-center bg-slate-200">
                     <img
                       src={editorCoverPhoto || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800"}
                       alt="Hero Cover"
@@ -2965,34 +2951,34 @@ export default function BioPagesScreen({
                   </div>
 
                   {/* Bio Details */}
-                  <div className="px-5 text-center -mt-9 relative z-10">
-                    <div className="w-18 h-18 mx-auto rounded-full border-4 border-slate-50 overflow-hidden shadow-md bg-white flex items-center justify-center">
-                      <span className="text-3xl">👤</span>
+                  <div className="px-5 text-center -mt-10 relative z-10">
+                    <div className="w-20 h-20 mx-auto rounded-full border-4 border-slate-50 overflow-hidden shadow-md bg-white flex items-center justify-center">
+                      <span className="text-4xl">👤</span>
                     </div>
 
-                    <h3 className="font-display font-extrabold text-lg text-slate-900 mt-2 leading-snug">
+                    <h3 className="font-display font-extrabold text-xl text-slate-900 mt-2.5 leading-snug">
                       {editorTitle || "Marvel Products"}
                     </h3>
-                    <p className="text-[10px] text-slate-500 mt-0.5 font-medium">@{editorTitle.toLowerCase().replace(/\s+/g, "") || "marvel"}</p>
+                    <p className="text-xs text-slate-500 mt-1 font-medium">@{editorTitle.toLowerCase().replace(/\s+/g, "") || "marvel"}</p>
                     {editorBio && (
-                      <p className="text-[10px] text-slate-600 mt-1.5 leading-snug max-w-[240px] mx-auto bg-white/80 py-1.5 px-3 rounded-xl border border-slate-200/50 shadow-sm font-medium">{editorBio}</p>
+                      <p className="text-xs text-slate-600 mt-2 leading-relaxed max-w-[280px] mx-auto bg-white/90 py-2 px-3.5 rounded-xl border border-slate-200/50 shadow-sm font-medium">{editorBio}</p>
                     )}
                   </div>
 
                   {/* Dynamic Items on the landing page rendered in real-time */}
-                  <div className="px-4 mt-5 space-y-6 text-xs">
+                  <div className="px-4 mt-6 space-y-4 text-sm">
                     {editorBlocks.map((block, idx) => {
                       const getBlockContent = () => {
                         switch (block.type) {
                           case "Header":
                             return (
-                              <h4 className="text-center font-display font-extrabold text-sm text-slate-900 mt-1 leading-tight">
+                              <h4 className="text-center font-display font-extrabold text-base text-slate-900 mt-1 leading-tight">
                                 {block.label}
                               </h4>
                             );
                           case "Text":
                             return (
-                              <p className="text-center text-[10px] text-slate-600 bg-white border border-slate-200/60 p-2.5 rounded-xl leading-relaxed shadow-sm">
+                              <p className="text-center text-xs text-slate-600 bg-white border border-slate-200/60 p-3 rounded-xl leading-relaxed shadow-sm">
                                 {block.label}
                               </p>
                             );
@@ -3002,7 +2988,7 @@ export default function BioPagesScreen({
                               <button
                                 onClick={() => triggerSimulatorToast(`🔗 Simulated redirection to: ${block.value || "https://acn.link"}`)}
                                 style={getLinkButtonStyle(block as any)}
-                                className={`w-full font-bold py-2.5 px-3.5 rounded-xl flex items-center justify-between transition-all text-xs active:scale-98 ${
+                                className={`w-full font-bold py-3 px-4 rounded-xl flex items-center justify-between transition-all text-sm active:scale-98 ${
                                   isDefaultBrightLink(block as any)
                                     ? "shadow-md shadow-violet-500/30 border-0"
                                     : "shadow-sm border border-slate-200/80"
@@ -3342,8 +3328,8 @@ export default function BioPagesScreen({
                     })}
                   </div>
 
-                  <div className="text-center mt-8">
-                    <span className="text-[9px] text-slate-400 font-medium tracking-wider">Powered by ACN Link</span>
+                  <div className="text-center mt-8 pb-2">
+                    <span className="text-[10px] text-slate-400 font-medium tracking-wider">Powered by ACN Link</span>
                   </div>
 
                   {/* Interactive Simulator Toast Overlay */}
@@ -3451,6 +3437,10 @@ export default function BioPagesScreen({
                     </div>
                   )}
 
+                </div>
+
+                    <div className="acn-phone-preview__home-bar" aria-hidden />
+                  </div>
                 </div>
               </div>
             </div>

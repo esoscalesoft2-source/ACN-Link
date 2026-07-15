@@ -89,12 +89,12 @@ export default function NotificationPanel({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-[min(22rem,calc(100vw-2rem))] acn-glass-deep rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700/40 bg-slate-900/40">
+        <div className="absolute right-0 top-full mt-2 w-[min(22rem,calc(100vw-2rem))] acn-notification-panel rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center justify-between px-4 py-3 border-b acn-notification-panel__header">
             <div>
-              <h3 className="text-sm font-bold text-slate-900">Notifications</h3>
+              <h3 className="text-sm font-bold acn-notification-panel__title">Notifications</h3>
               {unreadCount > 0 && (
-                <p className="text-[10px] text-slate-500">{unreadCount} unread</p>
+                <p className="text-[10px] acn-notification-panel__sub">{unreadCount} unread</p>
               )}
             </div>
             <div className="flex items-center gap-1">
@@ -102,7 +102,7 @@ export default function NotificationPanel({
                 <button
                   type="button"
                   onClick={onMarkAllRead}
-                  className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                  className="p-1.5 acn-notification-panel__action rounded-lg transition-colors"
                   title="Mark all as read"
                 >
                   <CheckCheck className="h-4 w-4" />
@@ -111,7 +111,7 @@ export default function NotificationPanel({
               <button
                 type="button"
                 onClick={onClose}
-                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                className="p-1.5 acn-notification-panel__action rounded-lg transition-colors"
                 aria-label="Close notifications"
               >
                 <X className="h-4 w-4" />
@@ -122,21 +122,21 @@ export default function NotificationPanel({
           <div className="max-h-[min(24rem,60vh)] overflow-y-auto">
             {notifications.length === 0 ? (
               <div className="py-10 px-6 text-center">
-                <Bell className="h-8 w-8 text-slate-300 mx-auto mb-2" />
-                <p className="text-sm font-semibold text-slate-600">No notifications yet</p>
-                <p className="text-xs text-slate-400 mt-1">
+                <Bell className="h-8 w-8 acn-notification-panel__empty-icon mx-auto mb-2" />
+                <p className="text-sm font-semibold acn-notification-panel__title">No notifications yet</p>
+                <p className="text-xs acn-notification-panel__sub mt-1">
                   Publish pages, save drafts, and capture leads to see updates here.
                 </p>
               </div>
             ) : (
-              <ul className="divide-y divide-slate-100">
+              <ul className="divide-y acn-notification-panel__divide">
                 {notifications.map((notification) => (
                   <li key={notification.id}>
                     <button
                       type="button"
                       onClick={() => handleItemClick(notification)}
-                      className={`w-full text-left px-4 py-3 hover:bg-white/5 transition-colors ${
-                        !notification.read ? "bg-indigo-50/40" : ""
+                      className={`w-full text-left px-4 py-3 acn-notification-panel__item transition-colors ${
+                        !notification.read ? "acn-notification-panel__item--unread" : ""
                       }`}
                     >
                       <div className="flex items-start gap-2">
@@ -144,13 +144,13 @@ export default function NotificationPanel({
                           <span className="w-2 h-2 rounded-full bg-indigo-500 shrink-0 mt-1.5" />
                         )}
                         <div className={`min-w-0 flex-1 ${notification.read ? "pl-4" : ""}`}>
-                          <p className="text-sm font-semibold text-slate-900 leading-snug">
+                          <p className="text-sm font-semibold acn-notification-panel__title leading-snug">
                             {notification.title}
                           </p>
-                          <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                          <p className="text-xs acn-notification-panel__sub mt-0.5 leading-relaxed">
                             {notification.message}
                           </p>
-                          <p className="text-[10px] text-slate-400 mt-1 font-mono">
+                          <p className="text-[10px] acn-notification-panel__meta mt-1 font-mono">
                             {formatTime(notification.createdAt)}
                           </p>
                         </div>

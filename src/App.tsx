@@ -1240,6 +1240,7 @@ export default function App() {
             clearInitialActiveTemplateId={() => setInitialActiveTemplateId(null)}
             quickCreateRequest={quickCreateRequest}
             onNotify={pushNotification}
+            theme={uiTheme}
           />
         );
       case ScreenId.CONTACTS:

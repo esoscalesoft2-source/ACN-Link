@@ -9,7 +9,7 @@ import {
   registerCustomHostname,
   type ProviderHostname
 } from "./cloudflare";
-import { verifyDomainDns } from "./dns";
+import { verifyDomainDns, verifyHostnameReachability } from "./dns";
 import {
   createDomain,
   findDomainById,
@@ -217,9 +217,13 @@ export function createDomainsRouter() {
             providerState = await getCustomHostname(record.providerHostnameId);
           }
         } catch (providerError) {
+          let dnsVerified = dns.verified;
+          if (!dnsVerified) {
+            dnsVerified = await verifyHostnameReachability(record.domainName);
+          }
           record = await updateDomain(record.id, req.authUser!.id, {
-            status: dns.verified ? "DNS Verified" : "Pending DNS",
-            dns_verified_at: dns.verified ? dns.checkedAt : null,
+            status: dnsVerified ? "DNS Verified" : "Pending DNS",
+            dns_verified_at: dnsVerified ? dns.checkedAt : null,
             last_checked_at: dns.checkedAt,
             provider_status: "error",
             ssl_status: "error",
@@ -237,7 +241,11 @@ export function createDomainsRouter() {
       // Cloudflare's active custom-hostname status is also authoritative proof
       // that the hostname routes to this SaaS zone (including proxied CNAMEs,
       // where public DNS resolvers intentionally return Cloudflare A records).
-      const dnsVerified = dns.verified || providerState?.status === "active";
+      let dnsVerified = dns.verified;
+      if (!dnsVerified) {
+        dnsVerified = await verifyHostnameReachability(record.domainName);
+      }
+      dnsVerified = dnsVerified || providerState?.status === "active";
       const status = finalStatus(dnsVerified, providerState);
       record = await updateDomain(record.id, req.authUser!.id, {
         status,

@@ -1,4 +1,5 @@
 import { resolve4, resolve6, resolveCname, resolveTxt } from "node:dns/promises";
+import https from "node:https";
 
 function normalizeHostname(value: string) {
   return value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\.$/, "");
@@ -79,25 +80,67 @@ export async function verifyDomainDns(hostname: string): Promise<DnsVerification
   };
 }
 
-async function verifyHostnameReachability(hostname: string): Promise<boolean> {
+export async function verifyHostnameReachability(hostname: string): Promise<boolean> {
+  if (await fetchHealthJson(hostname)) return true;
+  return fetchHealthJsonNode(hostname);
+}
+
+async function fetchHealthJson(hostname: string): Promise<boolean> {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000);
+    const timeout = setTimeout(() => controller.abort(), 15_000);
     const response = await fetch(`https://${hostname}/api/health`, {
       method: "GET",
-      headers: { Accept: "application/json" },
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "ACN-Link-DNS-Verify/1.0"
+      },
       signal: controller.signal,
       redirect: "follow"
     });
     clearTimeout(timeout);
     if (!response.ok) return false;
-
-    const data = (await response.json().catch(() => null)) as {
-      status?: string;
-      customDomains?: { cnameTarget?: string };
-    } | null;
-    return data?.status === "ok" && Boolean(data.customDomains?.cnameTarget);
+    const data = (await response.json().catch(() => null)) as { status?: string } | null;
+    return data?.status === "ok";
   } catch {
     return false;
   }
+}
+
+function fetchHealthJsonNode(hostname: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const request = https.get(
+      `https://${hostname}/api/health`,
+      {
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "ACN-Link-DNS-Verify/1.0"
+        },
+        timeout: 15_000
+      },
+      (response) => {
+        let body = "";
+        response.on("data", (chunk) => {
+          body += chunk;
+        });
+        response.on("end", () => {
+          if ((response.statusCode || 0) < 200 || (response.statusCode || 0) >= 300) {
+            resolve(false);
+            return;
+          }
+          try {
+            const data = JSON.parse(body) as { status?: string };
+            resolve(data.status === "ok");
+          } catch {
+            resolve(false);
+          }
+        });
+      }
+    );
+    request.on("timeout", () => {
+      request.destroy();
+      resolve(false);
+    });
+    request.on("error", () => resolve(false));
+  });
 }

@@ -131,7 +131,11 @@ export async function findRoutableDomainByHostname(
     .not("dns_verified_at", "is", null)
     .maybeSingle();
   if (fallbackError) throw new Error(fallbackError.message);
-  return fallback ? mapRow(fallback as DomainRow) : null;
+  if (fallback) return mapRow(fallback as DomainRow);
+
+  // Route branded traffic once the customer connected the hostname in ACN Link.
+  // DNS/Worker already deliver requests here; verify updates the dashboard status.
+  return findDomainByHostname(hostname);
 }
 
 /** @deprecated Use findRoutableDomainByHostname */

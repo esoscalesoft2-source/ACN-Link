@@ -84,6 +84,15 @@ declare global {
           prompt: (callback?: (notification: { isNotDisplayed: () => boolean; isSkippedMoment: () => boolean }) => void) => void;
           renderButton?: (parent: HTMLElement, config: Record<string, unknown>) => void;
         };
+        oauth2: {
+          initTokenClient: (config: {
+            client_id: string;
+            scope: string;
+            callback: (response: { access_token?: string; error?: string }) => void;
+          }) => {
+            requestAccessToken: (overrideConfig?: { prompt?: string }) => void;
+          };
+        };
       };
     };
   }
@@ -110,7 +119,7 @@ function validatePasswordClient(password: string): string | null {
 
 function loadGoogleScript(): Promise<void> {
   return new Promise((resolve, reject) => {
-    if (window.google?.accounts?.id) {
+    if (window.google?.accounts?.oauth2) {
       resolve();
       return;
     }
@@ -129,6 +138,10 @@ function loadGoogleScript(): Promise<void> {
     script.onerror = () => reject(new Error("Failed to load Google Sign-In"));
     document.head.appendChild(script);
   });
+}
+
+function oauthRedirectBase(config: AuthConfig | null) {
+  return (config?.appUrl || window.location.origin).replace(/\/$/, "");
 }
 
 function loginErrorMessage(err: AuthApiError): string {
@@ -271,7 +284,11 @@ export default function LoginScreen({
       sessionStorage.getItem("acnlink_oauth_remember") !== "false";
     sessionStorage.removeItem("acnlink_oauth_remember");
     setLoading(true);
-    githubLoginRequest({ code, rememberMe: remember })
+    githubLoginRequest({
+      code,
+      rememberMe: remember,
+      redirectUri: `${window.location.origin.replace(/\/$/, "")}/`
+    })
       .then((result) => {
         finishLogin(result.user, result.accessToken, result.refreshToken, remember);
         window.history.replaceState({}, "", window.location.pathname);
@@ -587,37 +604,34 @@ export default function LoginScreen({
       if (config?.googleEnabled && config.googleClientId) {
         await loadGoogleScript();
         await new Promise<void>((resolve, reject) => {
-          window.google!.accounts.id.initialize({
+          const oauth2 = window.google?.accounts?.oauth2;
+          if (!oauth2) {
+            reject(new AuthApiError("Google Sign-In failed to load.", "OAUTH_FAILED"));
+            return;
+          }
+          const client = oauth2.initTokenClient({
             client_id: config.googleClientId,
-            callback: async (response: { credential?: string }) => {
-              try {
-                if (!response.credential) {
-                  reject(new AuthApiError("Google sign-in was cancelled.", "OAUTH_FAILED"));
-                  return;
+            scope: "openid email profile",
+            callback: (response) => {
+              void (async () => {
+                try {
+                  if (response.error || !response.access_token) {
+                    reject(new AuthApiError("Google sign-in was cancelled.", "OAUTH_FAILED"));
+                    return;
+                  }
+                  const result = await googleLoginRequest({
+                    accessToken: response.access_token,
+                    rememberMe
+                  });
+                  finishLogin(result.user, result.accessToken, result.refreshToken, rememberMe);
+                  resolve();
+                } catch (err) {
+                  reject(err);
                 }
-                const result = await googleLoginRequest({
-                  idToken: response.credential,
-                  rememberMe
-                });
-                finishLogin(result.user, result.accessToken, result.refreshToken, rememberMe);
-                resolve();
-              } catch (err) {
-                reject(err);
-              }
-            },
-            auto_select: false,
-            cancel_on_tap_outside: true
-          });
-          window.google!.accounts.id.prompt((notification) => {
-            if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-              reject(
-                new AuthApiError(
-                  "Google Sign-In popup was blocked or unavailable. Allow popups and try again.",
-                  "OAUTH_FAILED"
-                )
-              );
+              })();
             }
           });
+          client.requestAccessToken({ prompt: "select_account" });
         });
         return;
       }
@@ -632,7 +646,7 @@ export default function LoginScreen({
           });
           return;
         }
-        setError("Google Sign-In is not configured. Set GOOGLE_CLIENT_ID in your environment.");
+        setError("Google Sign-In is not configured. Set GOOGLE_CLIENT_ID on Railway (see docs/oauth-production.md).");
         return;
       }
 
@@ -705,7 +719,7 @@ export default function LoginScreen({
 
       if (config?.githubEnabled && config.githubClientId) {
         sessionStorage.setItem("acnlink_oauth_remember", rememberMe ? "true" : "false");
-        const redirectUri = encodeURIComponent(`${config.appUrl || window.location.origin}/`);
+        const redirectUri = encodeURIComponent(`${oauthRedirectBase(config)}/`);
         const url = `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(
           config.githubClientId
         )}&redirect_uri=${redirectUri}&scope=${encodeURIComponent("read:user user:email")}`;
@@ -723,7 +737,7 @@ export default function LoginScreen({
           });
           return;
         }
-        setError("GitHub Sign-In is not configured. Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET.");
+        setError("GitHub Sign-In is not configured. Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET on Railway (see docs/oauth-production.md).");
         return;
       }
 

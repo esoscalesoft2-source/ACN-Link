@@ -429,6 +429,7 @@ export async function githubLoginRequest(input?: {
   name?: string;
   avatarUrl?: string;
   code?: string;
+  redirectUri?: string;
   rememberMe?: boolean;
 }) {
   return authFetch<{

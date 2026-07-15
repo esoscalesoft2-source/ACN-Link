@@ -80,6 +80,35 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
+/** Public lookup used by the customer Cloudflare Worker to map hostnames → pages. */
+app.get("/api/public/custom-domain/:hostname", async (req, res) => {
+  try {
+    const hostname = String(req.params.hostname || "")
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, "")
+      .split("/")[0]
+      .replace(/\.$/, "");
+    if (!hostname) {
+      res.status(400).json({ error: "Hostname required." });
+      return;
+    }
+    const domain = await findRoutableDomainByHostname(hostname);
+    if (!domain) {
+      res.status(404).json({ error: "Domain not connected.", pageId: null });
+      return;
+    }
+    res.json({
+      pageId: domain.pageId,
+      domainName: domain.domainName,
+      status: domain.status
+    });
+  } catch (error) {
+    console.error("Public custom-domain lookup failed:", error);
+    res.status(503).json({ error: "Lookup unavailable." });
+  }
+});
+
 app.use("/api/auth", createAuthRouter());
 app.use("/api/domains", createDomainsRouter());
 
@@ -368,11 +397,18 @@ app.get("/api/analytics", (req, res) => {
 });
 
 function requestHostname(req: express.Request) {
-  return String(req.headers["x-forwarded-host"] || req.headers.host || "")
-    .split(",")[0]
-    .trim()
-    .toLowerCase()
-    .replace(/:\d+$/, "");
+  const pick = (value: unknown) =>
+    String(value || "")
+      .split(",")[0]
+      .trim()
+      .toLowerCase()
+      .replace(/:\d+$/, "");
+
+  return (
+    pick(req.headers["acn-customer-host"]) ||
+    pick(req.headers["x-forwarded-host"]) ||
+    pick(req.headers.host)
+  );
 }
 
 function isPlatformHostname(hostname: string) {

@@ -284,7 +284,7 @@ export default function CustomDomainsScreen({
                       <RefreshCw className={`h-4 w-4 ${verifyingId === domain.id ? "animate-spin" : ""}`} />
                     </button>
                     <a
-                      href={`https://${domain.domainName}`}
+                      href={`https://${domain.domainName}/?previewPageId=${encodeURIComponent(domain.pageId)}`}
                       target="_blank"
                       rel="noreferrer"
                       className="rounded-lg p-2 text-slate-500 hover:bg-indigo-50 hover:text-indigo-700"

@@ -38,6 +38,20 @@ export default {
     const incoming = new URL(request.url);
     const customerHost = incoming.hostname;
 
+    // Send visitors to the linked bio page on the branded URL.
+    if (incoming.pathname === "/" && !incoming.searchParams.has("previewPageId")) {
+      const resolve = await fetch(
+        `https://${PLATFORM_HOST}/api/public/custom-domain/${encodeURIComponent(customerHost)}`
+      );
+      if (resolve.ok) {
+        const data = await resolve.json();
+        if (data?.pageId) {
+          incoming.searchParams.set("previewPageId", data.pageId);
+          return Response.redirect(incoming.toString(), 302);
+        }
+      }
+    }
+
     const upstreamUrl = new URL(request.url);
     upstreamUrl.hostname = PLATFORM_HOST;
     upstreamUrl.protocol = "https:";
@@ -45,6 +59,7 @@ export default {
     const headers = new Headers(request.headers);
     headers.set("Host", PLATFORM_HOST);
     headers.set("X-Forwarded-Host", customerHost);
+    headers.set("ACN-Customer-Host", customerHost);
     headers.set("X-Forwarded-Proto", incoming.protocol.replace(":", ""));
 
     const init = {

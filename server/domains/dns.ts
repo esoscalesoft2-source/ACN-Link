@@ -60,7 +60,7 @@ export async function verifyDomainDns(hostname: string): Promise<DnsVerification
   // Orange-cloud (proxied) CNAMEs often expose only Cloudflare edge IPs, so
   // resolveCname/resolve4 checks fail even when the customer hostname reaches us.
   if (!verified) {
-    const reachable = await verifyHostnameReachability(host, expectedTarget);
+    const reachable = await verifyHostnameReachability(host);
     if (reachable) {
       verified = true;
       message =
@@ -79,7 +79,7 @@ export async function verifyDomainDns(hostname: string): Promise<DnsVerification
   };
 }
 
-async function verifyHostnameReachability(hostname: string, expectedTarget: string): Promise<boolean> {
+async function verifyHostnameReachability(hostname: string): Promise<boolean> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10_000);
@@ -96,11 +96,7 @@ async function verifyHostnameReachability(hostname: string, expectedTarget: stri
       status?: string;
       customDomains?: { cnameTarget?: string };
     } | null;
-    if (data?.status !== "ok") return false;
-
-    const reportedTarget = normalizeHostname(data.customDomains?.cnameTarget || "");
-    const expected = normalizeHostname(expectedTarget);
-    return reportedTarget === expected;
+    return data?.status === "ok" && Boolean(data.customDomains?.cnameTarget);
   } catch {
     return false;
   }

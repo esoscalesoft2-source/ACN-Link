@@ -99,6 +99,18 @@ export async function findDomainById(
 /** Hostnames that may serve a published page (full SSL or DNS-only + customer proxy). */
 export const ROUTABLE_DOMAIN_STATUSES: DomainStatus[] = ["Verified", "DNS Verified"];
 
+export async function findDomainByHostname(
+  hostname: string
+): Promise<CustomDomainRecord | null> {
+  const { data, error } = await db()
+    .from("custom_domains")
+    .select("*")
+    .eq("domain_name", hostname.toLowerCase())
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? mapRow(data as DomainRow) : null;
+}
+
 export async function findRoutableDomainByHostname(
   hostname: string
 ): Promise<CustomDomainRecord | null> {
@@ -109,7 +121,17 @@ export async function findRoutableDomainByHostname(
     .in("status", ROUTABLE_DOMAIN_STATUSES)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  return data ? mapRow(data as DomainRow) : null;
+  if (data) return mapRow(data as DomainRow);
+
+  // Keep serving after a successful verify even if status was reset to Pending DNS.
+  const { data: fallback, error: fallbackError } = await db()
+    .from("custom_domains")
+    .select("*")
+    .eq("domain_name", hostname.toLowerCase())
+    .not("dns_verified_at", "is", null)
+    .maybeSingle();
+  if (fallbackError) throw new Error(fallbackError.message);
+  return fallback ? mapRow(fallback as DomainRow) : null;
 }
 
 /** @deprecated Use findRoutableDomainByHostname */

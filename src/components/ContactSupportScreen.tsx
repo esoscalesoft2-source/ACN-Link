@@ -275,8 +275,8 @@ export default function ContactSupportScreen({ user, onNavigate }: ContactSuppor
         }
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8">
-        <div className="lg:col-span-2 bg-[#0F172A] text-white rounded-3xl p-5 sm:p-6 md:p-8 shadow-2xl border border-slate-800 space-y-6 relative overflow-hidden">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+        <div className="lg:col-span-2 bg-[#0F172A] text-white rounded-3xl p-4 sm:p-6 md:p-5 shadow-2xl border border-slate-800 space-y-6 relative overflow-hidden">
           <div className="absolute top-0 right-0 h-44 w-44 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
 
           <div>
@@ -300,8 +300,8 @@ export default function ContactSupportScreen({ user, onNavigate }: ContactSuppor
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <form onSubmit={handleSubmit} className="space-y-6" noValidate>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">
                   Ticket category
@@ -467,7 +467,7 @@ export default function ContactSupportScreen({ user, onNavigate }: ContactSuppor
         </div>
 
         <div className="space-y-6">
-          <div className="bg-white border border-gray-100 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4">
+          <div className="bg-white border border-gray-100 rounded-3xl p-4 sm:p-6 shadow-sm space-y-6">
             <div className="flex items-center justify-between gap-2">
               <h3 className="font-display font-bold text-gray-950 text-base">Your Active Tickets</h3>
               <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full">
@@ -477,15 +477,17 @@ export default function ContactSupportScreen({ user, onNavigate }: ContactSuppor
 
             {tickets.length > 0 && (
               <div className="space-y-2">
-                <div className="relative">
-                  <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                <div className="acn-icon-field">
+                  <span className="acn-icon-field__icon">
+                    <Search className="h-3.5 w-3.5" />
+                  </span>
                   <input
                     type="search"
                     value={searchQuery}
                     onChange={(event) => setSearchQuery(event.target.value)}
                     placeholder="Search tickets..."
                     aria-label="Search tickets"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 pl-8 pr-3 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    className="acn-icon-field__input w-full bg-slate-50 border border-slate-200 rounded-xl py-2 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-100"
                   />
                 </div>
                 <select
@@ -507,7 +509,7 @@ export default function ContactSupportScreen({ user, onNavigate }: ContactSuppor
 
             <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
               {tickets.length === 0 ? (
-                <div className="text-center py-8 space-y-2">
+                <div className="text-center py-12 space-y-2">
                   <p className="text-xs text-slate-500">No tickets yet.</p>
                   <p className="text-[11px] text-slate-400">
                     Submit a request and it will appear here.
@@ -565,7 +567,7 @@ export default function ContactSupportScreen({ user, onNavigate }: ContactSuppor
             </div>
           </div>
 
-          <div className="bg-[#FF6B4A]/5 border border-[#FF6B4A]/10 rounded-3xl p-5 sm:p-6 shadow-sm space-y-3">
+          <div className="bg-[#FF6B4A]/5 border border-[#FF6B4A]/10 rounded-3xl p-4 sm:p-6 shadow-sm space-y-3">
             <h4 className="font-display font-bold text-[#FF6B4A] text-sm flex items-center gap-1.5">
               <ShieldCheck className="h-4.5 w-4.5" />
               SLA Priority Included
@@ -618,7 +620,7 @@ export default function ContactSupportScreen({ user, onNavigate }: ContactSuppor
               </button>
             </div>
 
-            <div className="p-5 space-y-4">
+            <div className="p-5 space-y-6">
               <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 space-y-2 text-sm">
                 <div className="flex justify-between gap-3 text-xs">
                   <span className="text-slate-400 font-medium">Contact</span>

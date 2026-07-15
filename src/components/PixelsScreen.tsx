@@ -14,7 +14,7 @@ import {
   Play,
   RefreshCw
 } from "lucide-react";
-import PageShell, { PageHeader, SectionCard } from "./layout/PageShell";
+import PageShell, { PageHeader, SectionCard, Workspace } from "./layout/PageShell";
 
 interface PixelsScreenProps {
   pixels: TrackingPixel[];
@@ -282,16 +282,16 @@ export default function PixelsScreen({
         }
       />
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
-        <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 sm:gap-6">
+        <div className="acn-glass-card p-4">
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total</p>
           <p className="font-display font-black text-2xl text-slate-900 mt-1">{pixels.length}</p>
         </div>
-        <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+        <div className="acn-glass-card p-4">
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active</p>
           <p className="font-display font-black text-2xl text-emerald-600 mt-1">{activeCount}</p>
         </div>
-        <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm col-span-2 sm:col-span-1">
+        <div className="acn-glass-card p-4 col-span-2 sm:col-span-1">
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Needs validation</p>
           <p className="font-display font-black text-2xl text-amber-600 mt-1">{needsValidation}</p>
         </div>
@@ -299,22 +299,24 @@ export default function PixelsScreen({
 
       {pixels.length > 0 && (
         <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+          <div className="acn-icon-field flex-1">
+            <span className="acn-icon-field__icon">
+              <Search className="h-4 w-4" />
+            </span>
             <input
               type="search"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search by name, type, or pixel ID..."
               aria-label="Search pixels"
-              className="w-full bg-white border border-slate-200 rounded-xl py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
+              className="acn-input acn-icon-field__input w-full py-2"
             />
           </div>
           <select
             value={typeFilter}
             onChange={(event) => setTypeFilter(event.target.value)}
             aria-label="Filter by type"
-            className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium focus:outline-none"
+            className="acn-input px-3 py-2 font-medium"
           >
             <option value="All">All types</option>
             {PIXEL_TYPES.map((pixelType) => (
@@ -327,7 +329,7 @@ export default function PixelsScreen({
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
             aria-label="Filter by status"
-            className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium focus:outline-none"
+            className="acn-input px-3 py-2 font-medium"
           >
             <option value="All">All statuses</option>
             <option value="Active">Active</option>
@@ -343,7 +345,7 @@ export default function PixelsScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="pixel-form-title"
-            className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-50 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto"
+            className="bg-white rounded-3xl max-w-md w-full p-4 shadow-2xl border border-gray-50 animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto"
           >
             <div className="flex items-center justify-between mb-5">
               <h3 id="pixel-form-title" className="font-display font-bold text-lg text-gray-950">
@@ -359,7 +361,7 @@ export default function PixelsScreen({
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+            <form onSubmit={handleSubmit} className="space-y-6" noValidate>
               <div>
                 <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
                   Pixel name
@@ -442,9 +444,10 @@ export default function PixelsScreen({
       )}
 
       <SectionCard>
+        <Workspace>
         {pixels.length === 0 ? (
-          <div className="p-8 sm:p-12 text-center flex flex-col items-center justify-center">
-            <div className="h-14 w-14 bg-indigo-50 text-[#4F46E5] rounded-2xl flex items-center justify-center mb-4">
+          <div className="p-5 sm:p-6 text-center flex flex-col items-center justify-center">
+            <div className="h-14 w-14 bg-indigo-50 text-[#4F46E5] rounded-2xl flex items-center justify-center mb-6">
               <Shield className="h-6 w-6" />
             </div>
             <h4 className="font-display font-bold text-gray-900">No Tracking Pixels yet</h4>
@@ -461,7 +464,7 @@ export default function PixelsScreen({
             </button>
           </div>
         ) : filteredPixels.length === 0 ? (
-          <div className="p-10 text-center space-y-2">
+          <div className="p-6 text-center space-y-2">
             <p className="text-sm text-slate-500">No pixels match your filters.</p>
             {hasFilters && (
               <button
@@ -481,7 +484,7 @@ export default function PixelsScreen({
           <>
             <div className="lg:hidden divide-y divide-gray-50">
               {filteredPixels.map((pixel) => (
-                <div key={pixel.id} className="p-4 sm:p-5 space-y-3">
+                <div key={pixel.id} className="p-4 sm:p-8 space-y-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3 min-w-0">
                       <div className="h-10 w-10 bg-indigo-50 text-[#4F46E5] rounded-lg flex items-center justify-center shrink-0">
@@ -559,6 +562,7 @@ export default function PixelsScreen({
             </div>
           </>
         )}
+        </Workspace>
       </SectionCard>
 
       {toast && (

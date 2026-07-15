@@ -89,6 +89,7 @@ import {
   CreateNotificationInput
 } from "./storage/notificationStorage";
 import { getPublishSettings, persistPublishSettings } from "./storage/publishStorage";
+import { AppTheme, getStoredTheme, saveTheme } from "./lib/themeStorage";
 
 const USER_PROFILE_STORAGE_KEY = "acnlink_user_profile";
 
@@ -178,6 +179,7 @@ export default function App() {
     return params.get("verifyToken") || params.get("token") || "";
   }, []);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  const [uiTheme, setUiTheme] = useState<AppTheme>(() => getStoredTheme());
   const [isPublishOpen, setIsPublishOpen] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>(() => getAllNotifications());
   const lastAnalyticsEventIdRef = React.useRef<string | null>(null);
@@ -1475,6 +1477,11 @@ export default function App() {
         return (
           <AccountScreen
             user={user}
+            theme={uiTheme}
+            onThemeChange={(theme) => {
+              setUiTheme(theme);
+              saveTheme(theme);
+            }}
             onUpdateUser={handleUpdateUser}
             onUpdateMfa={handleUpdateMfa}
             onExportData={handleExportData}
@@ -1498,9 +1505,9 @@ export default function App() {
 
   if (authBootstrapping) {
     return (
-      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center font-sans">
-        <div className="flex flex-col items-center gap-3 text-slate-500">
-          <span className="h-8 w-8 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
+      <div className="acn-auth-canvas h-screen max-h-[100dvh] overflow-hidden flex items-center justify-center font-sans">
+        <div className="flex flex-col items-center gap-3 text-slate-300 relative z-10">
+          <span className="h-8 w-8 border-2 border-indigo-300/40 border-t-indigo-300 rounded-full animate-spin" />
           <p className="text-xs font-semibold uppercase tracking-widest">Restoring session…</p>
         </div>
       </div>
@@ -1508,7 +1515,20 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex font-sans antialiased">
+    <div
+      className={`h-screen max-h-[100dvh] w-full overflow-hidden flex font-sans antialiased ${
+        isLoggedIn ? `acn-app-shell acn-theme-${uiTheme}` : ""
+      }`}
+    >
+      {isLoggedIn && (
+        <div className="acn-bg-clouds" aria-hidden>
+          <span className="acn-bg-cloud acn-bg-cloud--1" />
+          <span className="acn-bg-cloud acn-bg-cloud--2" />
+          <span className="acn-bg-cloud acn-bg-cloud--3" />
+          <span className="acn-bg-cloud acn-bg-cloud--4" />
+          <span className="acn-bg-cloud acn-bg-cloud--5" />
+        </div>
+      )}
       {isLoggedIn && (
         <Sidebar
           currentScreen={currentScreen}
@@ -1518,7 +1538,7 @@ export default function App() {
         />
       )}
 
-      <div className="flex-1 flex flex-col min-w-0 w-full">
+      <div className="flex-1 flex flex-col min-w-0 w-full h-full min-h-0 overflow-hidden">
         {isLoggedIn && (
           <Header
             currentScreen={currentScreen}
@@ -1536,12 +1556,12 @@ export default function App() {
           />
         )}
 
-        <main className="flex-1 overflow-y-auto overflow-x-hidden min-w-0">
+        <main className="acn-main-scroll min-w-0 no-scrollbar">
           {renderContent()}
         </main>
 
         {isLoggedIn && (
-          <footer className="h-10 bg-[#F1F5F9] border-t border-slate-200 text-slate-500 px-4 sm:px-6 flex items-center justify-between text-[10px] uppercase tracking-widest font-mono shrink-0 select-none">
+          <footer className="h-10 acn-footer-bar text-slate-500 px-4 sm:px-6 flex items-center justify-between text-[10px] uppercase tracking-widest font-mono shrink-0 select-none relative z-[1]">
             <div className="flex min-w-0">
               <span className="flex items-center truncate" aria-live="polite">
                 <span

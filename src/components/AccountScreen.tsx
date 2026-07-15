@@ -16,9 +16,13 @@ import {
   Shield,
   BadgeCheck,
   Copy,
-  Check
+  Check,
+  Palette,
+  Moon,
+  Sun
 } from "lucide-react";
 import PageShell from "./layout/PageShell";
+import type { AppTheme } from "../lib/themeStorage";
 
 const CARTOON_AVATARS = [
   "https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=Nova",
@@ -32,6 +36,8 @@ const CARTOON_AVATARS = [
 
 interface AccountScreenProps {
   user: UserProfile;
+  theme: AppTheme;
+  onThemeChange: (theme: AppTheme) => void;
   onUpdateUser: (name: string, email: string, avatarUrl: string) => void;
   onUpdateMfa: (enabled: boolean) => void;
   onExportData: () => void;
@@ -46,6 +52,8 @@ function isValidEmail(value: string) {
 
 export default function AccountScreen({
   user,
+  theme,
+  onThemeChange,
   onUpdateUser,
   onUpdateMfa,
   onExportData,
@@ -332,28 +340,30 @@ export default function AccountScreen({
   };
 
   return (
-    <PageShell className="max-w-5xl">
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+    <PageShell className="max-w-5xl pb-20">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 pr-28 sm:pr-32">
         <div className="min-w-0">
-          <h2 className="font-display font-bold text-2xl sm:text-3xl text-gray-950 tracking-tight">
+          <h2 className="acn-page-title text-2xl sm:text-3xl">
             Account Settings
           </h2>
-          <p className="text-gray-500 text-sm mt-1">
+          <p className="text-slate-400 text-sm mt-1">
             Manage workspace plans, user credentials, and full-database backups.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowLogoutConfirm(true)}
-          className="shrink-0 self-start sm:self-auto inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 hover:border-rose-300 text-sm font-semibold transition-all active:scale-95"
-        >
-          <LogOut className="h-4 w-4" />
-          <span>Log Out</span>
-        </button>
       </div>
 
-      <div className="max-w-3xl space-y-8">
-        <div className="bg-white border border-gray-100 rounded-3xl p-5 sm:p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <button
+        type="button"
+        onClick={() => setShowLogoutConfirm(true)}
+        className="acn-logout-fixed"
+        aria-label="Log out of your account"
+      >
+        <LogOut className="h-4 w-4" />
+        <span>Log Out</span>
+      </button>
+
+      <div className="max-w-3xl space-y-6">
+        <div className="acn-section-card p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="min-w-0">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Current plan</p>
             <div className="flex flex-wrap items-center gap-2 mt-1">
@@ -384,7 +394,45 @@ export default function AccountScreen({
           )}
         </div>
 
-        <div className="bg-white border border-gray-100 rounded-3xl p-5 sm:p-6 shadow-sm space-y-6">
+        <div className="acn-section-card p-4 sm:p-6 space-y-6">
+          <h3 className="font-display font-bold text-base flex items-center gap-2">
+            <Palette className="h-5 w-5 text-indigo-400" />
+            Themes
+          </h3>
+          <p className="text-sm acn-page-subtitle">
+            Pick how ACN Link looks for you. Your choice is saved on this device.
+          </p>
+          <div className="acn-theme-picker">
+            <button
+              type="button"
+              aria-pressed={theme === "dark"}
+              onClick={() => onThemeChange("dark")}
+              className="acn-theme-option"
+            >
+              <span className="acn-theme-option__swatch acn-theme-option__swatch--dark" aria-hidden />
+              <span className="flex items-center gap-1.5 acn-theme-option__label">
+                <Moon className="h-4 w-4" />
+                Dark Mode
+              </span>
+              <span className="acn-theme-option__hint">Deep glass + colorful glow (default)</span>
+            </button>
+            <button
+              type="button"
+              aria-pressed={theme === "light"}
+              onClick={() => onThemeChange("light")}
+              className="acn-theme-option"
+            >
+              <span className="acn-theme-option__swatch acn-theme-option__swatch--light" aria-hidden />
+              <span className="flex items-center gap-1.5 acn-theme-option__label">
+                <Sun className="h-4 w-4" />
+                Light Mode
+              </span>
+              <span className="acn-theme-option__hint">Bright white glass + soft color accents</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="acn-section-card p-4 sm:p-6 space-y-6">
           <h3 className="font-display font-bold text-gray-950 text-base flex items-center gap-2">
             <User className="h-5 w-5 text-gray-400" />
             Profile Details
@@ -479,7 +527,7 @@ export default function AccountScreen({
             </div>
           )}
 
-          <form onSubmit={handleUpdate} className="space-y-4" noValidate>
+          <form onSubmit={handleUpdate} className="space-y-6" noValidate>
             <div>
               <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
                 Full name
@@ -535,7 +583,7 @@ export default function AccountScreen({
           </form>
         </div>
 
-        <div className="bg-white border border-gray-100 rounded-3xl p-5 sm:p-6 shadow-sm space-y-6">
+        <div className="acn-section-card p-4 sm:p-6 space-y-6">
           <div className="flex items-center justify-between gap-3">
             <h3 className="font-display font-bold text-gray-950 text-base flex items-center gap-2">
               <Database className="h-5 w-5 text-gray-400" />
@@ -573,8 +621,8 @@ export default function AccountScreen({
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="border border-slate-100 rounded-2xl p-4 bg-slate-50/50 flex flex-col justify-between space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="border border-slate-100 rounded-2xl p-4 bg-slate-50/50 flex flex-col justify-between space-y-6">
               <div className="space-y-1.5">
                 <div className="flex items-center gap-1.5">
                   <FileJson className="h-4 w-4 text-indigo-500" />
@@ -603,7 +651,7 @@ export default function AccountScreen({
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
-              className={`border-2 border-dashed rounded-2xl p-4 transition-all flex flex-col justify-between space-y-4 ${
+              className={`border-2 border-dashed rounded-2xl p-4 transition-all flex flex-col justify-between space-y-6 ${
                 isDragging
                   ? "border-indigo-500 bg-indigo-50/30"
                   : "border-slate-200 hover:border-slate-300 bg-white"
@@ -655,7 +703,7 @@ export default function AccountScreen({
           </div>
         </div>
 
-        <div className="bg-white border border-gray-100 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4">
+        <div className="acn-section-card p-4 sm:p-6 space-y-6">
           <h3 className="font-display font-bold text-gray-950 text-base flex items-center gap-2">
             <Key className="h-5 w-5 text-gray-400" />
             Security & Credentials
@@ -714,9 +762,9 @@ export default function AccountScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="password-modal-title"
-            className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100"
+            className="acn-modal-panel max-w-md w-full"
           >
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-6">
               <h3 id="password-modal-title" className="font-display font-black text-lg text-slate-900">
                 Change password
               </h3>
@@ -729,7 +777,7 @@ export default function AccountScreen({
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <form onSubmit={handlePasswordSubmit} className="space-y-4" noValidate>
+            <form onSubmit={handlePasswordSubmit} className="space-y-6" noValidate>
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
                   Current password
@@ -797,9 +845,9 @@ export default function AccountScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="mfa-modal-title"
-            className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 max-h-[90vh] overflow-y-auto"
+            className="bg-white rounded-3xl max-w-md w-full p-4 shadow-2xl border border-slate-100 max-h-[90vh] overflow-y-auto"
           >
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-6">
               <h3 id="mfa-modal-title" className="font-display font-black text-lg text-slate-900">
                 {user.mfaEnabled ? "Manage MFA" : "Enable MFA"}
               </h3>
@@ -814,7 +862,7 @@ export default function AccountScreen({
             </div>
 
             {user.mfaEnabled ? (
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <p className="text-sm text-slate-600">
                   Two-factor authentication is currently enabled on this account.
                 </p>
@@ -828,7 +876,7 @@ export default function AccountScreen({
                 </button>
               </div>
             ) : (
-              <form onSubmit={handleMfaSubmit} className="space-y-4" noValidate>
+              <form onSubmit={handleMfaSubmit} className="space-y-6" noValidate>
                 <p className="text-sm text-slate-600">
                   Add this account to your authenticator app, then enter a 6-digit verification code.
                 </p>
@@ -903,7 +951,7 @@ export default function AccountScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="import-confirm-title"
-            className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100"
+            className="acn-modal-panel max-w-sm w-full"
           >
             <h3 id="import-confirm-title" className="font-display font-black text-lg text-slate-900 mb-2">
               Restore this backup?
@@ -941,7 +989,7 @@ export default function AccountScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="logout-confirm-title"
-            className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100"
+            className="acn-modal-panel max-w-sm w-full"
           >
             <h3 id="logout-confirm-title" className="font-display font-black text-lg text-slate-900 mb-2">
               Log out?

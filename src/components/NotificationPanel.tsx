@@ -75,7 +75,7 @@ export default function NotificationPanel({
       <button
         type="button"
         onClick={onToggle}
-        className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+        className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-white/5 hover:text-slate-200 transition-colors"
         aria-label="Notifications"
         aria-expanded={isOpen}
         aria-haspopup="true"
@@ -89,8 +89,8 @@ export default function NotificationPanel({
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-[min(22rem,calc(100vw-2rem))] bg-white border border-slate-200 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/80">
+        <div className="absolute right-0 top-full mt-2 w-[min(22rem,calc(100vw-2rem))] acn-glass-deep rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700/40 bg-slate-900/40">
             <div>
               <h3 className="text-sm font-bold text-slate-900">Notifications</h3>
               {unreadCount > 0 && (
@@ -135,7 +135,7 @@ export default function NotificationPanel({
                     <button
                       type="button"
                       onClick={() => handleItemClick(notification)}
-                      className={`w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors ${
+                      className={`w-full text-left px-4 py-3 hover:bg-white/5 transition-colors ${
                         !notification.read ? "bg-indigo-50/40" : ""
                       }`}
                     >

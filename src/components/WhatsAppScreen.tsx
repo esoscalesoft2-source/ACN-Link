@@ -13,7 +13,7 @@ import {
   Trash2,
   Search
 } from "lucide-react";
-import PageShell, { PageHeader, SectionCard, StatCard, StatCardGrid } from "./layout/PageShell";
+import PageShell, { PageHeader, SectionCard, StatCard, StatCardGrid, Workspace } from "./layout/PageShell";
 
 type CampaignInput = Omit<WhatsAppCampaign, "id">;
 type TemplateInput = Omit<WhatsAppTemplate, "id">;
@@ -336,10 +336,10 @@ export default function WhatsAppScreen({
         />
       </StatCardGrid>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8">
-        <div className="lg:col-span-2 space-y-6 sm:space-y-8 min-w-0">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 acn-workspace-grid">
+        <Workspace stack className="lg:col-span-2 min-w-0">
           <SectionCard>
-            <div className="p-4 sm:p-6 space-y-4">
+            <Workspace stack>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <h3 className="font-display font-bold text-lg text-gray-950">Recent Broadcasts</h3>
                 <button
@@ -352,14 +352,16 @@ export default function WhatsAppScreen({
               </div>
 
               <div className="flex flex-col sm:flex-row gap-3">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3.5 top-3 h-4 w-4 text-gray-400" />
+                <div className="acn-icon-field flex-1">
+                  <span className="acn-icon-field__icon">
+                    <Search className="h-4 w-4" />
+                  </span>
                   <input
                     type="search"
                     value={searchQuery}
                     onChange={(event) => setSearchQuery(event.target.value)}
                     placeholder="Search campaigns..."
-                    className="w-full bg-slate-50 border border-slate-100 rounded-xl py-2 pl-10 pr-4 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    className="acn-icon-field__input w-full bg-slate-50 border border-slate-100 rounded-xl py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-100"
                     aria-label="Search campaigns"
                   />
                 </div>
@@ -487,11 +489,11 @@ export default function WhatsAppScreen({
                   </div>
                 </>
               )}
-            </div>
+            </Workspace>
           </SectionCard>
 
           <SectionCard>
-            <div className="p-4 sm:p-6 space-y-5">
+            <Workspace stack>
               <div className="flex items-center justify-between gap-3">
                 <h3 className="font-display font-bold text-lg text-gray-950">Broadcast Templates</h3>
                 <button
@@ -505,11 +507,11 @@ export default function WhatsAppScreen({
               </div>
 
               {templates.length === 0 ? (
-                <div className="py-8 text-center text-sm text-gray-400">
+                <div className="py-12 text-center text-sm text-gray-400">
                   No templates yet. Create one to reuse in broadcasts.
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 acn-workspace-grid">
                   {templates.map((template) => (
                     <div
                       key={template.id}
@@ -572,16 +574,16 @@ export default function WhatsAppScreen({
                   ))}
                 </div>
               )}
-            </div>
+            </Workspace>
           </SectionCard>
-        </div>
+        </Workspace>
 
-        <div className="space-y-6 min-w-0">
+        <Workspace stack className="min-w-0">
           <SectionCard>
-            <div className="p-6 space-y-5">
+            <Workspace stack>
               <h3 className="font-display font-bold text-gray-950 text-base">Active Connections</h3>
 
-              <div className="border border-emerald-100 bg-emerald-50/10 rounded-2xl p-4.5 flex items-start gap-4">
+              <div className="border border-emerald-100 bg-emerald-50/10 rounded-2xl p-4.5 flex items-start gap-6">
                 <div className="h-10 w-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
                   <CheckCircle className="h-5.5 w-5.5" />
                 </div>
@@ -601,11 +603,11 @@ export default function WhatsAppScreen({
               >
                 Manage Connection
               </button>
-            </div>
+            </Workspace>
           </SectionCard>
 
           <SectionCard>
-            <div className="p-6 space-y-4">
+            <Workspace stack>
               <h3 className="font-display font-bold text-gray-950 text-base">Quick Actions</h3>
 
               <div className="space-y-2">
@@ -646,9 +648,9 @@ export default function WhatsAppScreen({
                   <ArrowRight className="h-4 w-4 text-gray-300" />
                 </button>
               </div>
-            </div>
+            </Workspace>
           </SectionCard>
-        </div>
+        </Workspace>
       </div>
 
       {isTemplateModalOpen && (
@@ -657,9 +659,9 @@ export default function WhatsAppScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="template-modal-title"
-            className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-50"
+            className="bg-white rounded-3xl max-w-sm w-full p-4 shadow-2xl border border-gray-50"
           >
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-6">
               <h3 id="template-modal-title" className="font-display font-bold text-gray-900">
                 {editingTemplate ? "Edit Template" : "Create Template"}
               </h3>
@@ -667,7 +669,7 @@ export default function WhatsAppScreen({
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <form onSubmit={handleCreateTemplate} className="space-y-4" noValidate>
+            <form onSubmit={handleCreateTemplate} className="space-y-6" noValidate>
               <div>
                 <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
                   Template name
@@ -721,9 +723,9 @@ export default function WhatsAppScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="broadcast-modal-title"
-            className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-50"
+            className="bg-white rounded-3xl max-w-sm w-full p-4 shadow-2xl border border-gray-50"
           >
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-6">
               <h3 id="broadcast-modal-title" className="font-display font-bold text-gray-900">
                 {editingCampaign ? "Edit Broadcast" : "New Broadcast Campaign"}
               </h3>
@@ -731,7 +733,7 @@ export default function WhatsAppScreen({
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <form onSubmit={handleCreateBroadcast} className="space-y-4" noValidate>
+            <form onSubmit={handleCreateBroadcast} className="space-y-6" noValidate>
               <div>
                 <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
                   Campaign name
@@ -823,7 +825,7 @@ export default function WhatsAppScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="connection-modal-title"
-            className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-50 space-y-4"
+            className="bg-white rounded-3xl max-w-md w-full p-4 shadow-2xl border border-gray-50 space-y-6"
           >
             <div className="flex items-center justify-between">
               <h3 id="connection-modal-title" className="font-display font-bold text-gray-900">
@@ -869,7 +871,7 @@ export default function WhatsAppScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="compliance-modal-title"
-            className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-50 space-y-4 max-h-[85vh] overflow-y-auto"
+            className="bg-white rounded-3xl max-w-lg w-full p-4 shadow-2xl border border-gray-50 space-y-6 max-h-[85vh] overflow-y-auto"
           >
             <div className="flex items-center justify-between">
               <h3 id="compliance-modal-title" className="font-display font-bold text-gray-900">

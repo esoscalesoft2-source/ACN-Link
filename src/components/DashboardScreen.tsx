@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { ScreenId, BioPage, UserProfile } from "../types";
 import { Smartphone, Link2, QrCode, FileText, ArrowRight } from "lucide-react";
-import PageShell from "./layout/PageShell";
+import PageShell, { StatCard, StatCardGrid, Workspace } from "./layout/PageShell";
 
 interface DashboardScreenProps {
   onNavigate: (screen: ScreenId) => void;
@@ -127,7 +127,7 @@ export default function DashboardScreen({ onNavigate, onOpenPage, user, metrics,
       {/* Welcome Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="min-w-0">
-          <h2 className="font-display font-bold text-2xl sm:text-3xl text-slate-900 tracking-tight flex flex-wrap items-center gap-x-2 gap-y-1">
+          <h2 className="acn-page-title text-2xl sm:text-3xl flex flex-wrap items-center gap-x-2 gap-y-1">
             Welcome back, <span className="text-indigo-600">{user.name.split(/\s+/)[0] || "there"}</span>
           </h2>
           <p className="text-slate-500 text-sm mt-1">
@@ -138,7 +138,7 @@ export default function DashboardScreen({ onNavigate, onOpenPage, user, metrics,
         </div>
 
         {/* Time filters matching the geometric theme */}
-        <div className="flex bg-slate-50 border border-slate-200 rounded-lg p-0.5 self-start md:self-auto overflow-x-auto max-w-full">
+        <div className="acn-segment-control self-start md:self-auto">
           {ranges.map((range) => {
             const isSelected = range === timeRange;
             return (
@@ -147,11 +147,6 @@ export default function DashboardScreen({ onNavigate, onOpenPage, user, metrics,
                 type="button"
                 onClick={() => setTimeRange(range)}
                 aria-pressed={isSelected}
-                className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
-                  isSelected
-                    ? "bg-white shadow-sm text-slate-900"
-                    : "text-slate-500 hover:text-slate-900"
-                }`}
               >
                 {range}
               </button>
@@ -161,52 +156,66 @@ export default function DashboardScreen({ onNavigate, onOpenPage, user, metrics,
       </div>
 
       {/* Statistics Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-        {[
-          { label: "Total Views (Impression)", value: rangeMetrics.views, trend: hasEventHistory ? `${timeRange} visitor activity` : "Live impression count", trendColor: "text-indigo-600" },
-          { label: "Total Clicks (Ads/Social)", value: rangeMetrics.clicks, trend: hasEventHistory ? `${timeRange} click activity` : "Dynamic click logs", trendColor: "text-emerald-600" },
-          { label: "Registrations (Leads Form)", value: rangeMetrics.registers, trend: hasEventHistory ? `${timeRange} form submissions` : "New leads form submissions", trendColor: "text-amber-600" },
-          { label: "Active Bio Pages", value: metrics.activePages, trend: `${metrics.activePages} page(s) live`, trendColor: "text-slate-500" }
-        ].map((metric) => (
-          <div
-            key={metric.label}
-            className="bg-white p-4 sm:p-6 rounded-xl border border-slate-200 shadow-sm relative overflow-hidden min-w-0"
-          >
-            <div className="text-slate-500 text-[10px] sm:text-xs font-bold uppercase tracking-wider mb-2">
-              {metric.label}
-            </div>
-            <div className="text-2xl sm:text-3xl font-bold text-slate-900">
-              {metric.value.toLocaleString()}
-            </div>
-            <div className={`text-xs font-medium mt-1 ${metric.trendColor}`}>
-              {metric.trend}
-            </div>
-          </div>
-        ))}
-      </div>
+      <StatCardGrid>
+        <StatCard
+          label="Total Views (Impression)"
+          value={rangeMetrics.views.toLocaleString()}
+          sub={hasEventHistory ? `${timeRange} visitor activity` : "Live impression count"}
+        />
+        <StatCard
+          label="Total Clicks (Ads/Social)"
+          value={rangeMetrics.clicks.toLocaleString()}
+          sub={hasEventHistory ? `${timeRange} click activity` : "Dynamic click logs"}
+        />
+        <StatCard
+          label="Registrations (Leads Form)"
+          value={rangeMetrics.registers.toLocaleString()}
+          sub={hasEventHistory ? `${timeRange} form submissions` : "New leads form submissions"}
+        />
+        <StatCard
+          label="Active Bio Pages"
+          value={metrics.activePages.toLocaleString()}
+          sub={`${metrics.activePages} page(s) live`}
+        />
+      </StatCardGrid>
 
       {/* Main Visual Flow Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 acn-workspace-grid">
         {/* Click Performance Graph */}
-        <div className="lg:col-span-8 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 flex flex-col relative overflow-hidden min-w-0">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+        <Workspace className="lg:col-span-8 acn-section-card flex flex-col relative overflow-hidden min-w-0">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
             <h3 className="font-bold text-slate-800">Click Performance</h3>
-            <div className="flex bg-slate-50 border border-slate-200 rounded-lg p-0.5 self-start" aria-label="Traffic date range">
+            <div className="acn-segment-control self-start" aria-label="Traffic date range">
               {ranges.map((range) => (
                 <button
                   key={range}
                   type="button"
                   onClick={() => setTimeRange(range)}
                   aria-pressed={timeRange === range}
-                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                    timeRange === range ? "bg-white shadow-sm text-slate-900" : "text-slate-500 hover:text-slate-900"
-                  }`}
                 >
                   {range}
                 </button>
               ))}
             </div>
           </div>
+
+          {hasEventHistory ? (
+            <div className="mb-4 text-left">
+              <p className="text-sm font-semibold text-indigo-400">
+                ✨ Live Real-Time Activity Tracking Enabled
+              </p>
+              <p className="text-xs text-slate-500 mt-1">
+                {filteredEvents.length} action{filteredEvents.length === 1 ? "" : "s"} in the selected range.
+              </p>
+            </div>
+          ) : (
+            <div className="mb-4 text-left">
+              <p className="text-sm font-medium text-slate-600">Awaiting your first clicks</p>
+              <p className="text-xs text-slate-500 mt-1">
+                Click metrics will plot automatically as soon as users visit your active links.
+              </p>
+            </div>
+          )}
           
           <div className="flex-1 flex items-end justify-between px-2 gap-2 sm:gap-4 h-48 relative border-b border-slate-100" role="img" aria-label="Clicks by day for the past seven days">
             {chartData.map((day) => (
@@ -220,37 +229,17 @@ export default function DashboardScreen({ onNavigate, onOpenPage, user, metrics,
                 </span>
               </div>
             ))}
-
-            {/* Premium, interactive, and contextual clean overlay for dynamic state */}
-            {eventsList.length === 0 ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4 bg-white/70 backdrop-blur-[1px]">
-                <span className="text-3xl mb-1.5 filter drop-shadow">📈</span>
-                <p className="text-xs font-bold text-slate-700">Awaiting your first clicks</p>
-                <p className="text-[10px] text-slate-400 mt-0.5 max-w-xs leading-normal">
-                  Your performance graph is set up and ready! Click metrics will plot automatically as soon as users visit your active links.
-                </p>
-              </div>
-            ) : (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-4 bg-white/10 pointer-events-none">
-                <div className="bg-slate-900/90 text-white rounded-lg p-3 text-xs shadow-md font-mono pointer-events-auto">
-                  <p className="text-indigo-400 font-bold">✨ Live Real-Time Activity Tracking Enabled</p>
-                  <p className="text-[11px] text-slate-300 mt-1">
-                    {filteredEvents.length} action{filteredEvents.length === 1 ? "" : "s"} in the selected range.
-                  </p>
-                </div>
-              </div>
-            )}
           </div>
           
           <div className="flex justify-between mt-4 text-[10px] text-slate-400 font-bold">
             {chartData.map((day) => <span key={day.date.toISOString()}>{day.label}</span>)}
           </div>
-        </div>
+        </Workspace>
 
         {/* Recent Activity / Top Bio Pages */}
-        <div className="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 flex flex-col justify-between min-w-0">
+        <Workspace className="lg:col-span-4 acn-section-card flex flex-col justify-between min-w-0">
           <div>
-            <h3 className="font-bold text-slate-800 mb-4">Top Bio Pages</h3>
+            <h3 className="font-bold text-slate-800 mb-6">Top Bio Pages</h3>
             <div className="space-y-4">
               {pages.length === 0 ? (
                 <div className="text-center py-12 text-slate-400 text-xs">
@@ -265,7 +254,7 @@ export default function DashboardScreen({ onNavigate, onOpenPage, user, metrics,
                       type="button"
                       key={page.id}
                       onClick={() => onOpenPage(page.id)}
-                      className="flex w-full items-center p-3 rounded-lg border border-slate-100 hover:bg-slate-50 transition-colors text-left"
+                      className="flex w-full items-center p-3 rounded-lg border border-slate-200/60 bg-white/50 hover:bg-white/80 transition-colors text-left"
                       aria-label={`Open ${page.title}`}
                     >
                       <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-purple-500 to-indigo-500 shrink-0 mr-3 flex items-center justify-center text-white font-black text-xs shadow-sm">{initials}</div>
@@ -283,16 +272,16 @@ export default function DashboardScreen({ onNavigate, onOpenPage, user, metrics,
           <button
             type="button"
             onClick={() => onNavigate(ScreenId.BIO_PAGES)}
-            className="mt-6 w-full py-2.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors border border-transparent hover:border-indigo-100"
+            className="mt-6 w-full py-2.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50/80 rounded-lg transition-colors border border-indigo-100/60"
           >
             View All Pages
           </button>
-        </div>
+        </Workspace>
       </div>
 
-      {/* NEW: Visitor Session & Event Activity Log Table */}
-      <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 min-w-0">
-        <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-2">
+      {/* Visitor Session & Event Activity Log Table */}
+      <Workspace className="acn-section-card min-w-0">
+        <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-2">
           <div className="min-w-0">
             <h3 className="font-bold text-slate-900 text-base sm:text-lg">Real-Time Traffic & Action Tracker</h3>
             <p className="text-xs text-slate-500">Track which domain, client ports, devices, OS, and actions users perform globally.</p>
@@ -373,11 +362,11 @@ export default function DashboardScreen({ onNavigate, onOpenPage, user, metrics,
             </table>
           )}
         </div>
-      </div>
+      </Workspace>
 
       {/* Quick Access Area */}
-      <div className="space-y-4">
-        <h3 className="font-display font-bold text-lg text-slate-900 tracking-tight">
+      <div className="space-y-6">
+        <h3 className="acn-page-title text-lg">
           Quick Access
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
@@ -388,10 +377,10 @@ export default function DashboardScreen({ onNavigate, onOpenPage, user, metrics,
                 type="button"
                 key={qa.id}
                 onClick={() => onNavigate(qa.id)}
-                className={`group bg-white border border-slate-200 rounded-xl p-4 sm:p-6 flex flex-col items-center justify-center text-center transition-all duration-300 ${qa.bgHover} hover:-translate-y-1 shadow-sm hover:shadow-md min-w-0`}
+                className={`group acn-glass-card p-4 sm:p-6 flex flex-col items-center justify-center text-center transition-all duration-300 ${qa.bgHover} hover:-translate-y-1 min-w-0`}
               >
                 <div
-                  className={`h-12 w-12 rounded-xl bg-gradient-to-tr ${qa.color} flex items-center justify-center ${qa.iconColor} mb-4`}
+                  className={`h-12 w-12 rounded-xl bg-gradient-to-tr ${qa.color} flex items-center justify-center ${qa.iconColor} mb-6`}
                 >
                   <Icon className="h-5.5 w-5.5" />
                 </div>

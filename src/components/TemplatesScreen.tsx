@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { TemplateItem, BioPageTemplate } from "../types";
 import { formatStorageDate } from "../storage/bioBuilderStorage";
+import { Workspace } from "./layout/PageShell";
 import {
   Plus,
   Layers,
@@ -139,28 +140,30 @@ export default function TemplatesScreen({
     : null;
 
   return (
-    <div className="flex-1 p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8 max-w-7xl mx-auto w-full min-w-0 relative">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="flex-1 p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto w-full min-w-0 relative">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
         <div className="min-w-0">
           <h2 className="font-display font-bold text-2xl sm:text-3xl text-gray-950 tracking-tight">
             Templates
           </h2>
           <p className="text-gray-500 text-sm mt-1">Start with a pre-built design or create from scratch</p>
         </div>
-        <div className="relative w-full sm:w-72 shrink-0">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+        <div className="acn-icon-field w-full sm:w-72 shrink-0">
+          <span className="acn-icon-field__icon">
+            <Search className="h-4 w-4" />
+          </span>
           <input
             type="search"
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder="Search templates..."
             aria-label="Search templates"
-            className="w-full bg-white border border-gray-200 rounded-xl py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
+            className="acn-input acn-icon-field__input w-full py-2"
           />
         </div>
       </div>
 
-      <div className="border-b border-gray-100 flex gap-6 overflow-x-auto" role="tablist">
+      <div className="border-b border-gray-100 flex gap-4 overflow-x-auto" role="tablist">
         <button
           type="button"
           role="tab"
@@ -221,18 +224,18 @@ export default function TemplatesScreen({
 
       {activeTab === "MY_TEMPLATES" ? (
         savedTemplates.length === 0 ? (
-          <div className="bg-white border border-gray-100 rounded-3xl p-8 sm:p-12 text-center flex flex-col items-center justify-center animate-in fade-in duration-300">
-            <div className="h-14 w-14 bg-indigo-50 text-[#4F46E5] rounded-2xl flex items-center justify-center mb-4">
+          <Workspace className="acn-section-card text-center flex flex-col items-center justify-center animate-in fade-in duration-300">
+            <div className="h-14 w-14 bg-indigo-50 text-[#4F46E5] rounded-2xl flex items-center justify-center mb-6">
               <Layers className="h-6 w-6" />
             </div>
             <h4 className="font-display font-bold text-gray-900">No custom templates yet</h4>
             <p className="text-gray-500 text-sm max-w-xs mt-1">
               Design your custom page in the editor and click "Save as Template" to persist your layout here.
             </p>
-          </div>
+          </Workspace>
         ) : filteredCustomTemplates.length === 0 ? (
-          <div className="bg-white border border-gray-100 rounded-3xl p-8 sm:p-12 text-center flex flex-col items-center justify-center animate-in fade-in duration-300">
-            <div className="h-14 w-14 bg-slate-50 text-slate-400 rounded-2xl flex items-center justify-center mb-4">
+          <Workspace className="acn-section-card text-center flex flex-col items-center justify-center animate-in fade-in duration-300">
+            <div className="h-14 w-14 bg-slate-50 text-slate-400 rounded-2xl flex items-center justify-center mb-6">
               <Search className="h-6 w-6" />
             </div>
             <h4 className="font-display font-bold text-gray-900">No templates match "{searchQuery}"</h4>
@@ -243,19 +246,19 @@ export default function TemplatesScreen({
             >
               Clear search
             </button>
-          </div>
+          </Workspace>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 animate-in fade-in duration-300">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 acn-workspace-grid animate-in fade-in duration-300">
             {filteredCustomTemplates.map((tpl) => (
               <div
                 key={tpl.id}
-                className="bg-white border border-gray-100 rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col group min-w-0"
+                className="acn-glass-card overflow-hidden hover:shadow-xl transition-all duration-300 flex flex-col group min-w-0"
               >
                 <button
                   type="button"
                   onClick={() => setPreviewTarget({ kind: "custom", item: tpl })}
                   aria-label={`Preview ${tpl.name}`}
-                  className="h-40 sm:h-48 bg-gradient-to-tr from-indigo-900 via-[#1e1b4b] to-[#311042] border-b border-gray-50 relative overflow-hidden flex flex-col items-center justify-center p-6 text-center w-full text-left cursor-pointer"
+                  className="h-40 sm:h-48 bg-gradient-to-tr from-indigo-900 via-[#1e1b4b] to-[#311042] border-b border-gray-50 relative overflow-hidden flex flex-col items-center justify-center p-4 text-center w-full text-left cursor-pointer"
                 >
                   {tpl.previewImage ? (
                     <ThumbnailImage
@@ -305,7 +308,7 @@ export default function TemplatesScreen({
                   </span>
                 </button>
 
-                <div className="p-5 flex-1 flex flex-col justify-between space-y-4 min-w-0">
+                <Workspace stack className="flex-1 flex flex-col justify-between min-w-0">
                   <div className="space-y-1 min-w-0">
                     <h4 className="font-display font-bold text-gray-950 text-base leading-tight truncate">
                       {tpl.name}
@@ -336,19 +339,19 @@ export default function TemplatesScreen({
                   >
                     Use Template
                   </button>
-                </div>
+                </Workspace>
               </div>
             ))}
           </div>
         )
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 animate-in fade-in duration-300">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 acn-workspace-grid animate-in fade-in duration-300">
           <button
             type="button"
             onClick={() => onUseTemplate("Blank Scratch template")}
-            className="border-2 border-dashed border-gray-200 hover:border-[#4F46E5] rounded-3xl p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:shadow-lg transition-all duration-300 min-h-[320px] group w-full"
+            className="border-2 border-dashed border-gray-200 hover:border-[#4F46E5] rounded-2xl p-4 flex flex-col items-center justify-center text-center cursor-pointer hover:shadow-lg transition-all duration-300 min-h-[320px] group w-full"
           >
-            <div className="h-14 w-14 rounded-full bg-slate-50 border border-slate-150 flex items-center justify-center text-gray-400 mb-4 group-hover:bg-indigo-50 group-hover:text-[#4F46E5] transition-colors">
+            <div className="h-14 w-14 rounded-full bg-slate-50 border border-slate-150 flex items-center justify-center text-gray-400 mb-6 group-hover:bg-indigo-50 group-hover:text-[#4F46E5] transition-colors">
               <Plus className="h-6 w-6" />
             </div>
             <h4 className="font-display font-bold text-gray-950 text-base">Start from Scratch</h4>
@@ -363,7 +366,7 @@ export default function TemplatesScreen({
             return (
               <div
                 key={item.id}
-                className="bg-white border border-gray-100 rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col min-w-0"
+                className="acn-glass-card overflow-hidden hover:shadow-xl transition-all duration-300 flex flex-col min-w-0"
               >
                 <button
                   type="button"
@@ -391,7 +394,7 @@ export default function TemplatesScreen({
                   </div>
                 </button>
 
-                <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
+                <Workspace stack className="flex-1 flex flex-col justify-between min-w-0">
                   <div>
                     <h4 className="font-display font-bold text-gray-950 text-base leading-tight">
                       {item.name}
@@ -420,13 +423,13 @@ export default function TemplatesScreen({
                   >
                     Use Template
                   </button>
-                </div>
+                </Workspace>
               </div>
             );
           })}
 
           {filteredItems.length === 0 && (
-            <div className="sm:col-span-2 lg:col-span-3 bg-white border border-dashed border-gray-200 rounded-3xl p-10 text-center flex flex-col items-center justify-center min-h-[320px]">
+            <div className="sm:col-span-2 lg:col-span-3 acn-glass-card border-dashed p-4 text-center flex flex-col items-center justify-center min-h-[320px]">
               <p className="text-gray-500 text-sm">
                 {searchQuery
                   ? `No system templates match "${searchQuery}".`
@@ -484,7 +487,7 @@ export default function TemplatesScreen({
               </div>
             </div>
 
-            <div className="p-6 space-y-4 overflow-y-auto">
+            <div className="p-6 space-y-6 overflow-y-auto">
               <p className="text-sm text-gray-600 leading-relaxed">
                 {previewTarget.kind === "system"
                   ? previewTarget.item.description
@@ -544,7 +547,7 @@ export default function TemplatesScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="confirm-delete-title"
-            className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100"
+            className="bg-white rounded-3xl max-w-sm w-full p-4 shadow-2xl border border-slate-100"
           >
             <h3 id="confirm-delete-title" className="font-display font-black text-lg text-slate-900 mb-2">
               Delete this template?

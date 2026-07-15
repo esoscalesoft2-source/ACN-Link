@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { AppNotification, ScreenId, UserProfile } from "../types";
 import { Search, Plus, Menu, Rocket } from "lucide-react";
+import AcnLogo3D from "./AcnLogo3D";
 import NotificationPanel from "./NotificationPanel";
 
 interface HeaderProps {
@@ -81,12 +82,12 @@ export default function Header({
     currentScreen === ScreenId.DASHBOARD || currentScreen === ScreenId.ACCOUNT;
 
   return (
-    <header className="bg-white border-b border-slate-200 px-4 sm:px-6 h-16 flex items-center justify-between sticky top-0 z-20 gap-3">
+    <header className="acn-app-navbar acn-glass-header px-4 sm:px-6 flex items-center justify-between sticky top-0 z-20 gap-3">
       <div className="flex items-center gap-3 min-w-0 flex-1">
         <button
           type="button"
           onClick={onMenuToggle}
-          className="lg:hidden p-2 -ml-1 text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-lg transition-colors shrink-0"
+          className="lg:hidden p-2 -ml-1 text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded-lg transition-colors shrink-0"
           aria-label="Open navigation menu"
           aria-expanded={isMobileNavOpen}
           aria-controls="mobile-nav-drawer"
@@ -94,20 +95,21 @@ export default function Header({
           <Menu className="h-5 w-5" />
         </button>
 
-        <div className="lg:hidden min-w-0">
-          <p className="font-display font-bold text-base sm:text-lg text-slate-950 tracking-tight truncate">
+        <div className="lg:hidden min-w-0 flex items-center gap-2">
+          <AcnLogo3D size="xs" />
+          <p className="acn-page-title text-base sm:text-lg truncate">
             ACN Link
           </p>
         </div>
 
-        <div className="relative w-full max-w-md hidden md:block">
-          <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <Search className="h-4 w-4 text-slate-400" />
+        <div className="acn-search-field relative w-full max-w-md hidden md:block">
+          <span className="acn-search-field__icon">
+            <Search className="h-4 w-4" />
           </span>
           <input
             type="text"
             placeholder={getSearchPlaceholder()}
-            className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 pl-10 pr-4 text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
+            className="w-full acn-input acn-search-input py-1.5 text-sm"
           />
         </div>
       </div>
@@ -118,7 +120,7 @@ export default function Header({
             type="button"
             onClick={onPublish}
             title="Go live and choose who can see your website"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 active:scale-95"
+            className="acn-btn-chip"
           >
             <Rocket className="h-4 w-4" />
             <span className="hidden sm:inline">Publish</span>
@@ -128,7 +130,7 @@ export default function Header({
         {showQuickCreate && (
           <button
             onClick={onQuickCreate}
-            className="px-3 sm:px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg shadow-sm hover:bg-indigo-700 transition-colors flex items-center gap-1.5 active:scale-95"
+            className="acn-btn-chip px-3 sm:px-4 py-2 text-sm"
           >
             <Plus className="h-4 w-4" />
             <span className="hidden sm:inline">Quick Create</span>
@@ -149,10 +151,10 @@ export default function Header({
         <button
           type="button"
           onClick={() => onScreenChange(ScreenId.ACCOUNT)}
-          className="flex items-center hover:bg-slate-50 p-1.5 rounded-lg transition-colors select-none"
+          className="flex items-center hover:bg-white/5 p-1.5 rounded-lg transition-colors select-none"
           aria-label="Go to account"
         >
-          <div className="h-9 w-9 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-600 font-sans font-semibold text-sm flex items-center justify-center shadow-inner overflow-hidden">
+          <div className="h-9 w-9 rounded-lg bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 font-sans font-semibold text-sm flex items-center justify-center overflow-hidden">
             {hasProfilePhoto ? (
               <img
                 src={user.avatarUrl}

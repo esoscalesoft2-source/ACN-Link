@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import type { BioPage, CustomDomain } from "../types";
 import { isValidHostname, normaliseHostname } from "../storage/publishStorage";
-import PageShell, { PageHeader, SectionCard } from "./layout/PageShell";
+import PageShell, { PageHeader, SectionCard, Workspace } from "./layout/PageShell";
 
 interface CustomDomainsScreenProps {
   domains: CustomDomain[];
@@ -171,7 +171,7 @@ export default function CustomDomainsScreen({
             type="button"
             onClick={openAdd}
             disabled={pages.length === 0}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#4F46E5] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-2 rounded-xl acn-btn-chip px-5 py-2.5 text-sm disabled:opacity-50"
             title={pages.length === 0 ? "Publish a website first, then connect your domain" : undefined}
           >
             <Plus className="h-4 w-4" />
@@ -180,7 +180,7 @@ export default function CustomDomainsScreen({
         }
       />
 
-      <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4 text-sm text-indigo-900">
+      <div className="acn-banner-info">
         <p className="font-bold">How it works</p>
         <p className="mt-1 text-indigo-800">
           Pick your published page → enter your own website address (e.g. links.yourbrand.com) → add one
@@ -189,7 +189,7 @@ export default function CustomDomainsScreen({
       </div>
 
       {loadError && (
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+        <div className="acn-banner-error">
           <span>{loadError}</span>
           <button type="button" onClick={() => void onReload()} className="font-bold underline">
             Retry
@@ -198,17 +198,17 @@ export default function CustomDomainsScreen({
       )}
 
       <div className="grid grid-cols-3 gap-3">
-        <div className="rounded-2xl border bg-white p-4">
+        <div className="acn-glass-card p-4">
           <p className="text-[10px] font-bold uppercase text-slate-400">Total</p>
           <p className="mt-1 text-2xl font-black">{domains.length}</p>
         </div>
-        <div className="rounded-2xl border bg-white p-4">
+        <div className="acn-glass-card p-4">
           <p className="text-[10px] font-bold uppercase text-slate-400">Live</p>
           <p className="mt-1 text-2xl font-black text-emerald-600">
             {domains.filter((domain) => isDomainLive(domain)).length}
           </p>
         </div>
-        <div className="rounded-2xl border bg-white p-4">
+        <div className="acn-glass-card p-4">
           <p className="text-[10px] font-bold uppercase text-slate-400">Pending</p>
           <p className="mt-1 text-2xl font-black text-amber-600">
             {domains.filter((domain) => !isDomainLive(domain)).length}
@@ -216,24 +216,27 @@ export default function CustomDomainsScreen({
         </div>
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+      <div className="acn-icon-field">
+        <span className="acn-icon-field__icon">
+          <Search className="h-4 w-4" />
+        </span>
         <input
           type="search"
           value={searchQuery}
           onChange={(event) => setSearchQuery(event.target.value.toLowerCase())}
           placeholder="Search domains..."
-          className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm"
+          className="acn-input acn-icon-field__input w-full py-2.5"
         />
       </div>
 
       <SectionCard>
+        <Workspace>
         {isLoading ? (
-          <div className="flex items-center justify-center gap-2 p-12 text-sm text-slate-500">
+          <div className="flex items-center justify-center gap-2 p-4 text-sm text-slate-500">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading domains…
           </div>
         ) : filteredDomains.length === 0 ? (
-          <div className="p-12 text-center">
+          <div className="p-6 text-center">
             <Globe className="mx-auto h-10 w-10 text-indigo-400" />
             <h3 className="mt-3 font-bold">No custom domains connected</h3>
             <p className="mt-1 text-sm text-slate-500">
@@ -311,11 +314,12 @@ export default function CustomDomainsScreen({
             ))}
           </div>
         )}
+        </Workspace>
       </SectionCard>
 
       {isAdding && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+        <div className="acn-modal-backdrop">
+          <div className="acn-modal-panel max-w-md">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold">Connect Your Own Website Address</h3>
               <button type="button" onClick={() => setIsAdding(false)} disabled={isSubmitting}>
@@ -325,7 +329,7 @@ export default function CustomDomainsScreen({
             <p className="mt-2 text-sm text-slate-500 leading-relaxed">
               Use your brand domain (e.g. links.yourbrand.com) instead of the default ACN Link URL.
             </p>
-            <form onSubmit={submit} className="mt-5 space-y-4">
+            <form onSubmit={submit} className="mt-5 space-y-6">
               <label className="block text-xs font-bold text-slate-700">
                 Your website address (domain)
                 <input
@@ -333,7 +337,7 @@ export default function CustomDomainsScreen({
                   value={domainName}
                   onChange={(event) => setDomainName(event.target.value)}
                   placeholder="e.g. links.yourbrand.com"
-                  className="mt-1.5 w-full rounded-xl border bg-slate-50 px-3.5 py-2.5 text-sm"
+                  className="acn-input mt-1.5"
                 />
                 <span className="mt-1 block text-[11px] font-normal text-slate-500">
                   The address you own or bought from GoDaddy, Namecheap, Cloudflare, etc.
@@ -344,7 +348,7 @@ export default function CustomDomainsScreen({
                 <select
                   value={pageId}
                   onChange={(event) => setPageId(event.target.value)}
-                  className="mt-1.5 w-full rounded-xl border bg-slate-50 px-3.5 py-2.5 text-sm"
+                  className="acn-input mt-1.5"
                 >
                   <option value="">Choose your live page</option>
                   {pages.map((page) => (
@@ -357,7 +361,7 @@ export default function CustomDomainsScreen({
                   When someone visits your domain, this published page will open.
                 </span>
               </label>
-              <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4 text-xs text-indigo-800">
+              <div className="acn-banner-info text-xs">
                 Next step: we will show exactly what to add in your domain settings (DNS). Usually
                 takes 5–10 minutes after you save the record.
               </div>
@@ -367,14 +371,14 @@ export default function CustomDomainsScreen({
                   type="button"
                   onClick={() => setIsAdding(false)}
                   disabled={isSubmitting}
-                  className="rounded-xl px-4 py-2 text-sm font-semibold text-slate-500"
+                  className="acn-btn-secondary"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                  className="acn-btn-chip disabled:opacity-60"
                 >
                   {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
                   Connect This Address
@@ -386,8 +390,8 @@ export default function CustomDomainsScreen({
       )}
 
       {dnsHelpDomain && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl">
+        <div className="acn-modal-backdrop">
+          <div className="acn-modal-panel max-w-lg">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold">Add this record in your domain settings</h3>
               <button type="button" onClick={() => setDnsHelpDomain(null)}>
@@ -398,15 +402,15 @@ export default function CustomDomainsScreen({
               Log in to where you bought <strong>{dnsHelpDomain.domainName}</strong> (GoDaddy, Namecheap,
               etc.) and add this DNS record:
             </p>
-            <div className="mt-4 space-y-3 rounded-2xl bg-slate-50 p-4 text-sm">
-              <div className="flex justify-between gap-4">
+            <div className="mt-4 space-y-3 rounded-2xl acn-glass-card p-4 text-sm">
+              <div className="flex justify-between gap-6">
                 <span className="text-slate-400">Record type</span><strong>CNAME</strong>
               </div>
-              <div className="flex justify-between gap-4">
+              <div className="flex justify-between gap-6">
                 <span className="text-slate-400">Host / Name</span>
                 <code className="break-all text-right">{dnsHelpDomain.domainName}</code>
               </div>
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center justify-between gap-6">
                 <span className="text-slate-400">Points to (Target)</span>
                 <button
                   type="button"
@@ -418,7 +422,7 @@ export default function CustomDomainsScreen({
                 </button>
               </div>
             </div>
-            <p className="mt-4 rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-xs text-indigo-900">
+            <p className="mt-4 acn-banner-info text-xs">
               <span className="font-bold">Railway free plan (1 domain)?</span> After DNS shows
               verified, add a free Cloudflare Worker on this hostname so traffic reaches ACN Link.
               See <code className="font-mono">docs/cloudflare-worker-free-custom-domain.md</code> in
@@ -436,7 +440,7 @@ export default function CustomDomainsScreen({
               type="button"
               onClick={() => void verify(dnsHelpDomain)}
               disabled={verifyingId === dnsHelpDomain.id}
-              className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 py-2.5 text-sm font-bold text-white disabled:opacity-60"
+              className="mt-5 flex w-full acn-btn-chip py-2.5 text-sm font-bold disabled:opacity-60"
             >
               <RefreshCw className={`h-4 w-4 ${verifyingId === dnsHelpDomain.id ? "animate-spin" : ""}`} />
               Check DNS and SSL now
@@ -446,7 +450,7 @@ export default function CustomDomainsScreen({
       )}
 
       {toast && (
-        <div className="fixed bottom-6 left-6 right-6 z-[60] rounded-2xl bg-slate-950 px-5 py-3 text-xs font-bold text-white sm:left-auto">
+        <div className="acn-toast">
           {toast}
         </div>
       )}

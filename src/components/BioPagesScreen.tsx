@@ -51,14 +51,13 @@ import {
   GripVertical,
   Palette,
   Globe,
-  ArrowUp,
-  ArrowDown,
   Image as ImageIcon,
   MoreVertical,
   LayoutGrid,
   Eye
 } from "lucide-react";
-import PageShell, { PageHeader } from "./layout/PageShell";
+import PageShell, { PageHeader, Workspace } from "./layout/PageShell";
+import { BIO_LINK, getLinkArrowColor, getLinkButtonStyle, isDefaultBrightLink } from "../lib/bioLinkColors";
 
 export function getShareableOrigin() {
   let origin = window.location.origin;
@@ -75,7 +74,7 @@ const marvelInitialBlocks = [
   { id: "b4", type: "Header", label: "⭐ Why Shop With Us?", value: "⭐ Why Shop With Us?" },
   { id: "b5", type: "Text", label: "🛡️ Quality Marvel-themed toys, 🚚 Fast Shipping, 💯 Trusted", value: "🛡️ Quality Marvel-themed toys, 🚚 Fast Shipping, 💯 Trusted" },
   { id: "b6", type: "Shop", label: "Products For Kids (Iron Man, Spiderman, Hulk)", value: "Products For Kids" },
-  { id: "b7", type: "Button", label: "Explore the Toys Section", value: "Explore the Toys Section" },
+  { id: "b7", type: "Button", label: "Explore the Toys Section", value: "Explore the Toys Section", bgColor: "#7c3aed", textColor: "#FFFFFF" },
   { id: "b8", type: "Coupon", label: "Special Offer (MARVELTOYCODE007007)", value: "MARVELTOYCODE007007" },
   { id: "b9", type: "Countdown", label: "Sale ends in (9 Days Timer)", value: "9" },
   { id: "b10", type: "Link Spin", label: "Buy Now (Prize Wheel)", value: "Buy Now" },
@@ -87,7 +86,7 @@ const marvelInitialBlocks = [
 const genericInitialBlocks = [
   { id: "g1", type: "Header", label: "👤 My Responsive BioLink", value: "👤 My Responsive BioLink" },
   { id: "g2", type: "Text", label: "Welcome to my responsive bio page! Customize me using the blocks.", value: "Welcome" },
-  { id: "g3", type: "Button", label: "Visit My Website", value: "https://example.com" },
+  { id: "g3", type: "Button", label: "Visit My Website", value: "https://example.com", bgColor: "#7c3aed", textColor: "#FFFFFF" },
   { id: "g4", type: "WhatsApp", label: "Chat with me on WhatsApp", value: "https://wa.me/1234567890" }
 ];
 
@@ -155,9 +154,9 @@ const getBlockIcon = (type: string) => {
     case "Music":
       return <div className="h-9 w-9 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center text-sm shrink-0">🎵</div>;
     case "Gallery":
-      return <div className="h-9 w-9 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center text-sm shrink-0">📸</div>;
+      return <div className="h-9 w-9 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center text-sm shrink-0">📸</div>;
     case "PDF":
-      return <div className="h-9 w-9 rounded-xl bg-rose-100 text-[#FF4B6B] flex items-center justify-center text-sm shrink-0">📄</div>;
+      return <div className="h-9 w-9 rounded-xl bg-rose-100 text-[#7c3aed] flex items-center justify-center text-sm shrink-0">📄</div>;
     case "Events":
       return <div className="h-9 w-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0"><Calendar className="h-4 w-4" /></div>;
     default:
@@ -315,59 +314,124 @@ export default function BioPagesScreen({
 
   const [expandedBlockId, setExpandedBlockId] = useState<string | null>(null);
 
-  // Reordering blocks state
+  // Reordering blocks state (PAGE BLOCKS accordion only)
   const [draggedBlockIndex, setDraggedBlockIndex] = useState<number | null>(null);
-  const [draggableBlockId, setDraggableBlockId] = useState<string | null>(null);
+  const [isAccordionReorderDrag, setIsAccordionReorderDrag] = useState(false);
+  const [dropTarget, setDropTarget] = useState<{ index: number; position: "before" | "after" } | null>(null);
+  const accordionListRef = useRef<HTMLDivElement>(null);
 
-  const moveBlockUp = (index: number) => {
-    if (index <= 0) return;
-    setEditorBlocks(prev => {
-      const copy = [...prev];
-      const temp = copy[index];
-      copy[index] = copy[index - 1];
-      copy[index - 1] = temp;
-      return copy;
-    });
-    triggerToast("⬆️ Block moved up");
+  const getAccordionDropPosition = (e: React.DragEvent): "before" | "after" => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    return e.clientY < rect.top + rect.height / 2 ? "before" : "after";
   };
 
-  const moveBlockDown = (index: number) => {
-    if (index >= editorBlocks.length - 1) return;
-    setEditorBlocks(prev => {
+  const getInsertIndex = (targetIndex: number, position: "before" | "after", listLength: number) => {
+    const raw = position === "before" ? targetIndex : targetIndex + 1;
+    return Math.max(0, Math.min(raw, listLength));
+  };
+
+  const reorderEditorBlocks = (
+    sourceIndex: number,
+    targetIndex: number,
+    position: "before" | "after"
+  ) => {
+    setEditorBlocks((prev) => {
+      if (sourceIndex < 0 || sourceIndex >= prev.length) return prev;
       const copy = [...prev];
-      const temp = copy[index];
-      copy[index] = copy[index + 1];
-      copy[index + 1] = temp;
+      const [removed] = copy.splice(sourceIndex, 1);
+      let insertIndex = getInsertIndex(targetIndex, position, copy.length);
+      if (sourceIndex < insertIndex) insertIndex -= 1;
+      copy.splice(insertIndex, 0, removed);
       return copy;
     });
-    triggerToast("⬇️ Block moved down");
+  };
+
+  const getDropDisplayPosition = (target: { index: number; position: "before" | "after" }, total: number) => {
+    const raw = target.position === "before" ? target.index + 1 : target.index + 2;
+    return Math.max(1, Math.min(raw, total));
+  };
+
+  const resetAccordionDragState = () => {
+    setDraggedBlockIndex(null);
+    setIsAccordionReorderDrag(false);
+    setDropTarget(null);
   };
 
   const handleBlockDragStart = (e: React.DragEvent, index: number) => {
+    e.stopPropagation();
     e.dataTransfer.setData("text/block-index", String(index));
+    e.dataTransfer.setData("text/block-reorder", "accordion");
     e.dataTransfer.effectAllowed = "move";
     setDraggedBlockIndex(index);
+    setIsAccordionReorderDrag(true);
+    setDropTarget(null);
   };
 
   const handleBlockDragOver = (e: React.DragEvent, index: number) => {
     e.preventDefault();
+    e.stopPropagation();
+    const isReorder =
+      isAccordionReorderDrag ||
+      draggedBlockIndex !== null ||
+      e.dataTransfer.types.includes("text/block-reorder") ||
+      e.dataTransfer.types.includes("text/block-index");
+    e.dataTransfer.dropEffect = isReorder ? "move" : "copy";
+    setDropTarget({ index, position: getAccordionDropPosition(e) });
+  };
+
+  const handleAccordionListDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (!isAccordionReorderDrag && draggedBlockIndex === null) return;
+    e.dataTransfer.dropEffect = "move";
+    if (editorBlocks.length === 0) return;
+
+    const listEl = accordionListRef.current;
+    if (!listEl) return;
+
+    const blockEls = listEl.querySelectorAll<HTMLElement>("[data-accordion-block]");
+    const lastBlock = blockEls[blockEls.length - 1];
+    if (!lastBlock) return;
+
+    const lastRect = lastBlock.getBoundingClientRect();
+    if (e.clientY > lastRect.bottom - 8) {
+      setDropTarget({ index: editorBlocks.length - 1, position: "after" });
+    }
   };
 
   const handleBlockDrop = (e: React.DragEvent, targetIndex: number) => {
     e.preventDefault();
+    e.stopPropagation();
+
+    const blockType = e.dataTransfer.getData("text/plain");
     const sourceIndexStr = e.dataTransfer.getData("text/block-index");
-    const sourceIndex = sourceIndexStr ? parseInt(sourceIndexStr, 10) : draggedBlockIndex;
-    
-    if (sourceIndex !== null && !isNaN(sourceIndex) && sourceIndex !== targetIndex) {
-      setEditorBlocks(prev => {
-        const copy = [...prev];
-        const [removed] = copy.splice(sourceIndex, 1);
-        copy.splice(targetIndex, 0, removed);
-        return copy;
-      });
-      triggerToast("🔄 Blocks reordered!");
+    const position = dropTarget?.index === targetIndex ? dropTarget.position : getAccordionDropPosition(e);
+
+    if (blockType && !sourceIndexStr) {
+      const insertIndex = getInsertIndex(targetIndex, position, editorBlocks.length);
+      handleAddBlock(blockType, insertIndex);
+      triggerToast(`✨ Added ${blockType} at position ${insertIndex + 1}`);
+      setActiveDraggedBlockType(null);
+      resetAccordionDragState();
+      return;
     }
-    setDraggedBlockIndex(null);
+
+    const sourceIndex = sourceIndexStr ? parseInt(sourceIndexStr, 10) : draggedBlockIndex;
+    if (sourceIndex !== null && !isNaN(sourceIndex)) {
+      const wouldStay =
+        (position === "before" && sourceIndex === targetIndex) ||
+        (position === "after" && sourceIndex === targetIndex + 1) ||
+        (position === "after" && sourceIndex === targetIndex && targetIndex === editorBlocks.length - 1);
+
+      if (!wouldStay) {
+        reorderEditorBlocks(sourceIndex, targetIndex, position);
+        triggerToast(`🔄 Moved to position ${getDropDisplayPosition({ index: targetIndex, position }, editorBlocks.length)}`);
+      }
+    }
+    resetAccordionDragState();
+  };
+
+  const handleBlockDragEnd = () => {
+    resetAccordionDragState();
   };
 
   const triggerToast = (msg: string) => {
@@ -494,13 +558,20 @@ export default function BioPagesScreen({
     e.dataTransfer.setData("text/plain", type);
     e.dataTransfer.effectAllowed = "copy";
     setActiveDraggedBlockType(type);
+    setIsAccordionReorderDrag(false);
+    setDropTarget(null);
   };
 
   const handleDragOverTarget = (e: React.DragEvent) => {
     e.preventDefault();
-    if (e.dataTransfer) {
-      e.dataTransfer.dropEffect = "copy";
-    }
+    if (!e.dataTransfer) return;
+    const isReorder =
+      isAccordionReorderDrag ||
+      draggedBlockIndex !== null ||
+      e.dataTransfer.types.includes("text/block-reorder") ||
+      e.dataTransfer.types.includes("text/block-index");
+    e.dataTransfer.dropEffect = isReorder ? "move" : "copy";
+    handleAccordionListDragOver(e);
   };
 
   const handleDragEnterManager = (e: React.DragEvent) => {
@@ -522,12 +593,33 @@ export default function BioPagesScreen({
     e.preventDefault();
     dragCounterManager.current = 0;
     setIsDraggingOverManager(false);
+
+    const sourceIndexStr = e.dataTransfer.getData("text/block-index");
+    if (sourceIndexStr) {
+      const sourceIndex = parseInt(sourceIndexStr, 10);
+      if (!isNaN(sourceIndex) && dropTarget) {
+        reorderEditorBlocks(sourceIndex, dropTarget.index, dropTarget.position);
+        triggerToast(`🔄 Moved to position ${getDropDisplayPosition(dropTarget, editorBlocks.length)}`);
+      } else if (!isNaN(sourceIndex) && sourceIndex !== editorBlocks.length - 1) {
+        setEditorBlocks((prev) => {
+          const copy = [...prev];
+          const [removed] = copy.splice(sourceIndex, 1);
+          copy.push(removed);
+          return copy;
+        });
+        triggerToast("🔄 Moved to last position");
+      }
+      resetAccordionDragState();
+      return;
+    }
+
     const type = e.dataTransfer.getData("text/plain") || activeDraggedBlockType;
     if (type) {
       handleAddBlock(type);
       triggerToast(`✨ Block Drag & Drop: Added new ${type} Block to manager!`);
     }
     setActiveDraggedBlockType(null);
+    resetAccordionDragState();
   };
 
   const handleDragEnterPreview = (e: React.DragEvent) => {
@@ -710,7 +802,7 @@ export default function BioPagesScreen({
     setEditorBlocks(prev => prev.filter(b => b.id !== id));
   };
 
-  const handleAddBlock = (type: string) => {
+  const handleAddBlock = (type: string, atIndex?: number) => {
     const id = "block_" + Date.now();
     let label = "";
     let value = "";
@@ -719,6 +811,7 @@ export default function BioPagesScreen({
       case "Button":
         label = "Explore the Toys Section";
         value = "https://example.com/toys";
+        extraFields = { bgColor: BIO_LINK.bg, textColor: BIO_LINK.text };
         break;
       case "Text":
         label = "🎁 Safe, fun & exciting toys for young superheroes.";
@@ -754,6 +847,7 @@ export default function BioPagesScreen({
       case "Deep Link":
         label = "Buy Now (Prize Wheel)";
         value = "Buy Now";
+        extraFields = { bgColor: BIO_LINK.bg, textColor: BIO_LINK.text };
         break;
       case "Link Spin":
         label = "Buy Now (Prize Wheel)";
@@ -795,12 +889,20 @@ export default function BioPagesScreen({
         label = `New ${type} Block`;
         value = `Value of ${type}`;
     }
-    setEditorBlocks(prev => [...prev, { id, type, label, value, ...extraFields }]);
+    const newBlock = { id, type, label, value, ...extraFields };
+    setEditorBlocks((prev) => {
+      if (atIndex === undefined || atIndex < 0 || atIndex > prev.length) {
+        return [...prev, newBlock];
+      }
+      const copy = [...prev];
+      copy.splice(atIndex, 0, newBlock);
+      return copy;
+    });
   };
 
   const COLOR_MAP: Record<string, string> = {
     Default: "#000000",
-    Orange: "#FF6B4A",
+    Orange: "#6366f1",
     Dark: "#111827",
     Navy: "#1E3A8A",
     Purple: "#6D28D9",
@@ -1032,14 +1134,14 @@ export default function BioPagesScreen({
           <>
             <button
               onClick={handleRefresh}
-              className="flex items-center gap-2 border border-gray-200 hover:bg-gray-50 rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-600 transition-colors bg-white shadow-sm"
+              className="acn-btn-secondary px-4 py-2.5"
             >
               <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
               <span>Refresh</span>
             </button>
             <button
               onClick={() => setIsAdding(true)}
-              className="flex items-center gap-2 bg-gradient-to-r from-[#FF6B4A] to-[#FF4B6B] hover:from-[#E55B3C] hover:to-[#E53C5D] text-white rounded-xl px-5 py-2.5 text-sm font-semibold shadow-md shadow-orange-100 transition-all active:scale-95"
+              className="acn-btn-accent px-5 py-2.5"
             >
               <Plus className="h-4 w-4" />
               <span>New Page</span>
@@ -1050,8 +1152,8 @@ export default function BioPagesScreen({
 
       {/* Creation Modal/Dialog */}
       {isAdding && (
-        <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-50 animate-in fade-in zoom-in-95 duration-200">
+        <div className="acn-modal-backdrop">
+          <div className="acn-modal-panel max-w-md animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between mb-2">
               <h3 className="font-display font-bold text-lg text-gray-950">Create Your Link Page</h3>
               <button onClick={() => setIsAdding(false)} className="text-gray-400 hover:text-gray-600">
@@ -1062,7 +1164,7 @@ export default function BioPagesScreen({
               One page for all your social links, contact info, and business details.
             </p>
 
-            <form onSubmit={handleCreate} className="space-y-4">
+            <form onSubmit={handleCreate} className="space-y-6">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">
                   What should we call this page?
@@ -1083,7 +1185,7 @@ export default function BioPagesScreen({
                       .replace(/\s+/g, "-");
                     setNewSlug(clean);
                   }}
-                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#FF6B4A] rounded-xl py-2.5 px-3.5 text-sm text-gray-900 focus:outline-none focus:ring-4 focus:ring-orange-100 transition-all"
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] rounded-xl py-2.5 px-3.5 text-sm text-gray-900 focus:outline-none focus:ring-4 focus:ring-indigo-500/20 transition-all"
                 />
                 <p className="mt-1 text-[11px] text-slate-500 leading-normal">
                   Visitors will see this name. Use your name, shop name, or brand.
@@ -1110,7 +1212,7 @@ export default function BioPagesScreen({
                     }
                     setNewSlug(val);
                   }}
-                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#FF6B4A] rounded-xl py-2.5 px-3.5 text-sm text-gray-900 focus:outline-none focus:ring-4 focus:ring-orange-100 transition-all"
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] rounded-xl py-2.5 px-3.5 text-sm text-gray-900 focus:outline-none focus:ring-4 focus:ring-indigo-500/20 transition-all"
                 />
                 <p className="mt-1 text-[11px] text-slate-500 leading-normal">
                   Your page opens at:{" "}
@@ -1136,7 +1238,7 @@ export default function BioPagesScreen({
                     }}
                     className={`p-2.5 rounded-xl border text-[11px] font-bold text-center transition-all ${
                       selectedTemplateId === "generic"
-                        ? "border-[#FF6B4A] bg-orange-50/40 text-[#FF6B4A]"
+                        ? "border-[#6366f1] bg-indigo-500/10/40 text-[#6366f1]"
                         : "border-slate-200 hover:bg-slate-50 text-slate-600 bg-white"
                     }`}
                   >
@@ -1168,7 +1270,7 @@ export default function BioPagesScreen({
                           }}
                           className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-bold transition-all ${
                             selectedTemplateId === tpl.id
-                              ? "border-[#FF6B4A] bg-orange-50/40 text-[#FF6B4A]"
+                              ? "border-[#6366f1] bg-indigo-500/10/40 text-[#6366f1]"
                               : "border-slate-200 hover:bg-slate-50 text-slate-600 bg-white"
                           }`}
                         >
@@ -1191,7 +1293,7 @@ export default function BioPagesScreen({
                 <button
                   type="submit"
                   disabled={isCreating}
-                  className="px-5 py-2 bg-[#FF6B4A] hover:bg-[#E55B3C] disabled:cursor-not-allowed disabled:opacity-70 text-white rounded-xl text-sm font-semibold shadow-md shadow-orange-100"
+                  className="acn-btn-accent disabled:cursor-not-allowed"
                 >
                   {isCreating ? "Creating…" : "Create My Page"}
                 </button>
@@ -1202,10 +1304,10 @@ export default function BioPagesScreen({
       )}
 
       {/* Pages Container list */}
-      <div className="bg-white border border-gray-100 rounded-3xl p-4 sm:p-6 shadow-sm">
+      <Workspace className="acn-section-card">
         {pages.length === 0 ? (
           <div className="flex flex-col items-center justify-center text-center py-12">
-            <div className="h-14 w-14 bg-orange-50 text-[#FF6B4A] rounded-2xl flex items-center justify-center mb-4">
+            <div className="h-14 w-14 bg-indigo-500/10 text-[#6366f1] rounded-2xl flex items-center justify-center mb-6">
               <Smartphone className="h-6 w-6" />
             </div>
             <h4 className="font-display font-bold text-gray-900">No link pages yet</h4>
@@ -1214,7 +1316,7 @@ export default function BioPagesScreen({
             </p>
             <button
               onClick={() => setIsAdding(true)}
-              className="mt-4 px-4 py-2 bg-[#FF6B4A] text-white rounded-xl text-sm font-semibold"
+              className="mt-4 acn-btn-accent px-4 py-2"
             >
               Get Started
             </button>
@@ -1224,10 +1326,10 @@ export default function BioPagesScreen({
             {pages.map((page) => (
               <div
                 key={page.id}
-                className="flex flex-col lg:flex-row lg:items-center justify-between border border-gray-100 rounded-2xl p-4 sm:p-5 hover:bg-slate-50/50 transition-colors gap-4 min-w-0"
+                className="acn-list-row min-w-0"
               >
-                <div className="flex items-start gap-3 sm:gap-4 min-w-0">
-                  <div className="h-11 w-11 sm:h-12 sm:w-12 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0">
+                <div className="flex items-start gap-4 sm:gap-6 min-w-0">
+                  <div className="h-11 w-11 sm:h-12 sm:w-12 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center shrink-0">
                     <Smartphone className="h-5 w-5 sm:h-6 sm:w-6" />
                   </div>
                   <div className="min-w-0 flex-1">
@@ -1237,7 +1339,7 @@ export default function BioPagesScreen({
                           type="text"
                           value={editTitleValue}
                           onChange={(e) => setEditTitleValue(e.target.value)}
-                          className="bg-white border border-gray-200 rounded px-2 py-0.5 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-orange-500"
+                          className="bg-white border border-gray-200 rounded px-2 py-0.5 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500/100"
                         />
                         <button onClick={() => saveEdit(page.id)} className="text-green-600 hover:bg-green-50 p-1 rounded">
                           <Check className="h-4.5 w-4.5" />
@@ -1258,7 +1360,7 @@ export default function BioPagesScreen({
                       href={`${window.location.origin}/?previewPageId=${page.id}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-xs text-orange-500 hover:text-orange-600 font-medium flex items-center gap-1 mt-1 font-mono hover:underline"
+                      className="text-xs text-indigo-500/100 hover:text-indigo-400 font-medium flex items-center gap-1 mt-1 font-mono hover:underline"
                     >
                       <Link className="h-3 w-3" />
                       {page.slug}
@@ -1266,7 +1368,7 @@ export default function BioPagesScreen({
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3 sm:gap-4 lg:gap-6 w-full lg:w-auto lg:justify-end pl-14 lg:pl-0">
+                <div className="flex flex-wrap items-center gap-4 sm:gap-6 lg:gap-6 w-full lg:w-auto lg:justify-end pl-14 lg:pl-0">
                   {/* Status */}
                   <span
                     className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
@@ -1307,7 +1409,7 @@ export default function BioPagesScreen({
                       type="button"
                       onClick={() => setSelectedAnalyticsPage(page)}
                       title={`Analytics — ${page.title}`}
-                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#FF6B4A] transition-all flex items-center justify-center"
+                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#6366f1] transition-all flex items-center justify-center"
                     >
                       <BarChart2 className="h-4.5 w-4.5" />
                     </button>
@@ -1317,7 +1419,7 @@ export default function BioPagesScreen({
                       type="button"
                       onClick={() => openEditor(page)}
                       title="Edit"
-                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#FF6B4A] transition-all flex items-center justify-center"
+                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#6366f1] transition-all flex items-center justify-center"
                     >
                       <Edit3 className="h-4.5 w-4.5" />
                     </button>
@@ -1327,7 +1429,7 @@ export default function BioPagesScreen({
                       type="button"
                       onClick={() => onDuplicatePage(page.id)}
                       title="Duplicate"
-                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#FF6B4A] transition-all flex items-center justify-center"
+                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#6366f1] transition-all flex items-center justify-center"
                     >
                       <Layers className="h-4.5 w-4.5" />
                     </button>
@@ -1344,7 +1446,7 @@ export default function BioPagesScreen({
                         setHasLogo(false);
                       }}
                       title={`QR — ${page.title}`}
-                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#FF6B4A] transition-all flex items-center justify-center"
+                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#6366f1] transition-all flex items-center justify-center"
                     >
                       <QrCode className="h-4.5 w-4.5" />
                     </button>
@@ -1355,7 +1457,7 @@ export default function BioPagesScreen({
                       target="_blank"
                       rel="noreferrer"
                       title="Open (visit page)"
-                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#FF6B4A] transition-all flex items-center justify-center"
+                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#6366f1] transition-all flex items-center justify-center"
                     >
                       <ExternalLink className="h-4.5 w-4.5" />
                     </a>
@@ -1390,13 +1492,13 @@ export default function BioPagesScreen({
             ))}
           </div>
         )}
-      </div>
+      </Workspace>
 
-      {/* 1st - Beautiful Analytics Modal matching the exact statistics and widgets performance list */}
+      {/* Analytics Modal */}
       {selectedAnalyticsPage && (
         <div className="fixed inset-0 bg-gray-950/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-4 shadow-2xl border border-gray-100 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between mb-6">
               <h3 className="font-display font-bold text-gray-900 text-lg">
                 Analytics — {selectedAnalyticsPage.title}
               </h3>
@@ -1416,7 +1518,7 @@ export default function BioPagesScreen({
                   onClick={() => setAnalyticsTab(tab)}
                   className={`flex-1 text-center py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
                     analyticsTab === tab
-                      ? "bg-[#FF6B4A] text-white shadow-sm"
+                      ? "bg-[#6366f1] text-white shadow-sm"
                       : "text-gray-500 hover:text-gray-900 hover:bg-white"
                   }`}
                 >
@@ -1449,7 +1551,7 @@ export default function BioPagesScreen({
             {/* Widget Performance list */}
             <div>
               <h4 className="font-display font-bold text-gray-900 text-sm mb-3 uppercase tracking-wider flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-[#FF6B4A]" />
+                <TrendingUp className="h-4 w-4 text-[#6366f1]" />
                 Widget Performance
               </h4>
 
@@ -1492,7 +1594,7 @@ export default function BioPagesScreen({
                       {/* Performance Bar */}
                       <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                         <div
-                          className="bg-gradient-to-r from-[#FF6B4A] to-[#FF4B6B] h-full rounded-full transition-all duration-500"
+                          className="bg-gradient-to-r from-[#6366f1] to-[#7c3aed] h-full rounded-full transition-all duration-500"
                           style={{ width: `${widget.percentage}%` }}
                         />
                       </div>
@@ -1508,12 +1610,12 @@ export default function BioPagesScreen({
       {/* 2nd - High-fidelity full-page Editor Modal exactly matching the builder screen with sidebar and live interactive preview in pristine Light Mode */}
       {selectedEditPage && (
         <div className="fixed inset-0 bg-slate-50 z-50 flex flex-col animate-in fade-in duration-200 text-slate-800">
-          {/* Editor Header */}
-          <header className="bg-white border-b border-slate-200 px-3 sm:px-6 py-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between shadow-sm shrink-0">
-            <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
+          {/* Editor Header — same fixed height as main app navbar */}
+          <header className="acn-app-navbar bg-white border-b border-slate-200 px-3 sm:px-6 flex items-center justify-between gap-2 shadow-sm">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 overflow-hidden">
               <button
                 onClick={closeEditor}
-                className="text-slate-600 hover:text-slate-900 hover:bg-slate-50 flex items-center gap-1.5 text-sm font-semibold bg-white rounded-xl px-3 py-2 transition-all border border-slate-200 shadow-sm shrink-0"
+                className="text-slate-600 hover:text-slate-900 hover:bg-slate-50 flex items-center gap-1.5 text-sm font-semibold bg-white rounded-xl px-2.5 sm:px-3 py-1.5 transition-all border border-slate-200 shadow-sm shrink-0"
               >
                 <X className="h-4 w-4" />
                 <span className="hidden sm:inline">Close Editor</span>
@@ -1521,50 +1623,50 @@ export default function BioPagesScreen({
 
               <div className="h-5 w-px bg-slate-200 hidden sm:block shrink-0" />
 
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <span className="text-[#4F46E5] font-extrabold text-sm sm:text-lg tracking-tight font-mono shrink-0">acn.link</span>
+              <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1 overflow-hidden">
+                <span className="text-[#4F46E5] font-extrabold text-sm tracking-tight font-mono shrink-0">acn.link</span>
                 <span className="text-slate-400 text-sm shrink-0">/</span>
-                <div className="flex items-center gap-1 min-w-0 flex-1">
+                <div className="flex items-center gap-1 min-w-0 flex-1 overflow-hidden">
                   <input
                     type="text"
                     value={editorTitle}
                     onChange={(e) => setEditorTitle(e.target.value)}
-                    className="bg-transparent text-slate-900 text-sm font-bold border-b border-dashed border-slate-300 focus:border-[#FF6B4A] focus:outline-none py-0.5 px-1 min-w-0 w-full max-w-[120px] sm:max-w-[200px]"
+                    className="bg-transparent text-slate-900 text-sm font-bold border-b border-dashed border-slate-300 focus:border-[#6366f1] focus:outline-none py-0.5 px-1 min-w-0 w-full max-w-[100px] sm:max-w-[200px]"
                   />
                   <Edit3 className="h-3.5 w-3.5 text-slate-400 shrink-0" />
                 </div>
               </div>
             </div>
 
-            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-sm self-start lg:self-auto">
-              <button
-                onClick={() => setEditorTab("Edit")}
-                className={`px-3 sm:px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                  editorTab === "Edit" ? "bg-white text-slate-900 shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-900"
-                }`}
-              >
-                Edit
-              </button>
-              <button
-                onClick={() => setEditorTab("Settings")}
-                className={`px-3 sm:px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                  editorTab === "Settings" ? "bg-white text-slate-900 shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-900"
-                }`}
-              >
-                Settings
-              </button>
-            </div>
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              <div className="flex bg-slate-100 p-0.5 sm:p-1 rounded-xl border border-slate-200 shadow-sm">
+                <button
+                  onClick={() => setEditorTab("Edit")}
+                  className={`px-2.5 sm:px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                    editorTab === "Edit" ? "bg-white text-slate-900 shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={() => setEditorTab("Settings")}
+                  className={`px-2.5 sm:px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                    editorTab === "Settings" ? "bg-white text-slate-900 shadow-sm border border-slate-200/50" : "text-slate-500 hover:text-slate-900"
+                  }`}
+                >
+                  Settings
+                </button>
+              </div>
 
-            <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end relative">
               <button
                 onClick={handleSaveAsTemplate}
-                className="hidden md:inline-flex text-xs font-bold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 rounded-xl px-4 py-2 border border-slate-200 shadow-sm transition-all"
+                className="hidden md:inline-flex text-xs font-bold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 rounded-xl px-3 py-1.5 border border-slate-200 shadow-sm transition-all"
               >
                 Save as Template
               </button>
               <button
                 onClick={handleSaveDraft}
-                className="hidden md:inline-flex text-xs font-bold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 rounded-xl px-4 py-2 border border-slate-200 shadow-sm transition-all"
+                className="hidden md:inline-flex text-xs font-bold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 rounded-xl px-3 py-1.5 border border-slate-200 shadow-sm transition-all"
               >
                 Save Draft
               </button>
@@ -1615,7 +1717,7 @@ export default function BioPagesScreen({
                 type="button"
                 onClick={handlePublishEditor}
                 disabled={isPublishing}
-                className="bg-gradient-to-r from-[#FF6B4A] to-[#FF4B6B] hover:from-[#E55B3C] hover:to-[#E53C5D] disabled:cursor-not-allowed disabled:opacity-70 text-white text-xs font-extrabold rounded-xl px-4 sm:px-5 py-2 shadow-md shadow-orange-100 active:scale-95 transition-all flex items-center gap-1.5 shrink-0"
+                className="bg-gradient-to-r from-[#6366f1] to-[#7c3aed] hover:from-[#4f46e5] hover:to-[#6d28d9] disabled:cursor-not-allowed disabled:opacity-70 text-white text-xs font-extrabold rounded-xl px-3 sm:px-5 py-1.5 shadow-md shadow-indigo-500/20 active:scale-95 transition-all flex items-center gap-1.5 shrink-0"
               >
                 <Save className="h-3.5 w-3.5" />
                 <span>{isPublishing ? "Publishing…" : "Publish"}</span>
@@ -1655,12 +1757,12 @@ export default function BioPagesScreen({
           <div className="flex-1 overflow-hidden flex flex-col xl:flex-row min-h-0">
             {/* Left Panel: Toolbar and Widget list */}
             <div
-              className={`flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 bg-slate-50 text-slate-800 min-h-0 min-w-0 ${
+              className={`flex-1 overflow-y-auto acn-workspace acn-workspace--stack bg-slate-50 text-slate-800 min-h-0 min-w-0 ${
                 editorViewPanel === "preview" ? "hidden xl:block" : "block"
               }`}
             >
               {showPublishSuccess ? (
-                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-6 text-center text-emerald-800 animate-in fade-in zoom-in-95 duration-300">
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-center text-emerald-800 animate-in fade-in zoom-in-95 duration-300">
                   <Check className="h-10 w-10 mx-auto mb-2 bg-emerald-500 text-white p-2 rounded-full shadow-lg" />
                   <h4 className="font-bold text-base">BioLink Page Published Successfully!</h4>
                   <p className="text-xs text-emerald-600 mt-1">
@@ -1669,7 +1771,7 @@ export default function BioPagesScreen({
                       href={`${window.location.origin}/?previewPageId=${selectedEditPage.id}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="underline font-bold text-[#FF6B4A] hover:text-[#FF4B6B] ml-1"
+                      className="underline font-bold text-[#6366f1] hover:text-[#7c3aed] ml-1"
                     >
                       {`${getShareableOrigin()}/?previewPageId=${selectedEditPage.id}`}
                     </a>
@@ -1699,23 +1801,23 @@ export default function BioPagesScreen({
                   </div>
                 </div>
               ) : editorTab === "Settings" ? (
-                <div className="max-w-xl mx-auto space-y-6">
+                <div className="max-w-xl mx-auto acn-workspace acn-workspace--stack w-full">
                   <h3 className="font-display font-bold text-xl text-slate-900">Page Settings</h3>
-                  <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4 shadow-sm">
+                  <div className="bg-white border border-slate-200 rounded-2xl acn-workspace-panel acn-workspace-panel--stack shadow-sm">
                     <div>
                       <label className="block text-xs text-slate-500 font-semibold mb-2">Meta Title</label>
                       <input
                         type="text"
                         value={editorTitle}
                         onChange={(e) => setEditorTitle(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2 px-3 text-sm text-slate-900"
+                        className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-sm text-slate-900"
                       />
                     </div>
                     <div>
                       <label className="block text-xs text-slate-500 font-semibold mb-2">Meta Description</label>
                       <textarea
                         defaultValue="Official Marvel-Inspired Toys & Collectibles. Safe, fun & exciting toys for young superheroes."
-                        className="w-full bg-slate-50 border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2 px-3 text-sm text-slate-900 h-24"
+                        className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-sm text-slate-900 h-24"
                       />
                     </div>
                     <div className="flex items-center justify-between py-2 border-t border-slate-100">
@@ -1723,12 +1825,12 @@ export default function BioPagesScreen({
                         <span className="text-xs font-bold block text-slate-800">Search Engine Indexing</span>
                         <span className="text-[10px] text-slate-500 block">Allow search engines to find this page</span>
                       </div>
-                      <input type="checkbox" defaultChecked className="rounded border-slate-200 bg-slate-50 accent-[#FF6B4A] h-4.5 w-4.5" />
+                      <input type="checkbox" defaultChecked className="rounded border-slate-200 bg-slate-50 accent-[#6366f1] h-4.5 w-4.5" />
                     </div>
 
                     {/* Drafts & Recovery List */}
                     <div className="pt-4 border-t border-slate-100 space-y-3.5">
-                      <span className="text-[10px] font-bold text-[#FF6B4A] uppercase tracking-widest block">
+                      <span className="text-[10px] font-bold text-[#6366f1] uppercase tracking-widest block">
                         Drafts & Recovery
                       </span>
                       {savedDrafts.filter((draft) => draft.pageId === selectedEditPage.id).length === 0 ? (
@@ -1759,10 +1861,10 @@ export default function BioPagesScreen({
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-col xl:grid xl:grid-cols-12 xl:gap-6">
+                <div className="flex flex-col xl:grid xl:grid-cols-12 xl:gap-4 acn-workspace-grid">
                   {/* Left subcol: CORE, GROWTH, MEDIA, OTHERS Blocks */}
                   <div
-                    className={`space-y-6 min-w-0 ${
+                    className={`acn-workspace--stack min-w-0 ${
                       editorViewPanel === "blocks" ? "block" : "hidden"
                     } xl:block xl:col-span-4`}
                   >
@@ -1794,7 +1896,7 @@ export default function BioPagesScreen({
                           className="flex items-center gap-2.5 bg-white hover:bg-slate-50 border border-slate-200 p-3 rounded-2xl text-left transition-all group shadow-sm hover:border-slate-300 cursor-grab active:cursor-grabbing hover:scale-[1.02]"
                           title="Drag this block to the Manager or Live Preview, or click to add"
                         >
-                          <span className="h-8 w-8 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center font-bold text-sm group-hover:scale-105 transition-transform">
+                          <span className="h-8 w-8 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center font-bold text-sm group-hover:scale-105 transition-transform">
                             📝
                           </span>
                           <div>
@@ -2055,7 +2157,7 @@ export default function BioPagesScreen({
                           className="flex items-center gap-2.5 bg-white hover:bg-slate-50 border border-slate-200 p-3 rounded-2xl text-left transition-all group relative shadow-sm hover:border-slate-300 cursor-grab active:cursor-grabbing hover:scale-[1.02]"
                           title="Drag this block to the Manager or Live Preview, or click to add"
                         >
-                          <span className="h-8 w-8 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center font-bold text-sm group-hover:scale-105 transition-transform">
+                          <span className="h-8 w-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold text-sm group-hover:scale-105 transition-transform">
                             📅
                           </span>
                           <div>
@@ -2068,8 +2170,8 @@ export default function BioPagesScreen({
 
                     {/* Saved Templates & Session Drafts in Editor Sidebar */}
                     {(savedTemplates.length > 0 || savedDrafts.length > 0) && (
-                      <div className="pt-4 border-t border-slate-200/80 space-y-4">
-                        <span className="text-[10px] font-extrabold text-[#FF6B4A] uppercase tracking-widest block">
+                      <div className="pt-4 border-t border-slate-200/80 space-y-6">
+                        <span className="text-[10px] font-extrabold text-[#6366f1] uppercase tracking-widest block">
                           SAVED TEMPLATES & DRAFTS
                         </span>
                         
@@ -2090,7 +2192,7 @@ export default function BioPagesScreen({
                                       setLinkedTemplateId(tpl.id);
                                       triggerToast(`✨ Applied Template "${getTemplateDisplayName(tpl)}" to editor!`);
                                     }}
-                                    className="px-2.5 py-1 bg-orange-50 hover:bg-orange-100 text-[#FF6B4A] text-[9px] font-bold rounded-lg transition-colors border border-orange-100"
+                                    className="px-2.5 py-1 bg-indigo-500/10 hover:bg-indigo-500/20 text-[#6366f1] text-[9px] font-bold rounded-lg transition-colors border border-indigo-500/20"
                                   >
                                     Apply
                                   </button>
@@ -2131,17 +2233,17 @@ export default function BioPagesScreen({
 
                   {/* Right subcol: Replaced with Cover Image Dropzone + Bio + Accordion Blocks List */}
                   <div
-                    className={`space-y-6 min-w-0 ${
+                    className={`acn-workspace--stack min-w-0 ${
                       editorViewPanel === "edit" ? "block" : "hidden"
                     } xl:block xl:col-span-8`}
                   >
                     {/* COVER IMAGE & BIO CARD */}
-                    <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-4">
+                    <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-6">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
                           COVER IMAGE & HEADER
                         </span>
-                        <span className="text-[9px] font-bold text-[#FF6B4A] bg-orange-50 px-2 py-0.5 rounded-full border border-orange-100">
+                        <span className="text-[9px] font-bold text-[#6366f1] bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20">
                           Live Editing
                         </span>
                       </div>
@@ -2189,7 +2291,7 @@ export default function BioPagesScreen({
                                 }
                               }}
                               disabled={editorCoverPhoto.startsWith("data:")}
-                              className="w-full bg-slate-50 border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800 disabled:opacity-75 disabled:cursor-not-allowed font-mono"
+                              className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800 disabled:opacity-75 disabled:cursor-not-allowed font-mono"
                               placeholder="Paste any Unsplash or web image URL..."
                             />
                             {editorCoverPhoto.startsWith("data:") && (
@@ -2210,7 +2312,7 @@ export default function BioPagesScreen({
                               type="text"
                               value={editorTitle}
                               onChange={(e) => setEditorTitle(e.target.value)}
-                              className="w-full bg-slate-50 border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2.5 px-3.5 text-sm font-bold text-slate-800"
+                              className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2.5 px-3.5 text-sm font-bold text-slate-800"
                               placeholder="My BioLink"
                             />
                           </div>
@@ -2220,7 +2322,7 @@ export default function BioPagesScreen({
                             <textarea
                               value={editorBio}
                               onChange={(e) => setEditorBio(e.target.value)}
-                              className="w-full bg-slate-50 border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2.5 px-3.5 text-xs text-slate-600 resize-none"
+                              className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2.5 px-3.5 text-xs text-slate-600 resize-none"
                               placeholder="Write a short bio..."
                               rows={2}
                             />
@@ -2231,24 +2333,36 @@ export default function BioPagesScreen({
 
                     {/* ACCORDION BLOCKS LIST */}
                     <div className="space-y-3.5">
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-3">
                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
                           PAGE BLOCKS (ACCORDIONS)
                         </span>
-                        <span className="text-[9px] font-semibold text-slate-400">
-                          {editorBlocks.length} widget{editorBlocks.length !== 1 ? "s" : ""}
-                        </span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {isAccordionReorderDrag && draggedBlockIndex !== null && (
+                            <span className="text-[9px] font-bold text-[#6366f1] bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20 animate-pulse">
+                              {dropTarget
+                                ? `Drop at #${getDropDisplayPosition(dropTarget, editorBlocks.length)}`
+                                : "Drag ⋮⋮ up/down to reorder"}
+                            </span>
+                          )}
+                          <span className="text-[9px] font-semibold text-slate-400">
+                            {editorBlocks.length} widget{editorBlocks.length !== 1 ? "s" : ""}
+                          </span>
+                        </div>
                       </div>
 
                       <div
+                        ref={accordionListRef}
                         onDragOver={handleDragOverTarget}
                         onDragEnter={handleDragEnterManager}
                         onDragLeave={handleDragLeaveManager}
                         onDrop={handleDropOnManager}
                         className={`space-y-3 p-4 rounded-3xl border transition-all max-h-[50vh] xl:max-h-[580px] overflow-y-auto shadow-inner ${
                           isDraggingOverManager
-                            ? "bg-orange-50 border-orange-400 ring-2 ring-orange-400 ring-opacity-50"
-                            : "bg-slate-100/80 border-slate-200"
+                            ? "bg-indigo-500/10 border-indigo-400 ring-2 ring-indigo-400 ring-opacity-50"
+                            : isAccordionReorderDrag
+                              ? "bg-indigo-500/5 border-indigo-300/80"
+                              : "bg-slate-100/80 border-slate-200"
                         }`}
                       >
                         {editorBlocks.length === 0 ? (
@@ -2261,34 +2375,53 @@ export default function BioPagesScreen({
                           editorBlocks.map((block, idx) => {
                             const isExpanded = expandedBlockId === block.id;
                             const isCurrentlyDragged = draggedBlockIndex === idx;
+                            const showDropBefore =
+                              dropTarget?.index === idx && dropTarget.position === "before" && !isCurrentlyDragged;
+                            const showDropAfter =
+                              dropTarget?.index === idx && dropTarget.position === "after" && !isCurrentlyDragged;
                             return (
                               <div
                                 key={block.id}
                                 id={`editor-block-${block.id}`}
-                                draggable={draggableBlockId === block.id}
-                                onDragStart={(e) => handleBlockDragStart(e, idx)}
+                                data-accordion-block
                                 onDragOver={(e) => handleBlockDragOver(e, idx)}
                                 onDrop={(e) => handleBlockDrop(e, idx)}
-                                onDragEnd={() => {
-                                  setDraggedBlockIndex(null);
-                                  setDraggableBlockId(null);
-                                }}
-                                className={`flex flex-col bg-white border rounded-2xl overflow-hidden transition-all duration-200 ${
+                                className={`relative flex flex-col bg-white border rounded-2xl overflow-hidden transition-all duration-200 ${
                                   isExpanded
-                                    ? "border-[#FF6B4A] shadow-md ring-1 ring-[#FF6B4A]/15"
+                                    ? "border-[#6366f1] shadow-md ring-1 ring-[#6366f1]/15"
                                     : "border-slate-200/80 shadow-sm hover:shadow hover:border-slate-300"
-                                } ${isCurrentlyDragged ? "opacity-45 scale-95 border-dashed border-[#FF6B4A]" : ""}`}
+                                } ${isCurrentlyDragged ? "opacity-40 scale-[0.98] border-dashed border-[#6366f1] bg-indigo-50/30" : ""}`}
                               >
+                                {showDropBefore && (
+                                  <div className="absolute -top-[7px] left-2 right-2 z-30 flex items-center gap-2 pointer-events-none">
+                                    <div className="h-1 flex-1 rounded-full bg-[#6366f1] shadow-[0_0_10px_rgba(99,102,241,0.55)]" />
+                                    <span className="text-[8px] font-bold uppercase tracking-wider text-[#6366f1] bg-white px-1.5 py-0.5 rounded border border-indigo-200 shadow-sm">
+                                      Drop here
+                                    </span>
+                                  </div>
+                                )}
+                                {showDropAfter && (
+                                  <div className="absolute -bottom-[7px] left-2 right-2 z-30 flex items-center gap-2 pointer-events-none">
+                                    <div className="h-1 flex-1 rounded-full bg-[#6366f1] shadow-[0_0_10px_rgba(99,102,241,0.55)]" />
+                                    <span className="text-[8px] font-bold uppercase tracking-wider text-[#6366f1] bg-white px-1.5 py-0.5 rounded border border-indigo-200 shadow-sm">
+                                      Drop here
+                                    </span>
+                                  </div>
+                                )}
                                 {/* Accordion Header */}
                                 <div
                                   onClick={() => setExpandedBlockId(isExpanded ? null : block.id)}
                                   className="flex items-center justify-between p-3.5 cursor-pointer select-none hover:bg-slate-50/40 transition-colors"
                                 >
                                   <div className="flex items-center gap-3 min-w-0">
-                                    <div 
-                                      onMouseEnter={() => setDraggableBlockId(block.id)}
-                                      onMouseLeave={() => setDraggableBlockId(null)}
-                                      className="text-slate-300 hover:text-[#FF6B4A] cursor-grab shrink-0 px-0.5"
+                                    <div
+                                      draggable
+                                      onDragStart={(e) => handleBlockDragStart(e, idx)}
+                                      onDragEnd={handleBlockDragEnd}
+                                      onMouseDown={(e) => e.stopPropagation()}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="text-slate-300 hover:text-[#6366f1] cursor-grab active:cursor-grabbing shrink-0 px-1 py-2 -my-1 touch-none rounded-lg hover:bg-indigo-50/80"
+                                      title="Drag up or down to reorder in Page Blocks"
                                     >
                                       <GripVertical className="h-4 w-4" />
                                     </div>
@@ -2307,36 +2440,8 @@ export default function BioPagesScreen({
                                   </div>
 
                                   <div className="flex items-center gap-2 shrink-0 text-slate-400">
-                                    {/* Quick Reorder Arrow Buttons */}
-                                    <div className="flex items-center gap-0.5 border-r border-slate-100 pr-1.5 mr-0.5">
-                                      <button
-                                        type="button"
-                                        disabled={idx === 0}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          moveBlockUp(idx);
-                                        }}
-                                        title="Move Up"
-                                        className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-[#FF6B4A] disabled:opacity-25 disabled:hover:bg-transparent transition-all"
-                                      >
-                                        <ArrowUp className="h-3.5 w-3.5" />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={idx === editorBlocks.length - 1}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          moveBlockDown(idx);
-                                        }}
-                                        title="Move Down"
-                                        className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-[#FF6B4A] disabled:opacity-25 disabled:hover:bg-transparent transition-all"
-                                      >
-                                        <ArrowDown className="h-3.5 w-3.5" />
-                                      </button>
-                                    </div>
-
                                     {isExpanded ? (
-                                      <ChevronUp className="h-4 w-4 text-[#FF6B4A]" />
+                                      <ChevronUp className="h-4 w-4 text-[#6366f1]" />
                                     ) : (
                                       <ChevronDown className="h-4 w-4" />
                                     )}
@@ -2345,7 +2450,7 @@ export default function BioPagesScreen({
 
                                 {/* Accordion Content */}
                                 {isExpanded && (
-                                  <div className="border-t border-slate-100 p-4 bg-slate-50/50 space-y-4 text-left animate-in fade-in slide-in-from-top-1 duration-200">
+                                  <div className="border-t border-slate-100 p-4 bg-slate-50/50 space-y-6 text-left animate-in fade-in slide-in-from-top-1 duration-200">
                                     {/* Widget Title */}
                                     {block.type !== "Shop" && (
                                       <div>
@@ -2354,7 +2459,7 @@ export default function BioPagesScreen({
                                           type="text"
                                           value={block.label}
                                           onChange={(e) => handleUpdateBlockField(block.id, "label", e.target.value)}
-                                          className="w-full bg-white border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                                          className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
                                           placeholder="Enter widget label..."
                                         />
                                       </div>
@@ -2370,7 +2475,7 @@ export default function BioPagesScreen({
                                               type="text"
                                               value={(block as any).subtext || ""}
                                               onChange={(e) => handleUpdateBlockField(block.id, "subtext", e.target.value)}
-                                              className="w-full bg-white border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                                              className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
                                               placeholder="e.g. Free shipping!"
                                             />
                                           </div>
@@ -2380,7 +2485,7 @@ export default function BioPagesScreen({
                                               type="text"
                                               value={(block as any).iconEmoji || ""}
                                               onChange={(e) => handleUpdateBlockField(block.id, "iconEmoji", e.target.value)}
-                                              className="w-full bg-white border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                                              className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
                                               placeholder="e.g. 🎒"
                                             />
                                           </div>
@@ -2391,7 +2496,7 @@ export default function BioPagesScreen({
                                           <select
                                             value={(block as any).showArrow || "Yes"}
                                             onChange={(e) => handleUpdateBlockField(block.id, "showArrow", e.target.value)}
-                                            className="w-full bg-white border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                                            className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
                                           >
                                             <option value="Yes">Yes</option>
                                             <option value="No">No</option>
@@ -2410,7 +2515,7 @@ export default function BioPagesScreen({
                                           type="text"
                                           value={block.value}
                                           onChange={(e) => handleUpdateBlockField(block.id, "value", e.target.value)}
-                                          className="w-full bg-white border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800 font-mono"
+                                          className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800 font-mono"
                                           placeholder={block.type === "WhatsApp" ? "e.g. +919876543210" : "e.g. https://yoursite.com"}
                                         />
                                       </div>
@@ -2418,7 +2523,7 @@ export default function BioPagesScreen({
 
                                     {/* Shop Specific Fields */}
                                     {block.type === "Shop" && (
-                                      <div className="space-y-4">
+                                      <div className="space-y-6">
                                         {/* TITLE */}
                                         <div>
                                           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Title</label>
@@ -2426,7 +2531,7 @@ export default function BioPagesScreen({
                                             type="text"
                                             value={block.label}
                                             onChange={(e) => handleUpdateBlockField(block.id, "label", e.target.value)}
-                                            className="w-full bg-white border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2.5 px-3 text-xs font-semibold text-slate-800"
+                                            className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2.5 px-3 text-xs font-semibold text-slate-800"
                                             placeholder="My Shop"
                                           />
                                         </div>
@@ -2438,7 +2543,7 @@ export default function BioPagesScreen({
                                             <select
                                               value={(block as any).alignment || "Centre"}
                                               onChange={(e) => handleUpdateBlockField(block.id, "alignment", e.target.value)}
-                                              className="w-full bg-white border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2.5 px-3 text-xs text-slate-800"
+                                              className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2.5 px-3 text-xs text-slate-800"
                                             >
                                               <option value="Left">Left</option>
                                               <option value="Centre">Centre</option>
@@ -2450,7 +2555,7 @@ export default function BioPagesScreen({
                                             <select
                                               value={(block as any).currency || "₹ INR"}
                                               onChange={(e) => handleUpdateBlockField(block.id, "currency", e.target.value)}
-                                              className="w-full bg-white border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2.5 px-3 text-xs text-slate-800"
+                                              className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2.5 px-3 text-xs text-slate-800"
                                             >
                                               <option value="₹ INR">₹ INR</option>
                                               <option value="$ USD">$ USD</option>
@@ -2492,7 +2597,7 @@ export default function BioPagesScreen({
                                                     currentList[pIdx] = { ...currentList[pIdx], name: e.target.value };
                                                     handleUpdateBlockField(block.id, "products", currentList);
                                                   }}
-                                                  className="w-full bg-white border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2 px-3 text-xs font-semibold text-slate-800"
+                                                  className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs font-semibold text-slate-800"
                                                   placeholder="Product Name"
                                                 />
                                               </div>
@@ -2507,7 +2612,7 @@ export default function BioPagesScreen({
                                                     currentList[pIdx] = { ...currentList[pIdx], url: e.target.value };
                                                     handleUpdateBlockField(block.id, "products", currentList);
                                                   }}
-                                                  className="w-full bg-white border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2 px-3 text-[10px] font-mono text-slate-600"
+                                                  className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-[10px] font-mono text-slate-600"
                                                   placeholder="Product Destination URL"
                                                 />
                                               </div>
@@ -2546,7 +2651,7 @@ export default function BioPagesScreen({
                                                         currentList[pIdx] = { ...currentList[pIdx], image: e.target.value };
                                                         handleUpdateBlockField(block.id, "products", currentList);
                                                       }}
-                                                      className="flex-1 bg-slate-50 border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-lg py-1 px-2 text-[10px] text-slate-700"
+                                                      className="flex-1 bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-lg py-1 px-2 text-[10px] text-slate-700"
                                                       placeholder="Image URL"
                                                     />
                                                     <label className="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 px-2 py-1 rounded-lg cursor-pointer text-[9px] font-bold select-none flex items-center justify-center shrink-0">
@@ -2584,7 +2689,7 @@ export default function BioPagesScreen({
                                                     currentList[pIdx] = { ...currentList[pIdx], price: e.target.value };
                                                     handleUpdateBlockField(block.id, "products", currentList);
                                                   }}
-                                                  className="w-full bg-white border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2 px-3 text-xs font-semibold text-slate-800"
+                                                  className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs font-semibold text-slate-800"
                                                   placeholder="Price (e.g. 3999)"
                                                 />
                                               </div>
@@ -2605,7 +2710,7 @@ export default function BioPagesScreen({
                                               };
                                               handleUpdateBlockField(block.id, "products", [...currentList, newProduct]);
                                             }}
-                                            className="w-full py-2 border border-dashed border-[#FF6B4A] hover:bg-[#FF6B4A]/5 text-[#FF6B4A] rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold transition-all"
+                                            className="w-full py-2 border border-dashed border-[#6366f1] hover:bg-[#6366f1]/5 text-[#6366f1] rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold transition-all"
                                           >
                                             <Plus className="h-3.5 w-3.5" />
                                             Add Product
@@ -2634,7 +2739,7 @@ export default function BioPagesScreen({
                                                   type="text"
                                                   value={(block as any).bgColor || "#10B981"}
                                                   onChange={(e) => handleUpdateBlockField(block.id, "bgColor", e.target.value)}
-                                                  className="w-full bg-white border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-1 px-2 text-[10px] font-mono uppercase text-slate-800"
+                                                  className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-1 px-2 text-[10px] font-mono uppercase text-slate-800"
                                                 />
                                               </div>
                                             </div>
@@ -2657,7 +2762,7 @@ export default function BioPagesScreen({
                                                   type="text"
                                                   value={(block as any).textColor || "#FFFFFF"}
                                                   onChange={(e) => handleUpdateBlockField(block.id, "textColor", e.target.value)}
-                                                  className="w-full bg-white border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-1 px-2 text-[10px] font-mono uppercase text-slate-800"
+                                                  className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-1 px-2 text-[10px] font-mono uppercase text-slate-800"
                                                 />
                                               </div>
                                             </div>
@@ -2675,7 +2780,7 @@ export default function BioPagesScreen({
                                             type="text"
                                             value={block.value}
                                             onChange={(e) => handleUpdateBlockField(block.id, "value", e.target.value)}
-                                            className="w-full bg-white border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800 font-mono"
+                                            className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800 font-mono"
                                           />
                                         </div>
                                         <div>
@@ -2684,7 +2789,7 @@ export default function BioPagesScreen({
                                             type="text"
                                             value={(block as any).discount || "10% OFF"}
                                             onChange={(e) => handleUpdateBlockField(block.id, "discount", e.target.value)}
-                                            className="w-full bg-white border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                                            className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
                                           />
                                         </div>
                                       </div>
@@ -2699,21 +2804,21 @@ export default function BioPagesScreen({
                                           value={(block as any).img1 || "https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&q=80&w=300"}
                                           onChange={(e) => handleUpdateBlockField(block.id, "img1", e.target.value)}
                                           placeholder="Image 1 URL"
-                                          className="w-full bg-white border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                                          className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
                                         />
                                         <input
                                           type="text"
                                           value={(block as any).img2 || "https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&q=80&w=300"}
                                           onChange={(e) => handleUpdateBlockField(block.id, "img2", e.target.value)}
                                           placeholder="Image 2 URL (Optional)"
-                                          className="w-full bg-white border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                                          className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
                                         />
                                         <input
                                           type="text"
                                           value={(block as any).img3 || "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&q=80&w=300"}
                                           onChange={(e) => handleUpdateBlockField(block.id, "img3", e.target.value)}
                                           placeholder="Image 3 URL (Optional)"
-                                          className="w-full bg-white border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                                          className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
                                         />
                                       </div>
                                     )}
@@ -2726,7 +2831,7 @@ export default function BioPagesScreen({
                                           type="text"
                                           value={(block as any).fileSize || "3.2 MB"}
                                           onChange={(e) => handleUpdateBlockField(block.id, "fileSize", e.target.value)}
-                                          className="w-full bg-white border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                                          className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
                                         />
                                       </div>
                                     )}
@@ -2739,20 +2844,20 @@ export default function BioPagesScreen({
                                           <div className="flex items-center gap-2">
                                             <div
                                               className="relative w-8 h-8 rounded-full border border-slate-200 overflow-hidden shrink-0 cursor-pointer shadow-sm animate-in zoom-in-75 duration-150"
-                                              style={{ backgroundColor: (block as any).bgColor || (block.type === "WhatsApp" ? "#25D366" : block.type === "Coupon" ? "#EFF6FF" : "#FFFFFF") }}
+                                              style={{ backgroundColor: (block as any).bgColor || (block.type === "WhatsApp" ? "#25D366" : block.type === "Coupon" ? "#EFF6FF" : block.type === "Button" || block.type === "Deep Link" ? BIO_LINK.bg : "#FFFFFF") }}
                                             >
                                               <input
                                                 type="color"
-                                                value={(block as any).bgColor || (block.type === "WhatsApp" ? "#25D366" : block.type === "Coupon" ? "#EFF6FF" : "#FFFFFF")}
+                                                value={(block as any).bgColor || (block.type === "WhatsApp" ? "#25D366" : block.type === "Coupon" ? "#EFF6FF" : block.type === "Button" || block.type === "Deep Link" ? BIO_LINK.bg : "#FFFFFF")}
                                                 onChange={(e) => handleUpdateBlockField(block.id, "bgColor", e.target.value)}
                                                 className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
                                               />
                                             </div>
                                             <input
                                               type="text"
-                                              value={(block as any).bgColor || (block.type === "WhatsApp" ? "#25D366" : block.type === "Coupon" ? "#EFF6FF" : "#FFFFFF")}
+                                              value={(block as any).bgColor || (block.type === "WhatsApp" ? "#25D366" : block.type === "Coupon" ? "#EFF6FF" : block.type === "Button" || block.type === "Deep Link" ? BIO_LINK.bg : "#FFFFFF")}
                                               onChange={(e) => handleUpdateBlockField(block.id, "bgColor", e.target.value)}
-                                              className="w-full bg-white border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-1 px-2.5 text-[11px] font-mono uppercase text-slate-800"
+                                              className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-1 px-2.5 text-[11px] font-mono uppercase text-slate-800"
                                             />
                                           </div>
                                         </div>
@@ -2762,20 +2867,20 @@ export default function BioPagesScreen({
                                           <div className="flex items-center gap-2">
                                             <div
                                               className="relative w-8 h-8 rounded-full border border-slate-200 overflow-hidden shrink-0 cursor-pointer shadow-sm animate-in zoom-in-75 duration-150"
-                                              style={{ backgroundColor: (block as any).textColor || (block.type === "WhatsApp" || block.type === "Deep Link" ? "#FFFFFF" : "#0F172A") }}
+                                              style={{ backgroundColor: (block as any).textColor || (block.type === "WhatsApp" || block.type === "Deep Link" || block.type === "Button" ? BIO_LINK.text : "#0F172A") }}
                                             >
                                               <input
                                                 type="color"
-                                                value={(block as any).textColor || (block.type === "WhatsApp" || block.type === "Deep Link" ? "#FFFFFF" : "#0F172A")}
+                                                value={(block as any).textColor || (block.type === "WhatsApp" || block.type === "Deep Link" || block.type === "Button" ? BIO_LINK.text : "#0F172A")}
                                                 onChange={(e) => handleUpdateBlockField(block.id, "textColor", e.target.value)}
                                                 className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
                                               />
                                             </div>
                                             <input
                                               type="text"
-                                              value={(block as any).textColor || (block.type === "WhatsApp" || block.type === "Deep Link" ? "#FFFFFF" : "#0F172A")}
+                                              value={(block as any).textColor || (block.type === "WhatsApp" || block.type === "Deep Link" || block.type === "Button" ? BIO_LINK.text : "#0F172A")}
                                               onChange={(e) => handleUpdateBlockField(block.id, "textColor", e.target.value)}
-                                              className="w-full bg-white border border-slate-200 focus:border-[#FF6B4A] focus:outline-none rounded-xl py-1 px-2.5 text-[11px] font-mono uppercase text-slate-800"
+                                              className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-1 px-2.5 text-[11px] font-mono uppercase text-slate-800"
                                             />
                                           </div>
                                         </div>
@@ -2813,12 +2918,12 @@ export default function BioPagesScreen({
 
             {/* Right Panel: Immersive Live Phone Preview in Light Mode with Full Interactivity */}
             <div
-              className={`w-full xl:w-[420px] 2xl:w-[460px] bg-slate-100/50 border-l border-slate-200/80 p-4 sm:p-6 flex-col items-center justify-start overflow-y-auto min-h-0 shrink-0 ${
+              className={`w-full xl:w-[420px] 2xl:w-[460px] acn-glass-deep border-l border-slate-700/30 acn-workspace flex-col items-center justify-start overflow-y-auto min-h-0 shrink-0 ${
                 editorViewPanel === "preview" ? "flex" : "hidden"
               } xl:flex`}
             >
               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-3.5 flex items-center gap-1.5 shrink-0">
-                <Smartphone className="h-3.5 w-3.5 text-[#FF6B4A]" />
+                <Smartphone className="h-3.5 w-3.5 text-[#6366f1]" />
                 LIVE PREVIEW
               </span>
 
@@ -2842,9 +2947,9 @@ export default function BioPagesScreen({
                   onDragLeave={handleDragLeavePreview}
                   onDrop={handleDropOnPreview}
                   style={{ cursor: "grab" }}
-                  className={`flex-1 rounded-[32px] overflow-y-auto overflow-x-hidden relative text-slate-800 pb-6 no-scrollbar transition-all duration-200 ${
+                  className={`acn-preview-isolate flex-1 rounded-[32px] overflow-y-auto overflow-x-hidden relative text-slate-800 pb-6 no-scrollbar transition-all duration-200 ${
                     isDraggingOverPreview
-                      ? "bg-orange-50 border-4 border-dashed border-orange-400"
+                      ? "bg-indigo-500/10 border-4 border-dashed border-indigo-400"
                       : "bg-slate-50"
                   }`}
                 >
@@ -2875,7 +2980,7 @@ export default function BioPagesScreen({
                   </div>
 
                   {/* Dynamic Items on the landing page rendered in real-time */}
-                  <div className="px-4 mt-5 space-y-4 text-xs">
+                  <div className="px-4 mt-5 space-y-6 text-xs">
                     {editorBlocks.map((block, idx) => {
                       const getBlockContent = () => {
                         switch (block.type) {
@@ -2896,11 +3001,12 @@ export default function BioPagesScreen({
                             return (
                               <button
                                 onClick={() => triggerSimulatorToast(`🔗 Simulated redirection to: ${block.value || "https://acn.link"}`)}
-                                style={{
-                                  backgroundColor: (block as any).bgColor || "#FFFFFF",
-                                  color: (block as any).textColor || "#0F172A",
-                                }}
-                                className="w-full font-bold py-2.5 px-3.5 rounded-xl flex items-center justify-between shadow-sm transition-all text-xs border border-slate-200/80 active:scale-98"
+                                style={getLinkButtonStyle(block as any)}
+                                className={`w-full font-bold py-2.5 px-3.5 rounded-xl flex items-center justify-between transition-all text-xs active:scale-98 ${
+                                  isDefaultBrightLink(block as any)
+                                    ? "shadow-md shadow-violet-500/30 border-0"
+                                    : "shadow-sm border border-slate-200/80"
+                                }`}
                               >
                                 <div className="flex items-center gap-1.5 truncate">
                                   {(block as any).iconEmoji && <span>{(block as any).iconEmoji}</span>}
@@ -2910,7 +3016,7 @@ export default function BioPagesScreen({
                                   </div>
                                 </div>
                                 {(block as any).showArrow !== "No" && (
-                                  <ArrowRight className="h-3.5 w-3.5 shrink-0" style={{ color: (block as any).textColor || "#FF6B4A" }} />
+                                  <ArrowRight className="h-3.5 w-3.5 shrink-0" style={{ color: getLinkArrowColor(block as any) }} />
                                 )}
                               </button>
                             );
@@ -3084,7 +3190,7 @@ export default function BioPagesScreen({
                                     value={simulatorLeadEmail}
                                     onChange={(e) => setSimulatorLeadEmail(e.target.value)}
                                     placeholder="Enter your email"
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-3.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-3.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-violet-500"
                                   />
                                   <button
                                     onClick={() => {
@@ -3095,7 +3201,7 @@ export default function BioPagesScreen({
                                         triggerSimulatorToast(`❌ Please enter your email first.`);
                                       }
                                     }}
-                                    className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-1.5 rounded-lg text-xs transition-colors shadow-sm"
+                                    className="w-full bg-[#7c3aed] hover:bg-[#6d28d9] text-white font-bold py-1.5 rounded-lg text-xs transition-colors shadow-md shadow-violet-500/25"
                                   >
                                     Submit
                                   </button>
@@ -3169,7 +3275,7 @@ export default function BioPagesScreen({
                             return (
                               <div className="bg-white border border-slate-200 p-3 rounded-2xl flex items-center justify-between gap-3 hover:border-slate-300 transition-colors cursor-pointer" onClick={() => triggerSimulatorToast(`📅 RSVP Successful for Event: ${block.label}`)}>
                                 <div className="flex items-center gap-2.5 min-w-0 text-left">
-                                  <div className="bg-orange-50 border border-orange-100 text-orange-600 rounded-lg p-1 text-center min-w-[34px] shrink-0 font-bold">
+                                  <div className="bg-violet-50 border border-violet-100 text-violet-600 rounded-lg p-1 text-center min-w-[34px] shrink-0 font-bold">
                                     <span className="text-[8px] block uppercase leading-none font-mono">JUL</span>
                                     <span className="text-xs block leading-none mt-0.5">20</span>
                                   </div>
@@ -3178,7 +3284,7 @@ export default function BioPagesScreen({
                                     <span className="text-[8px] text-slate-500 block">7:00 PM • Virtual Livestream</span>
                                   </div>
                                 </div>
-                                <span className="text-[9px] bg-[#FF6B4A] hover:bg-[#E55B3C] text-white px-2.5 py-1.5 rounded-lg font-extrabold shadow-sm tracking-wide shrink-0">RSVP</span>
+                                <span className="text-[9px] bg-[#7c3aed] hover:bg-[#6d28d9] text-white px-2.5 py-1.5 rounded-lg font-extrabold shadow-md shadow-violet-500/25 tracking-wide shrink-0">RSVP</span>
                               </div>
                             );
                           default:
@@ -3196,7 +3302,7 @@ export default function BioPagesScreen({
                       return (
                         <div
                           key={block.id}
-                          className="group relative p-1.5 rounded-2xl border border-transparent hover:border-dashed hover:border-[#FF6B4A]/55 hover:bg-[#FF6B4A]/5 transition-all duration-200 cursor-pointer"
+                          className="group relative p-1.5 rounded-2xl border border-transparent hover:border-dashed hover:border-[#6366f1]/55 hover:bg-[#6366f1]/5 transition-all duration-200 cursor-pointer"
                           onClick={() => {
                             setExpandedBlockId(block.id);
                             const el = document.getElementById(`editor-block-${block.id}`);
@@ -3206,8 +3312,8 @@ export default function BioPagesScreen({
                           }}
                         >
                           {/* Floating Live Editor Controls */}
-                          <div className="absolute -top-3.5 right-1.5 hidden max-xl:flex xl:group-hover:flex items-center gap-1 bg-white border border-[#FF6B4A]/30 shadow-md py-0.5 px-1.5 rounded-lg z-30 animate-in zoom-in-95 duration-150">
-                            <span className="text-[7px] font-mono font-bold text-[#FF6B4A] uppercase tracking-widest mr-1">
+                          <div className="absolute -top-3.5 right-1.5 hidden max-xl:flex xl:group-hover:flex items-center gap-1 bg-white border border-[#6366f1]/30 shadow-md py-0.5 px-1.5 rounded-lg z-30 animate-in zoom-in-95 duration-150">
+                            <span className="text-[7px] font-mono font-bold text-[#6366f1] uppercase tracking-widest mr-1">
                               {block.type}
                             </span>
                             <button
@@ -3221,33 +3327,9 @@ export default function BioPagesScreen({
                                 }
                               }}
                               title="Edit Widget"
-                              className="p-1 hover:bg-orange-50 rounded text-slate-500 hover:text-[#FF6B4A] transition-colors"
+                              className="p-1 hover:bg-indigo-500/10 rounded text-slate-500 hover:text-[#6366f1] transition-colors"
                             >
                               <Edit3 className="h-2.5 w-2.5" />
-                            </button>
-                            <button
-                              type="button"
-                              disabled={idx === 0}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                moveBlockUp(idx);
-                              }}
-                              title="Move Up"
-                              className="p-1 hover:bg-orange-50 rounded text-slate-500 hover:text-[#FF6B4A] disabled:opacity-25 transition-colors"
-                            >
-                              <ArrowUp className="h-2.5 w-2.5" />
-                            </button>
-                            <button
-                              type="button"
-                              disabled={idx === editorBlocks.length - 1}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                moveBlockDown(idx);
-                              }}
-                              title="Move Down"
-                              className="p-1 hover:bg-orange-50 rounded text-slate-500 hover:text-[#FF6B4A] disabled:opacity-25 transition-colors"
-                            >
-                              <ArrowDown className="h-2.5 w-2.5" />
                             </button>
                           </div>
 
@@ -3282,7 +3364,7 @@ export default function BioPagesScreen({
                         <X className="h-4 w-4" />
                       </button>
 
-                      <div className="text-center space-y-1 mb-4">
+                      <div className="text-center space-y-1 mb-6">
                         <span className="text-[10px] font-extrabold text-cyan-400 tracking-wider uppercase block">🎁 GROW YOUR SALES</span>
                         <h4 className="font-display font-black text-base">Lucky Wheel Simulator</h4>
                         <p className="text-[9px] text-slate-300">Spin the wheel to win official prizes & coupons!</p>
@@ -3299,7 +3381,7 @@ export default function BioPagesScreen({
                             isSpinning ? "animate-[spin_0.8s_linear_infinite]" : ""
                           }`}
                           style={{
-                            background: "conic-gradient(#FF6B4A 0deg 90deg, #2563EB 90deg 180deg, #10B981 180deg 270deg, #F59E0B 270deg 360deg)"
+                            background: "conic-gradient(#6366f1 0deg 90deg, #2563EB 90deg 180deg, #10B981 180deg 270deg, #F59E0B 270deg 360deg)"
                           }}
                         >
                           <div className="absolute inset-0 flex items-center justify-center text-[10px] font-bold">
@@ -3377,7 +3459,7 @@ export default function BioPagesScreen({
           {showSaveTemplateModal && (
             <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
               <div
-                className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-50"
+                className="bg-white rounded-3xl max-w-md w-full p-4 shadow-2xl border border-gray-50"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex items-center justify-between mb-5">
@@ -3397,7 +3479,7 @@ export default function BioPagesScreen({
                     e.preventDefault();
                     confirmSaveAsTemplate();
                   }}
-                  className="space-y-4"
+                  className="space-y-6"
                 >
                   <div>
                     <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
@@ -3407,7 +3489,7 @@ export default function BioPagesScreen({
                       type="text"
                       value={templateNameInput}
                       onChange={(e) => setTemplateNameInput(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 focus:border-[#FF6B4A] rounded-xl py-2.5 px-3.5 text-sm text-gray-900 focus:outline-none"
+                      className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] rounded-xl py-2.5 px-3.5 text-sm text-gray-900 focus:outline-none"
                       placeholder="e.g. Summer Sale Landing"
                       autoFocus
                     />
@@ -3440,8 +3522,8 @@ export default function BioPagesScreen({
       {/* 4th - QR Code Customizer Popup Modal matching screenshot 3 perfectly */}
       {selectedQRPage && (
         <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-50 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-4 shadow-2xl border border-gray-50 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between mb-6">
               <h3 className="font-display font-bold text-gray-900 text-lg">
                 QR — {selectedQRPage.title}
               </h3>
@@ -3470,7 +3552,7 @@ export default function BioPagesScreen({
                 {hasLogo && (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                     <div className="w-9 h-9 bg-white p-1 rounded-lg border border-gray-200 shadow-md flex items-center justify-center">
-                      <span className="text-[10px] font-extrabold text-[#FF6B4A]">1SL</span>
+                      <span className="text-[10px] font-extrabold text-[#6366f1]">1SL</span>
                     </div>
                   </div>
                 )}
@@ -3489,7 +3571,7 @@ export default function BioPagesScreen({
                       "🔗 Public shareable link copied!"
                     );
                   }}
-                  className="bg-orange-500 hover:bg-orange-600 text-white font-bold py-1 px-3 rounded-lg text-[10px] transition-colors"
+                  className="bg-indigo-500/100 hover:bg-indigo-400 text-white font-bold py-1 px-3 rounded-lg text-[10px] transition-colors"
                 >
                   Copy Share Link
                 </button>
@@ -3508,7 +3590,7 @@ export default function BioPagesScreen({
                     onClick={() => handleColorSelect(colorName)}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
                       qrColor === colorName
-                        ? "border-[#FF6B4A] bg-orange-50 text-[#FF6B4A]"
+                        ? "border-[#6366f1] bg-indigo-500/10 text-[#6366f1]"
                         : "border-gray-200 hover:bg-gray-50 text-gray-600"
                     }`}
                   >
@@ -3534,7 +3616,7 @@ export default function BioPagesScreen({
                     onClick={() => setQrDesign(style as any)}
                     className={`p-2.5 rounded-2xl text-center border transition-all ${
                       qrDesign === style
-                        ? "border-[#FF6B4A] bg-orange-50 text-[#FF6B4A] font-extrabold"
+                        ? "border-[#6366f1] bg-indigo-500/10 text-[#6366f1] font-extrabold"
                         : "border-gray-200 hover:bg-gray-50 text-gray-500 text-xs"
                     }`}
                   >
@@ -3610,7 +3692,7 @@ export default function BioPagesScreen({
                 download="qrcode.png"
                 target="_blank"
                 rel="noreferrer"
-                className="bg-gradient-to-r from-[#FF6B4A] to-[#FF4B6B] hover:from-[#E55B3C] hover:to-[#E53C5D] text-white py-3 rounded-xl text-xs font-bold text-center shadow-md shadow-orange-100 transition-all flex items-center justify-center gap-2"
+                className="bg-gradient-to-r from-[#6366f1] to-[#7c3aed] hover:from-[#4f46e5] hover:to-[#6d28d9] text-white py-3 rounded-xl text-xs font-bold text-center shadow-md shadow-indigo-500/20 transition-all flex items-center justify-center gap-2"
               >
                 <Download className="h-4 w-4" />
                 <span>Download PNG</span>

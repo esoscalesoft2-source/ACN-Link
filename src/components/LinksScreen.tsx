@@ -19,7 +19,7 @@ import {
   Search,
   ExternalLink
 } from "lucide-react";
-import PageShell, { PageHeader } from "./layout/PageShell";
+import PageShell, { PageHeader, Workspace } from "./layout/PageShell";
 
 type RetargetPixel = "fb" | "google" | "tiktok";
 
@@ -336,7 +336,7 @@ export default function LinksScreen({
           <button
             type="button"
             onClick={() => setIsAdding(true)}
-            className="flex items-center gap-2 bg-[#FF6B4A] hover:bg-[#FF5533] text-white rounded-2xl px-5 py-2.5 text-xs font-extrabold shadow-md transition-all active:scale-95"
+            className="flex items-center gap-2 acn-btn-chip px-5 py-2.5 text-xs font-extrabold active:scale-95"
           >
             <Plus className="h-4.5 w-4.5" />
             <span>Shorten a Link</span>
@@ -392,9 +392,9 @@ export default function LinksScreen({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8">
-        <div className="lg:col-span-2 space-y-6 sm:space-y-8 min-w-0">
-          <div className="bg-white border border-slate-200/60 rounded-3xl p-4 sm:p-6 shadow-sm space-y-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4 acn-workspace-grid">
+        <Workspace stack className="lg:col-span-2 min-w-0">
+          <Workspace panel stack className="bg-white border border-slate-200/60 rounded-3xl shadow-sm">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <h3 className="font-display font-black text-lg text-slate-900">Configured Links</h3>
               <button
@@ -417,14 +417,16 @@ export default function LinksScreen({
 
             {showFilters && (
               <div className="flex flex-col sm:flex-row gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-3">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                <div className="acn-icon-field flex-1">
+                  <span className="acn-icon-field__icon">
+                    <Search className="h-4 w-4" />
+                  </span>
                   <input
                     type="search"
                     value={searchQuery}
                     onChange={(event) => setSearchQuery(event.target.value)}
                     placeholder="Search title, slug, or destination..."
-                    className="w-full bg-white border border-slate-200 rounded-xl py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    className="acn-icon-field__input w-full bg-white border border-slate-200 rounded-xl py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
                     aria-label="Search links"
                   />
                 </div>
@@ -459,7 +461,7 @@ export default function LinksScreen({
                 <button
                   type="button"
                   onClick={() => setIsAdding(true)}
-                  className="inline-flex items-center gap-2 bg-[#FF6B4A] text-white rounded-xl px-4 py-2 text-xs font-extrabold"
+                  className="inline-flex items-center gap-2 acn-btn-chip px-4 py-2 text-xs font-extrabold"
                 >
                   <Plus className="h-4 w-4" />
                   Shorten a Link
@@ -474,7 +476,7 @@ export default function LinksScreen({
                     setSearchQuery("");
                     setStatusFilter("All");
                   }}
-                  className="text-[#FF6B4A] font-semibold hover:underline"
+                  className="text-[#6366f1] font-semibold hover:underline"
                 >
                   Clear filters
                 </button>
@@ -657,7 +659,7 @@ export default function LinksScreen({
                               <span className="font-mono font-black text-slate-900">{link.clicks}</span>
                               <div className="w-16 bg-slate-100 h-1 rounded-full mt-1 overflow-hidden">
                                 <div
-                                  className="bg-[#FF6B4A] h-full rounded-full transition-all"
+                                  className="bg-[#6366f1] h-full rounded-full transition-all"
                                   style={{
                                     width: `${Math.min(100, (link.clicks / (totalClicks || 1)) * 100)}%`
                                   }}
@@ -714,9 +716,9 @@ export default function LinksScreen({
                 </div>
               </>
             )}
-          </div>
+          </Workspace>
 
-          <div className="bg-white border border-slate-200/60 rounded-3xl p-4 sm:p-6 shadow-sm space-y-4">
+          <Workspace panel stack className="bg-white border border-slate-200/60 rounded-3xl shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-display font-black text-lg text-slate-900">Performance Timeline</h3>
               <span className="bg-slate-50 border border-slate-200 text-slate-500 rounded-xl px-3 py-1.5 text-xs font-semibold">
@@ -755,7 +757,7 @@ export default function LinksScreen({
                   })}
                   <polyline
                     fill="none"
-                    stroke="#FF6B4A"
+                    stroke="#6366f1"
                     strokeWidth="3.5"
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -768,7 +770,7 @@ export default function LinksScreen({
                       chartHeight - padding - (point.value / maxVal) * (chartHeight - padding * 2);
                     return (
                       <g key={point.label}>
-                        <circle cx={x} cy={y} r="5" fill="#FF6B4A" stroke="#ffffff" strokeWidth="2">
+                        <circle cx={x} cy={y} r="5" fill="#6366f1" stroke="#ffffff" strokeWidth="2">
                           <title>
                             {point.label}: {point.value} clicks
                           </title>
@@ -790,11 +792,11 @@ export default function LinksScreen({
                 </svg>
               )}
             </div>
-          </div>
-        </div>
+          </Workspace>
+        </Workspace>
 
-        <div className="space-y-6 min-w-0">
-          <div className="bg-white border border-slate-200/60 rounded-3xl p-6 shadow-sm space-y-6">
+        <Workspace stack className="min-w-0">
+          <Workspace panel stack className="bg-white border border-slate-200/60 rounded-2xl shadow-sm">
             <h3 className="font-display font-black text-slate-900 text-base">Handoff Diagnostics</h3>
 
             <div className="space-y-4">
@@ -833,7 +835,7 @@ export default function LinksScreen({
               )}
             </div>
 
-            <div className="space-y-4 pt-4 border-t border-slate-100">
+            <div className="space-y-6 pt-4 border-t border-slate-100">
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
                 Device profiling
               </p>
@@ -872,8 +874,8 @@ export default function LinksScreen({
                 Selecting a device updates the regional breakdown for that profile.
               </p>
             </div>
-          </div>
-        </div>
+          </Workspace>
+        </Workspace>
       </div>
 
       {isAdding && (
@@ -882,7 +884,7 @@ export default function LinksScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="create-link-title"
-            className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100"
+            className="bg-white rounded-3xl max-w-md w-full p-4 shadow-2xl border border-slate-100"
           >
             <div className="flex items-center justify-between mb-5">
               <h3 id="create-link-title" className="font-display font-black text-xl text-slate-900">
@@ -897,7 +899,7 @@ export default function LinksScreen({
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+            <form onSubmit={handleSubmit} className="space-y-6" noValidate>
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
                   Link title
@@ -998,7 +1000,7 @@ export default function LinksScreen({
                 <button
                   type="submit"
                   disabled={isCreating}
-                  className="px-5 py-2.5 bg-[#FF6B4A] hover:bg-[#FF5533] disabled:opacity-70 disabled:cursor-not-allowed text-white rounded-xl text-xs font-extrabold shadow-sm"
+                  className="px-5 py-2.5 acn-btn-chip disabled:opacity-70 disabled:cursor-not-allowed text-xs font-extrabold"
                 >
                   {isCreating ? "Creating…" : "Create Short Link"}
                 </button>
@@ -1014,7 +1016,7 @@ export default function LinksScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="edit-link-title"
-            className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100"
+            className="bg-white rounded-3xl max-w-md w-full p-4 shadow-2xl border border-slate-100"
           >
             <div className="flex items-center justify-between mb-5">
               <h3 id="edit-link-title" className="font-display font-black text-xl text-slate-900">
@@ -1029,7 +1031,7 @@ export default function LinksScreen({
               </button>
             </div>
 
-            <form onSubmit={handleSaveEdit} className="space-y-4" noValidate>
+            <form onSubmit={handleSaveEdit} className="space-y-6" noValidate>
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
                   Link title

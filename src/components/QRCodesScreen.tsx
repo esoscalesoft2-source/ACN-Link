@@ -359,7 +359,7 @@ export default function QRCodesScreen({
             <button
               type="button"
               onClick={() => setIsAdding(true)}
-              className="flex items-center gap-2 bg-[#FF6B4A] hover:bg-[#FF5533] text-white rounded-2xl px-5 py-2.5 text-xs font-extrabold shadow-md transition-all active:scale-95"
+              className="flex items-center gap-2 acn-btn-chip px-5 py-2.5 text-xs font-extrabold active:scale-95"
             >
               <Plus className="h-4.5 w-4.5" />
               <span>Generate QR</span>
@@ -370,14 +370,16 @@ export default function QRCodesScreen({
 
       {showFilters && (
         <div className="flex flex-col sm:flex-row gap-3 rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+          <div className="acn-icon-field flex-1">
+            <span className="acn-icon-field__icon">
+              <Search className="h-4 w-4" />
+            </span>
             <input
               type="search"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search by name or destination URL..."
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
+              className="acn-icon-field__input w-full bg-slate-50 border border-slate-200 rounded-xl py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
               aria-label="Search QR codes"
             />
           </div>
@@ -445,7 +447,7 @@ export default function QRCodesScreen({
           return (
             <div
               key={metric.label}
-              className="bg-white border border-slate-200/60 rounded-2xl p-4 sm:p-5 shadow-sm hover:shadow-md transition-all flex items-start justify-between min-w-0"
+              className="bg-white border border-slate-200/60 rounded-2xl p-4 sm:p-8 shadow-sm hover:shadow-md transition-all flex items-start justify-between min-w-0"
             >
               <div className="min-w-0">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{metric.label}</p>
@@ -469,7 +471,7 @@ export default function QRCodesScreen({
       </div>
 
       {items.length === 0 ? (
-        <div className="bg-white border border-dashed border-slate-300 rounded-3xl p-12 text-center max-w-xl mx-auto space-y-3 shadow-sm">
+        <div className="bg-white border border-dashed border-slate-300 rounded-2xl p-4 text-center max-w-xl mx-auto space-y-3 shadow-sm">
           <div className="h-14 w-14 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-400">
             <QrCode className="h-6 w-6" />
           </div>
@@ -480,13 +482,13 @@ export default function QRCodesScreen({
           <button
             type="button"
             onClick={() => setIsAdding(true)}
-            className="mt-2 inline-flex items-center gap-1.5 bg-[#FF6B4A] text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm"
+            className="mt-2 inline-flex items-center gap-1.5 acn-btn-chip px-4 py-2 text-xs font-bold"
           >
             Create Your First QR
           </button>
         </div>
       ) : filteredItems.length === 0 ? (
-        <div className="bg-white border border-slate-200 rounded-3xl p-10 text-center space-y-3">
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 text-center space-y-3">
           <p className="text-sm text-slate-500">No QR codes match your filters.</p>
           <button
             type="button"
@@ -494,13 +496,13 @@ export default function QRCodesScreen({
               setSearchQuery("");
               setStatusFilter("All");
             }}
-            className="text-[#FF6B4A] text-sm font-semibold hover:underline"
+            className="text-[#6366f1] text-sm font-semibold hover:underline"
           >
             Clear filters
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 sm:gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4 acn-workspace-grid">
           {filteredItems.map((item, idx) => (
             <div
               key={item.id}
@@ -544,7 +546,7 @@ export default function QRCodesScreen({
                 </button>
               </div>
 
-              <div className="bg-slate-50 border-b border-slate-100 p-6 flex flex-col items-center justify-center h-48 relative overflow-hidden">
+              <div className="bg-slate-50 border-b border-slate-100 p-4 flex flex-col items-center justify-center h-48 relative overflow-hidden">
                 <div className="relative bg-white p-3.5 rounded-2xl border border-slate-100 shadow-md transform group-hover:scale-105 transition-transform duration-300 z-10 flex items-center justify-center">
                   <img
                     src={item.qrUrl}
@@ -573,7 +575,7 @@ export default function QRCodesScreen({
                 )}
               </div>
 
-              <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
+              <div className="p-5 flex-1 flex flex-col justify-between space-y-6">
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between gap-2">
                     <h4 className="font-display font-black text-slate-900 text-base leading-snug truncate">
@@ -666,7 +668,7 @@ export default function QRCodesScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="generate-qr-title"
-            className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100"
+            className="bg-white rounded-3xl max-w-md w-full p-4 shadow-2xl border border-slate-100"
           >
             <div className="flex items-center justify-between mb-5">
               <h3 id="generate-qr-title" className="font-display font-black text-xl text-slate-900">
@@ -686,7 +688,7 @@ export default function QRCodesScreen({
               </button>
             </div>
 
-            <form onSubmit={handleGenerate} className="space-y-4" noValidate>
+            <form onSubmit={handleGenerate} className="space-y-6" noValidate>
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
                   QR code name
@@ -766,7 +768,7 @@ export default function QRCodesScreen({
                 <button
                   type="submit"
                   disabled={isCreating}
-                  className="px-5 py-2.5 bg-[#FF6B4A] hover:bg-[#FF5533] disabled:opacity-70 disabled:cursor-not-allowed text-white rounded-xl text-xs font-extrabold shadow-sm"
+                  className="px-5 py-2.5 acn-btn-chip disabled:opacity-70 disabled:cursor-not-allowed text-xs font-extrabold"
                 >
                   {isCreating ? "Creating…" : "Create Dynamic QR"}
                 </button>
@@ -782,9 +784,9 @@ export default function QRCodesScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="edit-url-title"
-            className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100"
+            className="bg-white rounded-3xl max-w-sm w-full p-4 shadow-2xl border border-slate-100"
           >
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-6">
               <h3 id="edit-url-title" className="font-display font-black text-lg text-slate-900">
                 Redirect QR Code
               </h3>
@@ -796,7 +798,7 @@ export default function QRCodesScreen({
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <form onSubmit={handleSaveUrl} className="space-y-4" noValidate>
+            <form onSubmit={handleSaveUrl} className="space-y-6" noValidate>
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
                   Target redirect destination
@@ -832,7 +834,7 @@ export default function QRCodesScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="design-qr-title"
-            className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 max-h-[90vh] overflow-y-auto"
+            className="bg-white rounded-3xl max-w-md w-full p-4 shadow-2xl border border-slate-100 max-h-[90vh] overflow-y-auto"
           >
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-2">
@@ -850,7 +852,7 @@ export default function QRCodesScreen({
               </button>
             </div>
 
-            <div className="space-y-5">
+            <div className="space-y-6">
               <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col items-center justify-center">
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2.5">
                   Live style preview
@@ -998,9 +1000,9 @@ export default function QRCodesScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="download-qr-title"
-            className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100"
+            className="bg-white rounded-3xl max-w-sm w-full p-4 shadow-2xl border border-slate-100"
           >
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-1.5">
                 <Download className="h-5 w-5 text-indigo-600" />
                 <h3 id="download-qr-title" className="font-display font-black text-lg text-slate-900">
@@ -1016,7 +1018,7 @@ export default function QRCodesScreen({
               </button>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-6">
               <div className="bg-slate-50 border border-slate-100 p-3 rounded-2xl flex items-center gap-3">
                 <div className="bg-white p-1.5 rounded-xl shadow-sm border border-slate-100">
                   <img src={downloadingItem.qrUrl} alt="Download target" className="h-10 w-10" />
@@ -1085,7 +1087,7 @@ export default function QRCodesScreen({
                 type="button"
                 onClick={() => void triggerDownload()}
                 disabled={isPreparingDownload}
-                className="w-full bg-[#FF6B4A] hover:bg-[#FF5533] text-white py-3 rounded-xl font-black text-xs shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full acn-btn-chip py-3 font-black text-xs disabled:opacity-50"
               >
                 {isPreparingDownload ? (
                   <>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { ArrowRight, Copy, Check, MessageSquare, User, X, AlertCircle } from "lucide-react";
 import { apiUrl } from "../lib/apiBase";
+import { BIO_LINK, getLinkArrowColor, getLinkButtonStyle, isDefaultBrightLink } from "../lib/bioLinkColors";
 
 interface Block {
   id: string;
@@ -26,7 +27,7 @@ const marvelFallbackBlocks = [
   { id: "b4", type: "Header", label: "⭐ Why Shop With Us?", value: "⭐ Why Shop With Us?" },
   { id: "b5", type: "Text", label: "🛡️ Quality Marvel-themed toys, 🚚 Fast Shipping, 💯 Trusted", value: "🛡️ Quality Marvel-themed toys, 🚚 Fast Shipping, 💯 Trusted" },
   { id: "b6", type: "Shop", label: "Products For Kids (Iron Man, Spiderman, Hulk)", value: "Products For Kids" },
-  { id: "b7", type: "Button", label: "Explore the Toys Section", value: "Explore the Toys Section" },
+  { id: "b7", type: "Button", label: "Explore the Toys Section", value: "Explore the Toys Section", bgColor: "#7c3aed", textColor: "#FFFFFF" },
   { id: "b8", type: "Coupon", label: "Special Offer (MARVELTOYCODE007007)", value: "MARVELTOYCODE007007" },
   { id: "b9", type: "Countdown", label: "Sale ends in (9 Days Timer)", value: "9" },
   { id: "b10", type: "Link Spin", label: "Buy Now (Prize Wheel)", value: "Buy Now" },
@@ -38,7 +39,7 @@ const marvelFallbackBlocks = [
 const genericFallbackBlocks = [
   { id: "g1", type: "Header", label: "👤 My Responsive BioLink", value: "👤 My Responsive BioLink" },
   { id: "g2", type: "Text", label: "Welcome to my responsive bio page! Customize me using the blocks.", value: "Welcome" },
-  { id: "g3", type: "Button", label: "Visit My Website", value: "https://example.com" },
+  { id: "g3", type: "Button", label: "Visit My Website", value: "https://example.com", bgColor: "#7c3aed", textColor: "#FFFFFF" },
   { id: "g4", type: "WhatsApp", label: "Chat with me on WhatsApp", value: "https://wa.me/1234567890" }
 ];
 
@@ -342,11 +343,12 @@ export default function PublicBioPageView({
                       trackAction("click", `Button: ${block.label}`);
                       openExternalLink(block.value || "");
                     }}
-                    style={{
-                      backgroundColor: (block as any).bgColor || "#FFFFFF",
-                      color: (block as any).textColor || "#0F172A",
-                    }}
-                    className="w-full font-bold py-3.5 px-4 rounded-2xl flex items-center justify-between shadow-sm transition-all text-xs border border-slate-200/85 active:scale-98"
+                    style={getLinkButtonStyle(block as any)}
+                    className={`w-full font-bold py-3.5 px-4 rounded-2xl flex items-center justify-between transition-all text-xs active:scale-98 ${
+                      isDefaultBrightLink(block as any)
+                        ? "shadow-md shadow-violet-500/30 border-0"
+                        : "shadow-sm border border-slate-200/85"
+                    }`}
                   >
                     <div className="flex items-center gap-2 truncate text-left">
                       {(block as any).iconEmoji && <span className="text-sm">{(block as any).iconEmoji}</span>}
@@ -356,7 +358,7 @@ export default function PublicBioPageView({
                       </div>
                     </div>
                     {(block as any).showArrow !== "No" && (
-                      <ArrowRight className="h-4 w-4 shrink-0" style={{ color: (block as any).textColor || "#FF6B4A" }} />
+                      <ArrowRight className="h-4 w-4 shrink-0" style={{ color: getLinkArrowColor(block as any) }} />
                     )}
                   </button>
                 );
@@ -567,7 +569,7 @@ export default function PublicBioPageView({
                         value={leadEmail}
                         onChange={(e) => setLeadEmail(e.target.value)}
                         placeholder="Enter your email"
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                        className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-violet-500"
                       />
                       <button
                         onClick={() => {
@@ -579,7 +581,7 @@ export default function PublicBioPageView({
                             triggerToast(`❌ Please enter a valid email address.`);
                           }
                         }}
-                        className="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 rounded-xl text-xs transition-colors shadow-sm"
+                        className="w-full bg-[#7c3aed] hover:bg-[#6d28d9] text-white font-bold py-2 rounded-xl text-xs transition-colors shadow-md shadow-violet-500/25"
                       >
                         Subscribe
                       </button>
@@ -690,7 +692,7 @@ export default function PublicBioPageView({
                     }}
                   >
                     <div className="flex items-center gap-3 min-w-0 text-left">
-                      <div className="bg-orange-50 border border-orange-100 text-orange-600 rounded-xl p-1.5 text-center min-w-[42px] shrink-0 font-bold">
+                      <div className="bg-violet-50 border border-violet-100 text-violet-600 rounded-xl p-1.5 text-center min-w-[42px] shrink-0 font-bold">
                         <span className="text-[9px] block uppercase leading-none font-mono">JUL</span>
                         <span className="text-sm block leading-none mt-1">20</span>
                       </div>
@@ -699,7 +701,7 @@ export default function PublicBioPageView({
                         <span className="text-[10px] text-slate-500 block mt-0.5">7:00 PM • Virtual Event</span>
                       </div>
                     </div>
-                    <span className="text-xs bg-[#FF6B4A] hover:bg-[#E55B3C] text-white px-4 py-2 rounded-xl font-bold shadow-sm shrink-0">RSVP NOW</span>
+                    <span className="text-xs bg-[#7c3aed] hover:bg-[#6d28d9] text-white px-4 py-2 rounded-xl font-bold shadow-md shadow-violet-500/25 shrink-0">RSVP NOW</span>
                   </div>
                 );
 
@@ -760,7 +762,7 @@ export default function PublicBioPageView({
                   isSpinning ? "animate-[spin_0.8s_linear_infinite]" : ""
                 }`}
                 style={{
-                  background: "conic-gradient(#FF6B4A 0deg 90deg, #2563EB 90deg 180deg, #10B981 180deg 270deg, #F59E0B 270deg 360deg)"
+                  background: "conic-gradient(#7c3aed 0deg 90deg, #2563EB 90deg 180deg, #10B981 180deg 270deg, #a855f7 270deg 360deg)"
                 }}
               >
                 <div className="absolute inset-0 flex items-center justify-center text-[10px] font-bold">

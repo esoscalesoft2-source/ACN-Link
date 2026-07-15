@@ -16,7 +16,7 @@ import {
   Lock,
   Sparkles
 } from "lucide-react";
-import PageShell, { PageHeader } from "./layout/PageShell";
+import PageShell, { PageHeader, Workspace } from "./layout/PageShell";
 
 interface IntegrationsScreenProps {
   items: IntegrationItem[];
@@ -208,11 +208,11 @@ export default function IntegrationsScreen({
   const renderSection = (title: string, sectionItems: IntegrationItem[]) => {
     if (sectionItems.length === 0) return null;
     return (
-      <div className="space-y-4">
+      <div className="acn-workspace--stack">
         <h3 className="font-display font-bold text-xs tracking-widest text-slate-400 uppercase">
           {title}
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 acn-workspace-grid">
           {sectionItems.map(renderIntegrationCard)}
         </div>
       </div>
@@ -227,7 +227,7 @@ export default function IntegrationsScreen({
     return (
       <div
         key={item.id}
-        className={`bg-white border rounded-3xl p-5 sm:p-6 shadow-sm flex flex-col justify-between space-y-5 transition-all min-w-0 ${
+        className={`bg-white border rounded-3xl acn-workspace-panel acn-workspace-panel--stack shadow-sm flex flex-col justify-between transition-all min-w-0 ${
           isComingSoon
             ? "border-dashed border-slate-200"
             : "border-slate-100 hover:border-indigo-100 hover:shadow-lg"
@@ -394,38 +394,40 @@ export default function IntegrationsScreen({
         }
       />
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
-        <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 sm:gap-6">
+        <div className="acn-glass-card p-4">
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Connected</p>
           <p className="font-display font-black text-2xl text-slate-900 mt-1">{connectedCount}</p>
         </div>
-        <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+        <div className="acn-glass-card p-4">
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Available</p>
           <p className="font-display font-black text-2xl text-slate-900 mt-1">{items.length}</p>
         </div>
-        <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm col-span-2 sm:col-span-1">
+        <div className="acn-glass-card p-4 col-span-2 sm:col-span-1">
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Locked</p>
           <p className="font-display font-black text-2xl text-slate-900 mt-1">{lockedCount}</p>
         </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+        <div className="acn-icon-field flex-1">
+          <span className="acn-icon-field__icon">
+            <Search className="h-4 w-4" />
+          </span>
           <input
             type="search"
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder="Search integrations..."
             aria-label="Search integrations"
-            className="w-full bg-white border border-slate-200 rounded-xl py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
+            className="acn-input acn-icon-field__input w-full py-2"
           />
         </div>
         <select
           value={typeFilter}
           onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)}
           aria-label="Filter by type"
-          className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium focus:outline-none"
+          className="acn-input px-3 py-2 font-medium"
         >
           <option value="All">All types</option>
           <option value="Messaging">Messaging</option>
@@ -435,7 +437,7 @@ export default function IntegrationsScreen({
       </div>
 
       {filteredItems.length === 0 ? (
-        <div className="bg-white border border-dashed border-slate-200 rounded-3xl p-10 text-center space-y-2">
+        <div className="bg-white border border-dashed border-slate-200 rounded-2xl p-4 text-center space-y-2">
           <p className="text-sm text-slate-500">No integrations match your filters.</p>
           <button
             type="button"
@@ -456,7 +458,7 @@ export default function IntegrationsScreen({
         </>
       )}
 
-      <div className="bg-slate-50 border border-slate-100 rounded-3xl p-5 sm:p-6 md:p-8 space-y-6">
+      <Workspace stack className="bg-slate-50 border border-slate-100 rounded-3xl">
         <div>
           <span className="text-[9px] font-extrabold text-indigo-600 tracking-widest uppercase bg-indigo-50 border border-indigo-100 rounded px-2 py-0.5">
             Vote for the next integration
@@ -469,11 +471,11 @@ export default function IntegrationsScreen({
           </p>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 sm:gap-4 acn-workspace-grid">
           {sortedVotes.map((vt) => (
             <div
               key={vt.id}
-              className={`bg-white border p-4 sm:p-5 rounded-2xl flex flex-col justify-between items-center text-center transition-all shadow-sm min-w-0 ${
+              className={`bg-white border p-4 sm:p-8 rounded-2xl flex flex-col justify-between items-center text-center transition-all shadow-sm min-w-0 ${
                 vt.voted
                   ? "border-[#4F46E5] ring-2 ring-indigo-50/50"
                   : "border-slate-150 hover:border-slate-300"
@@ -510,7 +512,7 @@ export default function IntegrationsScreen({
             </div>
           ))}
         </div>
-      </div>
+      </Workspace>
 
       {modal?.type === "connect" && activeConnectItem && (
         <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -518,9 +520,9 @@ export default function IntegrationsScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="connect-integration-title"
-            className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 max-h-[90vh] overflow-y-auto"
+            className="bg-white rounded-3xl max-w-md w-full p-4 shadow-2xl border border-slate-100 max-h-[90vh] overflow-y-auto"
           >
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-6">
               <h3 id="connect-integration-title" className="font-display font-black text-lg text-slate-900">
                 Connect {activeConnectItem.name}
               </h3>
@@ -534,7 +536,7 @@ export default function IntegrationsScreen({
               </button>
             </div>
 
-            <form onSubmit={handleConnectSubmit} className="space-y-4" noValidate>
+            <form onSubmit={handleConnectSubmit} className="space-y-6" noValidate>
               {activeConnectItem.upgradeMessage && (
                 <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
                   {activeConnectItem.upgradeMessage}
@@ -598,9 +600,9 @@ export default function IntegrationsScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="upgrade-integration-title"
-            className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100"
+            className="bg-white rounded-3xl max-w-md w-full p-4 shadow-2xl border border-slate-100"
           >
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-indigo-600" />
                 <h3 id="upgrade-integration-title" className="font-display font-black text-lg text-slate-900">
@@ -670,9 +672,9 @@ export default function IntegrationsScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="manage-integration-title"
-            className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100"
+            className="bg-white rounded-3xl max-w-md w-full p-4 shadow-2xl border border-slate-100"
           >
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-6">
               <h3 id="manage-integration-title" className="font-display font-black text-lg text-slate-900">
                 Manage {modal.item.name}
               </h3>
@@ -758,9 +760,9 @@ export default function IntegrationsScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="suggest-integration-title"
-            className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100"
+            className="bg-white rounded-3xl max-w-md w-full p-4 shadow-2xl border border-slate-100"
           >
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-6">
               <h3 id="suggest-integration-title" className="font-display font-black text-lg text-slate-900">
                 Suggest an integration
               </h3>
@@ -773,7 +775,7 @@ export default function IntegrationsScreen({
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <form onSubmit={handleSuggestSubmit} className="space-y-4" noValidate>
+            <form onSubmit={handleSuggestSubmit} className="space-y-6" noValidate>
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
                   Provider name

@@ -8,7 +8,7 @@ interface PageShellProps {
 export default function PageShell({ children, className = "" }: PageShellProps) {
   return (
     <div
-      className={`flex-1 p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8 max-w-7xl mx-auto w-full min-w-0 relative ${className}`}
+      className={`flex-1 p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8 max-w-7xl mx-auto w-full min-w-0 relative z-[1] ${className}`}
     >
       {children}
     </div>
@@ -25,10 +25,8 @@ export function PageHeader({ title, subtitle, actions }: PageHeaderProps) {
   return (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
       <div className="min-w-0">
-        <h2 className="font-display font-bold text-2xl sm:text-3xl text-gray-950 tracking-tight">
-          {title}
-        </h2>
-        {subtitle && <p className="text-gray-500 text-sm mt-1">{subtitle}</p>}
+        <h2 className="acn-page-title text-2xl sm:text-3xl">{title}</h2>
+        {subtitle && <p className="acn-page-subtitle text-sm mt-1.5">{subtitle}</p>}
       </div>
       {actions && (
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">{actions}</div>
@@ -60,10 +58,10 @@ interface StatCardProps {
 
 export function StatCard({ label, value, sub }: StatCardProps) {
   return (
-    <div className="bg-white border border-gray-100 rounded-2xl p-4 sm:p-5 shadow-sm min-w-0">
-      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{label}</p>
-      <h3 className="font-display font-bold text-2xl sm:text-3xl text-gray-950 mt-1">{value}</h3>
-      {sub && <span className="text-[11px] text-gray-400 mt-0.5 block">{sub}</span>}
+    <div className="acn-stat-card min-w-0">
+      <p className="acn-stat-label text-[10px] font-bold uppercase tracking-widest">{label}</p>
+      <h3 className="acn-stat-value font-display font-bold text-2xl sm:text-3xl mt-1">{value}</h3>
+      {sub && <span className="acn-stat-sub text-[11px] mt-0.5 block">{sub}</span>}
     </div>
   );
 }
@@ -74,11 +72,25 @@ interface SectionCardProps {
 }
 
 export function SectionCard({ children, className = "" }: SectionCardProps) {
-  return (
-    <div
-      className={`bg-white border border-gray-100 rounded-3xl overflow-hidden shadow-sm ${className}`}
-    >
-      {children}
-    </div>
-  );
+  return <div className={`acn-section-card ${className}`}>{children}</div>;
+}
+
+/** Inner work area — tighter padding/gaps; does not affect page shell or navbar */
+interface WorkspaceProps {
+  children: React.ReactNode;
+  className?: string;
+  stack?: boolean;
+  panel?: boolean;
+}
+
+export function Workspace({ children, className = "", stack = false, panel = false }: WorkspaceProps) {
+  const classes = [
+    panel ? "acn-workspace-panel" : "acn-workspace",
+    stack ? (panel ? "acn-workspace-panel--stack" : "acn-workspace--stack") : "",
+    className
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return <div className={classes}>{children}</div>;
 }

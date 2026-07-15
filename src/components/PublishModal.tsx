@@ -119,7 +119,7 @@ export default function PublishModal({
         role="dialog"
         aria-modal="true"
         aria-label="Publish website"
-        className="relative w-full max-w-xl max-h-[calc(100vh-2rem)] overflow-y-auto rounded-3xl border border-slate-200 bg-white shadow-2xl"
+        className="relative w-full max-w-xl max-h-[calc(100vh-2rem)] overflow-y-auto rounded-3xl acn-glass-deep shadow-2xl"
       >
         <header className="flex items-center justify-between gap-4 border-b border-slate-100 px-5 py-4 sm:px-7 sm:py-5">
           <div>
@@ -132,7 +132,7 @@ export default function PublishModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700 shrink-0"
+            className="rounded-xl p-2 text-slate-400 transition-colors hover:bg-white/5 hover:text-slate-200 shrink-0"
             aria-label="Close publish dialog"
           >
             <X className="h-5 w-5" />

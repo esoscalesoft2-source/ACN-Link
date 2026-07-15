@@ -17,7 +17,7 @@ import {
   FileText,
   Archive
 } from "lucide-react";
-import PageShell, { PageHeader } from "./layout/PageShell";
+import PageShell, { PageHeader, Workspace } from "./layout/PageShell";
 
 interface MediaLibraryScreenProps {
   files: MediaFile[];
@@ -313,7 +313,7 @@ export default function MediaLibraryScreen({
         }
       />
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 sm:gap-6">
         <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total files</p>
           <p className="font-display font-black text-2xl text-slate-900 mt-1">{files.length}</p>
@@ -352,7 +352,7 @@ export default function MediaLibraryScreen({
           }
         }}
         aria-disabled={isUploading}
-        className={`border-2 border-dashed rounded-3xl p-6 sm:p-8 flex flex-col items-center justify-center text-center transition-all ${
+        className={`border-2 border-dashed rounded-2xl p-4 sm:p-8 flex flex-col items-center justify-center text-center transition-all ${
           isUploading ? "cursor-wait opacity-80" : "cursor-pointer"
         } ${
           isDragging
@@ -360,7 +360,7 @@ export default function MediaLibraryScreen({
             : "border-gray-200 hover:border-gray-300 bg-white"
         }`}
       >
-        <div className="h-12 w-12 rounded-2xl bg-indigo-50 text-[#4F46E5] flex items-center justify-center mb-4">
+        <div className="h-12 w-12 rounded-2xl bg-indigo-50 text-[#4F46E5] flex items-center justify-center mb-6">
           <UploadCloud className={`h-6 w-6 ${isUploading ? "animate-pulse" : ""}`} />
         </div>
         <h4 className="font-display font-bold text-gray-950 text-base">
@@ -371,15 +371,17 @@ export default function MediaLibraryScreen({
 
       {files.length > 0 && (
         <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+          <div className="acn-icon-field flex-1">
+            <span className="acn-icon-field__icon">
+              <Search className="h-4 w-4" />
+            </span>
             <input
               type="search"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search by file name..."
               aria-label="Search media files"
-              className="w-full bg-white border border-slate-200 rounded-xl py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
+              className="acn-icon-field__input w-full bg-white border border-slate-200 rounded-xl py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
             />
           </div>
           <select
@@ -398,7 +400,7 @@ export default function MediaLibraryScreen({
       )}
 
       {files.length === 0 ? (
-        <div className="bg-white border border-dashed border-slate-200 rounded-3xl p-10 sm:p-12 text-center space-y-3">
+        <div className="bg-white border border-dashed border-slate-200 rounded-2xl p-5 sm:p-6 text-center space-y-3">
           <div className="h-14 w-14 bg-indigo-50 text-[#4F46E5] rounded-2xl flex items-center justify-center mx-auto">
             <UploadCloud className="h-6 w-6" />
           </div>
@@ -417,7 +419,7 @@ export default function MediaLibraryScreen({
           </button>
         </div>
       ) : filteredFiles.length === 0 ? (
-        <div className="bg-white border border-slate-100 rounded-3xl p-10 text-center space-y-2">
+        <div className="bg-white border border-slate-100 rounded-2xl p-4 text-center space-y-2">
           <p className="text-sm text-slate-500">No files match your filters.</p>
           {hasFilters && (
             <button
@@ -433,7 +435,7 @@ export default function MediaLibraryScreen({
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 acn-workspace-grid">
           {filteredFiles.map((file) => (
             <div
               key={file.id}
@@ -473,7 +475,7 @@ export default function MediaLibraryScreen({
                 </div>
               </div>
 
-              <div className="p-3 sm:p-4 space-y-2">
+              <Workspace stack className="flex-1 flex flex-col justify-between min-w-0">
                 <div className="min-w-0">
                   <h5 className="font-sans font-semibold text-gray-950 text-xs truncate" title={file.name}>
                     {file.name}
@@ -513,7 +515,7 @@ export default function MediaLibraryScreen({
                     <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
-              </div>
+              </Workspace>
             </div>
           ))}
         </div>
@@ -604,9 +606,9 @@ export default function MediaLibraryScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="rename-media-title"
-            className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100"
+            className="bg-white rounded-3xl max-w-sm w-full p-4 shadow-2xl border border-slate-100"
           >
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-6">
               <h3 id="rename-media-title" className="font-display font-black text-lg text-slate-900">
                 Rename file
               </h3>
@@ -619,7 +621,7 @@ export default function MediaLibraryScreen({
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <form onSubmit={handleRenameSubmit} className="space-y-4" noValidate>
+            <form onSubmit={handleRenameSubmit} className="space-y-6" noValidate>
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
                   File name

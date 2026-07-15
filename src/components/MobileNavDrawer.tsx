@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import { X } from "lucide-react";
+import AcnLogo3D from "./AcnLogo3D";
 import { ScreenId } from "../types";
 import { SidebarNav } from "./Sidebar";
 
@@ -84,22 +85,15 @@ export default function MobileNavDrawer({
         role="dialog"
         aria-modal="true"
         aria-label="Navigation menu"
-        className="absolute inset-y-0 left-0 w-[min(20rem,85vw)] max-w-full bg-white border-r border-slate-200 shadow-xl flex flex-col animate-in slide-in-from-left duration-300"
+        className="absolute inset-y-0 left-0 w-[min(20rem,85vw)] max-w-full acn-glass-sidebar shadow-xl flex flex-col animate-in slide-in-from-left duration-300"
       >
-        <div className="flex items-center justify-between p-4 border-b border-slate-100 h-16 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-indigo-600 rounded flex items-center justify-center shrink-0">
-              <div className="w-4 h-4 border-2 border-white rotate-45" />
-            </div>
-            <h2 className="font-sans font-bold text-base text-slate-950 tracking-tight leading-none uppercase">
-              ACN Link
-            </h2>
-          </div>
+        <div className="acn-sidebar-brand justify-between w-full">
+          <AcnLogo3D size="sm" showLabel />
           <button
             ref={closeButtonRef}
             type="button"
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-lg transition-colors"
+            className="p-2 text-slate-400 hover:text-slate-200 hover:bg-white/5 rounded-lg transition-colors"
             aria-label="Close navigation menu"
           >
             <X className="h-5 w-5" />

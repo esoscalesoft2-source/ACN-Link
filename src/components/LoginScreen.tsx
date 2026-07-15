@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Link,
   Mail,
   Lock,
   Eye,
@@ -32,6 +31,7 @@ import {
   verifyEmailRequest,
   verifyResetOtpRequest
 } from "../lib/authApi";
+import AcnLogo3D from "./AcnLogo3D";
 
 type AuthView =
   | "login"
@@ -554,19 +554,22 @@ export default function LoginScreen({
     ) : null;
 
   return (
-    <div className="flex-1 min-h-screen bg-slate-50/60 flex flex-col items-center justify-center p-4 sm:p-6 relative overflow-hidden">
-      <div className="absolute top-1/4 left-1/4 w-[450px] h-[450px] bg-indigo-200/30 rounded-full blur-[110px] -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
-      <div className="absolute bottom-1/4 right-1/4 w-[350px] h-[350px] bg-purple-200/20 rounded-full blur-[90px] translate-x-1/2 translate-y-1/2 pointer-events-none" />
+    <div className="acn-auth-canvas h-full min-h-0 overflow-hidden flex flex-col items-center justify-center p-4 sm:p-6">
+      <div className="acn-auth-orb acn-auth-orb--1" aria-hidden />
+      <div className="acn-auth-orb acn-auth-orb--2" aria-hidden />
+      <div className="acn-auth-orb acn-auth-orb--3" aria-hidden />
+      <div className="acn-auth-grid" aria-hidden />
 
-      <div className="w-full max-w-[480px] bg-white border border-slate-200/80 rounded-2xl shadow-xl shadow-slate-100/50 p-6 sm:p-8 relative z-10 max-h-[95vh] overflow-y-auto">
+      <div className="w-full max-w-[480px] acn-glass-panel-dark rounded-2xl p-6 sm:p-8 relative z-10 max-h-full overflow-y-auto no-scrollbar">
         <div className="flex flex-col items-center text-center mb-6 sm:mb-8">
-          <div className="w-12 h-12 bg-[#312ecb] rounded-xl flex items-center justify-center text-white mb-4 shadow-sm">
-            <Link className="h-6 w-6 rotate-[-45deg]" />
-          </div>
-          <h2 className="font-sans font-bold text-2xl text-slate-900 tracking-tight">{title}</h2>
-          <p className="text-slate-500 text-sm mt-1.5 font-medium">{subtitle}</p>
+          <AcnLogo3D size="lg" />
+          <p className="text-[10px] font-black uppercase tracking-[0.35em] text-indigo-300/80 mb-1.5 -mt-2">
+            ACN Link
+          </p>
+          <h2 className="acn-auth-title text-2xl">{title}</h2>
+          <p className="acn-auth-subtitle text-sm mt-1.5 font-medium">{subtitle}</p>
           {previewMode && view === "login" && (
-            <p className="mt-2 inline-flex items-center rounded-full bg-amber-50 border border-amber-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest text-amber-700">
+            <p className="mt-2 inline-flex items-center rounded-full bg-amber-400/10 border border-amber-300/25 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest text-amber-200">
               Client preview
             </p>
           )}
@@ -584,7 +587,7 @@ export default function LoginScreen({
                 setInfo("");
                 setView(view === "otp" || view === "reset" ? "forgot" : "login");
               }}
-              className="mb-4 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-700"
+              className="mb-4 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-300 hover:text-white"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               Back
@@ -592,34 +595,25 @@ export default function LoginScreen({
           )}
 
         {error && (
-          <div
-            className="mb-4 p-3 bg-rose-50 border border-rose-100 text-rose-600 rounded-lg text-sm font-medium"
-            role="alert"
-          >
+          <div className="mb-4 p-3 acn-alert-error text-sm font-medium" role="alert">
             {error}
           </div>
         )}
         {info && (
-          <div
-            className="mb-4 p-3 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-lg text-xs font-medium break-all"
-            role="status"
-          >
+          <div className="mb-4 p-3 acn-alert-info text-xs font-medium break-all" role="status">
             {info}
           </div>
         )}
 
         {view === "login" && (
           <>
-            <form onSubmit={handleLogin} className="space-y-5" noValidate>
+            <form onSubmit={handleLogin} className="space-y-6" noValidate>
               <div>
-                <label
-                  htmlFor="login-email"
-                  className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2"
-                >
+                <label htmlFor="login-email" className="acn-label acn-label-dark">
                   Email address
                 </label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <div className="acn-auth-field">
+                  <span className="acn-auth-field__icon">
                     <Mail className="h-4 w-4" />
                   </span>
                   <input
@@ -630,17 +624,14 @@ export default function LoginScreen({
                     onChange={(event) => setEmail(event.target.value)}
                     placeholder="name@company.com"
                     aria-invalid={Boolean(fieldErrors.email)}
-                    className="w-full bg-white border border-slate-200 focus:border-indigo-500 rounded-lg py-2.5 pl-10 pr-4 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    className="acn-input acn-input-dark acn-auth-input py-2.5"
                   />
                 </div>
               </div>
 
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label
-                    htmlFor="login-password"
-                    className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest"
-                  >
+                  <label htmlFor="login-password" className="acn-label acn-label-dark mb-0">
                     Password
                   </label>
                   <button
@@ -651,13 +642,13 @@ export default function LoginScreen({
                       setInfo("");
                       setView("forgot");
                     }}
-                    className="text-xs font-semibold text-[#312ecb] hover:underline"
+                    className="text-xs font-semibold text-indigo-300 hover:text-indigo-200 hover:underline"
                   >
                     Forgot password?
                   </button>
                 </div>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <div className="acn-auth-field">
+                  <span className="acn-auth-field__icon">
                     <Lock className="h-4 w-4" />
                   </span>
                   <input
@@ -670,12 +661,12 @@ export default function LoginScreen({
                     onKeyUp={onPasswordKeyEvent}
                     placeholder="••••••••"
                     aria-invalid={Boolean(fieldErrors.password)}
-                    className="w-full bg-white border border-slate-200 focus:border-indigo-500 rounded-lg py-2.5 pl-10 pr-10 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    className="acn-input acn-input-dark acn-auth-input acn-auth-input--password py-2.5"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword((open) => !open)}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+                    className="acn-auth-field__action"
                     aria-label={showPassword ? "Hide password" : "Show password"}
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -686,7 +677,7 @@ export default function LoginScreen({
                 )}
               </div>
 
-              <label className="flex items-center gap-2 text-xs text-slate-600 font-medium">
+              <label className="flex items-center gap-2 text-xs text-slate-300 font-medium">
                 <input
                   type="checkbox"
                   checked={rememberMe}
@@ -699,7 +690,7 @@ export default function LoginScreen({
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-[#312ecb] hover:bg-[#2522ad] text-white py-3 px-4 rounded-lg font-semibold text-sm shadow-sm flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                className="acn-btn-primary"
               >
                 {loading ? (
                   <span className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -712,7 +703,7 @@ export default function LoginScreen({
               </button>
             </form>
 
-            <p className="text-center text-sm text-slate-500 mt-8">
+            <p className="text-center text-sm text-slate-300 mt-8">
               Don&apos;t have an account?{" "}
               <button
                 type="button"
@@ -723,7 +714,7 @@ export default function LoginScreen({
                   setPassword("");
                   setView("register");
                 }}
-                className="font-semibold text-[#312ecb] hover:underline"
+                className="font-semibold text-indigo-300 hover:text-indigo-200 hover:underline"
               >
                 Sign up for free
               </button>
@@ -792,15 +783,15 @@ export default function LoginScreen({
               >
                 Country
               </label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+              <div className="acn-auth-field">
+                <span className="acn-auth-field__icon">
                   <Globe2 className="h-4 w-4" />
                 </span>
                 <select
                   id="reg-country"
                   value={country}
                   onChange={(event) => setCountry(event.target.value)}
-                  className="w-full bg-white border border-slate-200 rounded-lg py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                  className="acn-input acn-input-dark acn-auth-input py-2.5"
                 >
                   {COUNTRIES.map((item) => (
                     <option key={item} value={item}>
@@ -886,7 +877,7 @@ export default function LoginScreen({
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-[#312ecb] hover:bg-[#2522ad] text-white py-3 rounded-lg font-semibold text-sm disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center"
+              className="acn-btn-primary"
             >
               {loading ? (
                 <span className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -904,7 +895,7 @@ export default function LoginScreen({
                   setInfo("");
                   setView("login");
                 }}
-                className="font-semibold text-[#312ecb] hover:underline"
+                className="font-semibold text-indigo-300 hover:text-indigo-200 hover:underline"
               >
                 Sign in
               </button>
@@ -913,7 +904,7 @@ export default function LoginScreen({
         )}
 
         {view === "forgot" && (
-          <form onSubmit={handleForgot} className="space-y-5" noValidate>
+          <form onSubmit={handleForgot} className="space-y-6" noValidate>
             <Field
               id="forgot-email"
               icon={Mail}
@@ -926,7 +917,7 @@ export default function LoginScreen({
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-[#312ecb] hover:bg-[#2522ad] text-white py-3 rounded-lg font-semibold text-sm disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center"
+              className="acn-btn-primary"
             >
               {loading ? (
                 <span className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -938,7 +929,7 @@ export default function LoginScreen({
         )}
 
         {view === "otp" && (
-          <form onSubmit={handleVerifyOtp} className="space-y-5" noValidate>
+          <form onSubmit={handleVerifyOtp} className="space-y-6" noValidate>
             <div>
               <label
                 htmlFor="reset-otp"
@@ -954,14 +945,14 @@ export default function LoginScreen({
                 autoComplete="one-time-code"
                 value={otp}
                 onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                className="w-full bg-white border border-slate-200 rounded-lg py-2.5 px-3.5 text-sm font-mono tracking-[0.3em] text-center focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                className="acn-input acn-input-dark py-2.5 px-3.5 text-center font-mono tracking-[0.3em]"
                 placeholder="000000"
               />
             </div>
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-[#312ecb] hover:bg-[#2522ad] text-white py-3 rounded-lg font-semibold text-sm disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center"
+              className="acn-btn-primary"
             >
               {loading ? (
                 <span className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -981,7 +972,7 @@ export default function LoginScreen({
         )}
 
         {view === "reset" && (
-          <form onSubmit={handleResetPassword} className="space-y-4" noValidate>
+          <form onSubmit={handleResetPassword} className="space-y-6" noValidate>
             <PasswordField
               id="reset-password"
               label="New password"
@@ -1009,7 +1000,7 @@ export default function LoginScreen({
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-[#312ecb] hover:bg-[#2522ad] text-white py-3 rounded-lg font-semibold text-sm disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center"
+              className="acn-btn-primary"
             >
               {loading ? (
                 <span className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -1021,7 +1012,7 @@ export default function LoginScreen({
         )}
 
         {view === "verify" && (
-          <form onSubmit={handleVerifyEmail} className="space-y-4" noValidate>
+          <form onSubmit={handleVerifyEmail} className="space-y-6" noValidate>
             <Field
               id="verify-email"
               icon={Mail}
@@ -1041,7 +1032,7 @@ export default function LoginScreen({
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-[#312ecb] hover:bg-[#2522ad] text-white py-3 rounded-lg font-semibold text-sm disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center"
+              className="acn-btn-primary"
             >
               {loading ? (
                 <span className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -1061,7 +1052,7 @@ export default function LoginScreen({
         )}
 
         {(view === "register-success" || view === "reset-success" || view === "verify-success") && (
-          <div className="text-center space-y-4 py-2">
+          <div className="text-center space-y-6 py-2">
             <div className="mx-auto h-14 w-14 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
               <CheckCircle className="h-7 w-7" />
             </div>
@@ -1089,7 +1080,7 @@ export default function LoginScreen({
                 setPassword("");
                 setView("login");
               }}
-              className="w-full bg-[#312ecb] hover:bg-[#2522ad] text-white py-3 rounded-lg font-semibold text-sm"
+              className="acn-btn-primary"
             >
               Back to login
             </button>
@@ -1121,14 +1112,11 @@ function Field({
 }) {
   return (
     <div>
-      <label
-        htmlFor={id}
-        className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2"
-      >
+      <label htmlFor={id} className="acn-label acn-label-dark">
         {label}
       </label>
-      <div className="relative">
-        <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+      <div className="acn-auth-field">
+        <span className="acn-auth-field__icon">
           <Icon className="h-4 w-4" />
         </span>
         <input
@@ -1138,7 +1126,7 @@ function Field({
           autoComplete={autoComplete}
           aria-invalid={Boolean(error)}
           onChange={(event) => onChange(event.target.value)}
-          className="w-full bg-white border border-slate-200 focus:border-indigo-500 rounded-lg py-2.5 pl-10 pr-4 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+          className="acn-input acn-input-dark acn-auth-input py-2.5"
         />
       </div>
     </div>
@@ -1166,14 +1154,11 @@ function PasswordField({
 }) {
   return (
     <div>
-      <label
-        htmlFor={id}
-        className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2"
-      >
+      <label htmlFor={id} className="acn-label acn-label-dark">
         {label}
       </label>
-      <div className="relative">
-        <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+      <div className="acn-auth-field">
+        <span className="acn-auth-field__icon">
           <Lock className="h-4 w-4" />
         </span>
         <input
@@ -1184,12 +1169,12 @@ function PasswordField({
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={onKeyEvent}
           onKeyUp={onKeyEvent}
-          className="w-full bg-white border border-slate-200 focus:border-indigo-500 rounded-lg py-2.5 pl-10 pr-10 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+          className="acn-input acn-input-dark acn-auth-input acn-auth-input--password py-2.5"
         />
         <button
           type="button"
           onClick={onToggle}
-          className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600"
+          className="acn-auth-field__action"
           aria-label={show ? "Hide password" : "Show password"}
         >
           {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}

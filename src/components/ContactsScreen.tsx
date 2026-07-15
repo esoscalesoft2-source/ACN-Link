@@ -13,7 +13,7 @@ import {
   Trash2,
   Users
 } from "lucide-react";
-import PageShell, { PageHeader, SectionCard, StatCard, StatCardGrid } from "./layout/PageShell";
+import PageShell, { PageHeader, SectionCard, StatCard, StatCardGrid, Workspace } from "./layout/PageShell";
 
 type ContactInput = Omit<Contact, "id" | "maskedEmail" | "maskedPhone">;
 
@@ -297,7 +297,7 @@ export default function ContactsScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="contact-modal-title"
-            className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-50 animate-in fade-in zoom-in-95 duration-200"
+            className="bg-white rounded-3xl max-w-md w-full p-4 shadow-2xl border border-gray-50 animate-in fade-in zoom-in-95 duration-200"
           >
             <div className="flex items-center justify-between mb-5">
               <h3 id="contact-modal-title" className="font-display font-bold text-lg text-gray-950">
@@ -313,7 +313,7 @@ export default function ContactsScreen({
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+            <form onSubmit={handleSubmit} className="space-y-6" noValidate>
               <div>
                 <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
                   Full name
@@ -418,15 +418,17 @@ export default function ContactsScreen({
       </StatCardGrid>
 
       <SectionCard className="flex flex-col">
-        <div className="p-4 sm:p-5 border-b border-gray-50 flex flex-col gap-4">
-          <div className="relative w-full">
-            <Search className="absolute left-3.5 top-3 h-4.5 w-4.5 text-gray-400" />
+        <Workspace className="border-b border-gray-50 flex flex-col gap-3">
+          <div className="acn-icon-field w-full">
+            <span className="acn-icon-field__icon">
+              <Search className="h-4 w-4" />
+            </span>
             <input
               type="search"
               placeholder="Search by name, email, phone, or tag..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-100 rounded-xl py-2 pl-10 pr-4 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:bg-white transition-all"
+              className="acn-icon-field__input w-full bg-slate-50 border border-slate-100 rounded-xl py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:bg-white transition-all"
               aria-label="Search contacts"
             />
           </div>
@@ -474,28 +476,31 @@ export default function ContactsScreen({
               </button>
             )}
           </div>
-        </div>
+        </Workspace>
 
         {contacts.length === 0 ? (
-          <div className="py-14 px-6 text-center">
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-[#4F46E5]">
-              <Users className="h-5 w-5" />
+          <Workspace>
+            <div className="py-14 text-center">
+              <div className="mx-auto mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-[#4F46E5]">
+                <Users className="h-5 w-5" />
+              </div>
+              <p className="font-display font-bold text-gray-900">No contacts yet</p>
+              <p className="text-gray-500 text-sm mt-1 max-w-sm mx-auto">
+                Add your first lead manually, or capture contacts from Smart Forms on your Bio Pages.
+              </p>
+              <button
+                type="button"
+                onClick={openCreateModal}
+                className="mt-4 inline-flex items-center gap-2 bg-[#4F46E5] hover:bg-[#4338CA] text-white rounded-xl px-4 py-2.5 text-sm font-semibold"
+              >
+                <Plus className="h-4 w-4" />
+                Add Contact
+              </button>
             </div>
-            <p className="font-display font-bold text-gray-900">No contacts yet</p>
-            <p className="text-gray-500 text-sm mt-1 max-w-sm mx-auto">
-              Add your first lead manually, or capture contacts from Smart Forms on your Bio Pages.
-            </p>
-            <button
-              type="button"
-              onClick={openCreateModal}
-              className="mt-4 inline-flex items-center gap-2 bg-[#4F46E5] hover:bg-[#4338CA] text-white rounded-xl px-4 py-2.5 text-sm font-semibold"
-            >
-              <Plus className="h-4 w-4" />
-              Add Contact
-            </button>
-          </div>
+          </Workspace>
         ) : filteredContacts.length === 0 ? (
-          <div className="py-12 px-6 text-center text-gray-400 text-sm space-y-3">
+          <Workspace>
+            <div className="py-12 text-center text-gray-400 text-sm space-y-3">
             <p>No contacts match the selected filters.</p>
             <button
               type="button"
@@ -504,14 +509,16 @@ export default function ContactsScreen({
             >
               Clear filters
             </button>
-          </div>
+            </div>
+          </Workspace>
         ) : (
+          <Workspace>
           <>
             <div className="lg:hidden divide-y divide-gray-50">
               {filteredContacts.map((contact) => {
                 const isUnmasked = !!unmaskedIds[contact.id];
                 return (
-                  <div key={contact.id} className="p-4 sm:p-5 space-y-3">
+                  <div key={contact.id} className="p-4 sm:p-8 space-y-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="font-display font-semibold text-gray-900 text-sm">{contact.name}</p>
@@ -696,6 +703,7 @@ export default function ContactsScreen({
               </table>
             </div>
           </>
+          </Workspace>
         )}
       </SectionCard>
 

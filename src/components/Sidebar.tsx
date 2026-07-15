@@ -2,6 +2,7 @@ import React from "react";
 import { ScreenId } from "../types";
 import { User, ChevronLeft, ChevronRight } from "lucide-react";
 import { NAV_CATEGORIES, NavItem } from "../navigation";
+import AcnLogo3D from "./AcnLogo3D";
 
 interface SidebarProps {
   currentScreen: ScreenId;
@@ -44,14 +45,14 @@ export function SidebarNav({
         onClick={() => handleNavClick(item.id)}
         className={`flex items-center w-full rounded-lg px-4 py-2 transition-all text-left duration-200 group relative ${
           isActive
-            ? "bg-indigo-50 text-indigo-600 font-semibold"
-            : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+            ? "acn-nav-active"
+            : "acn-sidebar-nav-idle text-slate-400 hover:text-slate-200"
         }`}
         title={isCollapsed ? item.label : undefined}
       >
         <IconComponent
           className={`h-4.5 w-4.5 shrink-0 ${
-            isActive ? "text-indigo-600" : "text-slate-400 group-hover:text-slate-600"
+            isActive ? "text-indigo-400" : "text-slate-500 group-hover:text-slate-300"
           }`}
         />
 
@@ -60,7 +61,7 @@ export function SidebarNav({
         )}
 
         {!isCollapsed && item.pro && (
-          <span className="ml-2 text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 uppercase tracking-wider scale-90">
+          <span className="ml-2 text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 uppercase tracking-wider scale-90">
             PRO
           </span>
         )}
@@ -71,21 +72,12 @@ export function SidebarNav({
   return (
     <>
       {showBrand && (
-        <div className="p-4 flex items-center border-b border-slate-100 h-16 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-indigo-600 rounded flex items-center justify-center shrink-0">
-              <div className="w-4 h-4 border-2 border-white rotate-45" />
-            </div>
-            {!isCollapsed && (
-              <h1 className="font-sans font-bold text-base text-slate-950 tracking-tight leading-none uppercase">
-                ACN Link
-              </h1>
-            )}
-          </div>
+        <div className={`acn-sidebar-brand ${isCollapsed ? "justify-center !px-2" : ""}`}>
+          <AcnLogo3D size="sm" showLabel={!isCollapsed} />
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-3 py-4 space-y-5 min-h-0">
+      <div className="flex-1 overflow-y-auto no-scrollbar px-3 py-4 space-y-5 min-h-0">
         {NAV_CATEGORIES.map((category) => (
           <div key={category.title}>
             {!isCollapsed && (
@@ -98,21 +90,21 @@ export function SidebarNav({
         ))}
       </div>
 
-      <div className="p-3 border-t border-slate-100 bg-slate-50/50 shrink-0">
+      <div className="p-3 shrink-0">
         <button
           onClick={() => handleNavClick(ScreenId.ACCOUNT)}
           className={`flex items-center w-full rounded-lg px-4 py-2 transition-all text-left duration-200 group relative mb-1.5 ${
             currentScreen === ScreenId.ACCOUNT
-              ? "bg-indigo-50 text-indigo-600 font-semibold"
-              : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              ? "acn-nav-active"
+              : "acn-sidebar-nav-idle text-slate-400 hover:text-slate-200"
           }`}
           title={isCollapsed ? "Account" : undefined}
         >
           <User
             className={`h-4.5 w-4.5 shrink-0 ${
               currentScreen === ScreenId.ACCOUNT
-                ? "text-indigo-600"
-                : "text-slate-400 group-hover:text-slate-600"
+                ? "text-indigo-400"
+                : "text-slate-500 group-hover:text-slate-300"
             }`}
           />
           {!isCollapsed && (
@@ -123,7 +115,7 @@ export function SidebarNav({
         {showCollapse && setIsCollapsed && (
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="flex items-center w-full rounded-lg px-4 py-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-all text-left duration-200"
+            className="acn-sidebar-nav-idle flex items-center w-full rounded-lg px-4 py-2 transition-all text-left duration-200"
           >
             {isCollapsed ? (
               <ChevronRight className="h-4.5 w-4.5 text-slate-400" />
@@ -148,7 +140,7 @@ export default function Sidebar({
 }: SidebarProps) {
   return (
     <aside
-      className={`hidden lg:flex bg-white border-r border-slate-200 flex-col transition-all duration-300 shrink-0 h-screen sticky top-0 z-30 ${
+      className={`hidden lg:flex acn-glass-sidebar flex-col transition-all duration-300 shrink-0 h-full max-h-full overflow-hidden ${
         isCollapsed ? "w-20" : "w-64"
       }`}
       aria-label="Main navigation"

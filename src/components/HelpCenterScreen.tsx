@@ -87,7 +87,7 @@ export default function HelpCenterScreen({ articles, onNavigate }: HelpCenterScr
 
   return (
     <PageShell>
-      <div className="bg-slate-900 rounded-3xl p-6 sm:p-8 text-center text-white space-y-6 relative overflow-hidden shadow-xl shadow-slate-900/10">
+      <div className="bg-slate-900 rounded-2xl p-4 sm:p-8 text-center text-white space-y-3 relative overflow-hidden shadow-xl shadow-slate-900/10">
         <div className="absolute inset-0 bg-gradient-to-tr from-[#FF6B4A]/10 to-[#4F46E5]/20" />
         <div className="relative space-y-3 z-10 max-w-lg mx-auto">
           <h2 className="font-display font-bold text-2xl sm:text-3xl tracking-tight">How can we help?</h2>
@@ -95,9 +95,9 @@ export default function HelpCenterScreen({ articles, onNavigate }: HelpCenterScr
             Search support articles or browse topics below.
           </p>
 
-          <div className="relative pt-3">
-            <span className="absolute inset-y-0 left-0 pl-3.5 pt-3.5 flex items-center pointer-events-none text-slate-400">
-              <Search className="h-5 w-5" />
+          <div className="acn-icon-field pt-3">
+            <span className="acn-icon-field__icon">
+              <Search className="h-4 w-4" />
             </span>
             <input
               type="search"
@@ -105,13 +105,13 @@ export default function HelpCenterScreen({ articles, onNavigate }: HelpCenterScr
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search guides, setup answers..."
               aria-label="Search help articles"
-              className="w-full bg-white text-slate-900 border border-transparent rounded-2xl py-3 pl-11 pr-4 text-sm placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-indigo-500/30 transition-all shadow-inner"
+              className="acn-icon-field__input w-full bg-white text-slate-900 border border-transparent rounded-2xl py-3 text-sm placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-indigo-500/30 transition-all shadow-inner"
             />
           </div>
         </div>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <h3 className="font-display font-bold text-lg text-gray-900 tracking-tight">Browse Categories</h3>
           {hasFilters && (
@@ -124,7 +124,7 @@ export default function HelpCenterScreen({ articles, onNavigate }: HelpCenterScr
             </button>
           )}
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 sm:gap-6">
           {categories.map((cat) => {
             const CatIcon = cat.icon;
             const isActive = activeCategory === cat.name;
@@ -136,7 +136,7 @@ export default function HelpCenterScreen({ articles, onNavigate }: HelpCenterScr
                 onClick={() =>
                   setActiveCategory((current) => (current === cat.name ? null : cat.name))
                 }
-                className={`bg-white border rounded-2xl p-4 sm:p-5 text-left transition-all flex flex-col justify-between min-w-0 ${
+                className={`acn-glass-card p-4 sm:p-8 text-left transition-all flex flex-col justify-between min-w-0 ${
                   isActive
                     ? "border-[#4F46E5] ring-2 ring-indigo-100 shadow-md"
                     : "border-gray-100 hover:border-indigo-150 hover:shadow-md"
@@ -161,7 +161,7 @@ export default function HelpCenterScreen({ articles, onNavigate }: HelpCenterScr
         </div>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-6">
         <h3 className="font-display font-bold text-lg text-gray-900 tracking-tight">
           {searchQuery
             ? `Search results for "${searchQuery}"`
@@ -171,7 +171,7 @@ export default function HelpCenterScreen({ articles, onNavigate }: HelpCenterScr
         </h3>
 
         {filteredArticles.length === 0 ? (
-          <div className="bg-white border border-dashed border-gray-200 rounded-3xl p-8 sm:p-10 text-center space-y-3">
+          <div className="acn-glass-card border-dashed p-5 sm:p-6 text-center space-y-3">
             <p className="text-sm text-gray-500">
               No articles found{searchQuery ? ` matching "${searchQuery}"` : ""}.
             </p>
@@ -202,7 +202,7 @@ export default function HelpCenterScreen({ articles, onNavigate }: HelpCenterScr
             {filteredArticles.map((art) => (
               <article
                 key={art.id}
-                className="bg-white border border-gray-100 rounded-2xl p-5 sm:p-6 shadow-sm hover:shadow-md hover:border-indigo-50 transition-all flex flex-col justify-between min-w-0"
+                className="acn-glass-card p-4 sm:p-6 hover:shadow-md hover:border-indigo-50 transition-all flex flex-col justify-between min-w-0"
               >
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -236,7 +236,7 @@ export default function HelpCenterScreen({ articles, onNavigate }: HelpCenterScr
         )}
       </div>
 
-      <div className="bg-white border border-gray-100 rounded-3xl p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+      <div className="acn-section-card p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-6">
         <div className="min-w-0">
           <h3 className="font-display font-bold text-gray-950 text-base">Still need help?</h3>
           <p className="text-gray-500 text-xs mt-1">
@@ -291,7 +291,7 @@ export default function HelpCenterScreen({ articles, onNavigate }: HelpCenterScr
               </button>
             </div>
 
-            <div className="p-5 overflow-y-auto space-y-4 flex-1">
+            <div className="p-5 overflow-y-auto space-y-6 flex-1">
               <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-line">
                 {selectedArticle.content || selectedArticle.excerpt}
               </p>

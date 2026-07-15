@@ -32,7 +32,6 @@ export interface AuthConfig {
   githubEnabled: boolean;
   googleClientId: string;
   githubClientId: string;
-  githubRedirectUri?: string;
   appUrl: string;
   exposeTokens: boolean;
   allowDevOAuth: boolean;

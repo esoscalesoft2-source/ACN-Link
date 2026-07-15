@@ -5,8 +5,6 @@ import {
   Lock,
   Eye,
   EyeOff,
-  Chrome,
-  Github,
   ArrowLeft,
   CheckCircle,
   Building2,
@@ -22,8 +20,6 @@ import {
   enterPreviewSession,
   fetchAuthConfig,
   forgotPasswordRequest,
-  githubLoginRequest,
-  googleLoginRequest,
   isAuthPreviewDisabled,
   isAuthPreviewForced,
   loginRequest,
@@ -75,32 +71,6 @@ const DISPOSABLE = new Set([
   "trashmail.com"
 ]);
 
-declare global {
-  interface Window {
-    google?: {
-      accounts: {
-        id: {
-          initialize: (config: Record<string, unknown>) => void;
-          prompt: (callback?: (notification: { isNotDisplayed: () => boolean; isSkippedMoment: () => boolean }) => void) => void;
-          renderButton?: (parent: HTMLElement, config: Record<string, unknown>) => void;
-        };
-        oauth2: {
-          initTokenClient: (config: {
-            client_id: string;
-            scope: string;
-            callback: (response: {
-              access_token?: string;
-              error?: string;
-              error_description?: string;
-            }) => void;
-            error_callback?: (error: { type?: string; message?: string }) => void;
-          }) => { requestAccessToken: (overrideConfig?: { prompt?: string }) => void };
-        };
-      };
-    };
-  }
-}
-
 function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
 }
@@ -118,58 +88,6 @@ function validatePasswordClient(password: string): string | null {
     return "Password must include letters and numbers.";
   }
   return null;
-}
-
-function loadGoogleScript(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (window.google?.accounts?.oauth2) {
-      resolve();
-      return;
-    }
-    const existing = document.getElementById("google-gsi");
-    if (existing) {
-      existing.addEventListener("load", () => resolve());
-      existing.addEventListener("error", () => reject(new Error("Failed to load Google Sign-In")));
-      return;
-    }
-    const script = document.createElement("script");
-    script.id = "google-gsi";
-    script.src = "https://accounts.google.com/gsi/client";
-    script.async = true;
-    script.defer = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Failed to load Google Sign-In"));
-    document.head.appendChild(script);
-  });
-}
-
-function requestGoogleAccessToken(clientId: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    if (!window.google?.accounts?.oauth2) {
-      reject(new Error("Google Sign-In is unavailable."));
-      return;
-    }
-    const client = window.google.accounts.oauth2.initTokenClient({
-      client_id: clientId,
-      scope: "openid email profile",
-      callback: (response) => {
-        if (response.error || !response.access_token) {
-          reject(
-            new AuthApiError(
-              response.error_description || response.error || "Google sign-in was cancelled.",
-              "OAUTH_FAILED"
-            )
-          );
-          return;
-        }
-        resolve(response.access_token);
-      },
-      error_callback: (error) => {
-        reject(new AuthApiError(error?.message || "Google sign-in failed.", "OAUTH_FAILED"));
-      }
-    });
-    client.requestAccessToken({ prompt: "select_account" });
-  });
 }
 
 function loginErrorMessage(err: AuthApiError): string {
@@ -263,7 +181,7 @@ export default function LoginScreen({
       } else {
         setPreviewMode(true);
         setConfig(null);
-        setInfo("Preview mode — no auth API on this host. Google / Sign In opens the UI for client review.");
+        setInfo("Preview mode — no auth API on this host. Sign In opens the UI for client review.");
       }
     }
 
@@ -296,34 +214,6 @@ export default function LoginScreen({
       })
       .finally(() => setLoading(false));
   }, [initialVerifyToken]);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get("code");
-    const oauthError = params.get("error");
-    if (oauthError === "access_denied") {
-      setError("GitHub sign-in was cancelled.");
-      window.history.replaceState({}, "", window.location.pathname);
-      return;
-    }
-    if (!code || params.get("verifyToken") || params.get("token")) return;
-
-    const remember =
-      sessionStorage.getItem("acnlink_oauth_remember") !== "false";
-    sessionStorage.removeItem("acnlink_oauth_remember");
-    setLoading(true);
-    githubLoginRequest({ code, rememberMe: remember })
-      .then((result) => {
-        finishLogin(result.user, result.accessToken, result.refreshToken, remember);
-        window.history.replaceState({}, "", window.location.pathname);
-      })
-      .catch((err) => {
-        setError(loginErrorMessage(err as AuthApiError));
-        window.history.replaceState({}, "", window.location.pathname);
-      })
-      .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   useEffect(() => {
     if (!password || (view !== "register" && view !== "reset")) {
@@ -613,188 +503,6 @@ export default function LoginScreen({
     }
   };
 
-  const handleGoogle = async () => {
-    setError("");
-    setLoading(true);
-    try {
-      if (previewMode) {
-        finishPreviewLogin("google", {
-          email: email.trim() || "preview.google@acnlink.local",
-          name: "Google Preview"
-        });
-        return;
-      }
-
-      if (config?.googleEnabled && config.googleClientId) {
-        await loadGoogleScript();
-        const accessToken = await requestGoogleAccessToken(config.googleClientId);
-        const result = await googleLoginRequest({ accessToken, rememberMe });
-        finishLogin(result.user, result.accessToken, result.refreshToken, rememberMe);
-        return;
-      }
-
-      if (!config?.allowDevOAuth) {
-        // No backend OAuth config (typical on Vercel static) → client preview.
-        if (!isAuthPreviewDisabled()) {
-          setPreviewMode(true);
-          finishPreviewLogin("google", {
-            email: email.trim() || "preview.google@acnlink.local",
-            name: "Google Preview"
-          });
-          return;
-        }
-        setError("Google Sign-In is not configured. Set GOOGLE_CLIENT_ID in your environment.");
-        return;
-      }
-
-      const devEmail = window.prompt("Development Google login — enter email:", email || "you@gmail.com");
-      if (!devEmail) {
-        setError("Google sign-in was cancelled.");
-        return;
-      }
-      try {
-        const result = await googleLoginRequest({
-          email: devEmail.trim().toLowerCase(),
-          name: "Google User",
-          rememberMe
-        });
-        finishLogin(result.user, result.accessToken, result.refreshToken, rememberMe);
-      } catch (err) {
-        const apiError = err as AuthApiError;
-        if (
-          !isAuthPreviewDisabled() &&
-          (apiError.status === 404 ||
-            apiError.code === "NETWORK_ERROR" ||
-            apiError.code === "REQUEST_FAILED" ||
-            apiError.code === "OAUTH_NOT_CONFIGURED")
-        ) {
-          setPreviewMode(true);
-          finishPreviewLogin("google", {
-            email: devEmail.trim().toLowerCase(),
-            name: "Google Preview"
-          });
-          return;
-        }
-        throw err;
-      }
-    } catch (err) {
-      const apiError = err as AuthApiError;
-      if (
-        !isAuthPreviewDisabled() &&
-        (apiError.status === 404 ||
-          apiError.code === "NETWORK_ERROR" ||
-          apiError.code === "REQUEST_FAILED")
-      ) {
-        setPreviewMode(true);
-        finishPreviewLogin("google", {
-          email: email.trim() || "preview.google@acnlink.local",
-          name: "Google Preview"
-        });
-        return;
-      }
-      setError(
-        apiError.code === "OAUTH_FAILED" || apiError.code === "OAUTH_NOT_CONFIGURED"
-          ? apiError.message
-          : apiError.message || "Google sign-in failed."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGitHub = async () => {
-    setError("");
-    try {
-      if (previewMode) {
-        setLoading(true);
-        finishPreviewLogin("github", {
-          email: email.trim() || "preview.github@acnlink.local",
-          name: "GitHub Preview"
-        });
-        return;
-      }
-
-      if (config?.githubEnabled && config.githubClientId) {
-        sessionStorage.setItem("acnlink_oauth_remember", rememberMe ? "true" : "false");
-        const redirectUri = encodeURIComponent(
-          config.githubRedirectUri || `${config.appUrl || window.location.origin}/`
-        );
-        const url = `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(
-          config.githubClientId
-        )}&redirect_uri=${redirectUri}&scope=${encodeURIComponent("read:user user:email")}`;
-        window.location.href = url;
-        return;
-      }
-
-      if (!config?.allowDevOAuth) {
-        if (!isAuthPreviewDisabled()) {
-          setLoading(true);
-          setPreviewMode(true);
-          finishPreviewLogin("github", {
-            email: email.trim() || "preview.github@acnlink.local",
-            name: "GitHub Preview"
-          });
-          return;
-        }
-        setError("GitHub Sign-In is not configured. Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET.");
-        return;
-      }
-
-      setLoading(true);
-      const devEmail = window.prompt(
-        "Development GitHub login — enter email:",
-        email || "you@users.noreply.github.com"
-      );
-      if (!devEmail) {
-        setError("GitHub sign-in was cancelled.");
-        return;
-      }
-      try {
-        const result = await githubLoginRequest({
-          email: devEmail.trim().toLowerCase(),
-          name: "GitHub User",
-          rememberMe
-        });
-        finishLogin(result.user, result.accessToken, result.refreshToken, rememberMe);
-      } catch (err) {
-        const apiError = err as AuthApiError;
-        if (
-          !isAuthPreviewDisabled() &&
-          (apiError.status === 404 ||
-            apiError.code === "NETWORK_ERROR" ||
-            apiError.code === "REQUEST_FAILED" ||
-            apiError.code === "OAUTH_NOT_CONFIGURED")
-        ) {
-          setPreviewMode(true);
-          finishPreviewLogin("github", {
-            email: devEmail.trim().toLowerCase(),
-            name: "GitHub Preview"
-          });
-          return;
-        }
-        throw err;
-      }
-    } catch (err) {
-      const apiError = err as AuthApiError;
-      if (
-        !isAuthPreviewDisabled() &&
-        (apiError.status === 404 ||
-          apiError.code === "NETWORK_ERROR" ||
-          apiError.code === "REQUEST_FAILED")
-      ) {
-        setPreviewMode(true);
-        finishPreviewLogin("github", {
-          email: email.trim() || "preview.github@acnlink.local",
-          name: "GitHub Preview"
-        });
-        return;
-      }
-      setError(apiError.message || "GitHub sign-in failed.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const onPasswordKeyEvent = (event: React.KeyboardEvent<HTMLInputElement>) => {
     setCapsLockOn(event.getModifierState?.("CapsLock") || false);
   };
@@ -1003,36 +711,6 @@ export default function LoginScreen({
                 )}
               </button>
             </form>
-
-            <div className="relative my-6 text-center">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-100" />
-              </div>
-              <span className="relative bg-white px-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                Or continue with
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3.5">
-              <button
-                type="button"
-                disabled={loading}
-                onClick={() => void handleGoogle()}
-                className="flex items-center justify-center gap-2 border border-slate-200 rounded-lg py-2 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                <Chrome className="h-4 w-4 text-[#EA4335]" />
-                <span>Google</span>
-              </button>
-              <button
-                type="button"
-                disabled={loading}
-                onClick={() => void handleGitHub()}
-                className="flex items-center justify-center gap-2 border border-slate-200 rounded-lg py-2 px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                <Github className="h-4 w-4 text-[#181717]" />
-                <span>GitHub</span>
-              </button>
-            </div>
 
             <p className="text-center text-sm text-slate-500 mt-8">
               Don&apos;t have an account?{" "}

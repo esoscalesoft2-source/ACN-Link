@@ -268,7 +268,6 @@ export function createAuthRouter() {
       githubEnabled: Boolean(githubClientId && process.env.GITHUB_CLIENT_SECRET),
       googleClientId,
       githubClientId,
-      githubRedirectUri: `${appOrigin()}/`,
       appUrl: appOrigin(),
       exposeTokens: shouldExposeAuthTokens(),
       allowDevOAuth: allowDevOAuth(),

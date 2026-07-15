@@ -79,3 +79,46 @@ const SCREEN_TITLES: Partial<Record<ScreenId, string>> = {
 export function getScreenTitle(screen: ScreenId): string {
   return SCREEN_TITLES[screen] ?? "ACN Link";
 }
+
+/** URL path for each app screen (React Router). */
+export const SCREEN_PATHS: Record<ScreenId, string> = {
+  [ScreenId.LOGIN]: "/login",
+  [ScreenId.DASHBOARD]: "/dashboard",
+  [ScreenId.BIO_PAGES]: "/bio-pages",
+  [ScreenId.CONTACTS]: "/contacts",
+  [ScreenId.WHATSAPP]: "/whatsapp",
+  [ScreenId.LINKS]: "/links",
+  [ScreenId.QR_CODES]: "/qr-codes",
+  [ScreenId.TEMPLATES]: "/templates",
+  [ScreenId.INTEGRATIONS]: "/integrations",
+  [ScreenId.PIXELS]: "/pixels",
+  [ScreenId.MEDIA_LIBRARY]: "/media-library",
+  [ScreenId.CUSTOM_DOMAINS]: "/custom-domains",
+  [ScreenId.HELP_CENTER]: "/help-center",
+  [ScreenId.CONTACT_SUPPORT]: "/contact-support",
+  [ScreenId.ACCOUNT]: "/account"
+};
+
+/** Authenticated app routes (excludes login). */
+export const APP_ROUTE_ENTRIES = (
+  Object.entries(SCREEN_PATHS) as Array<[ScreenId, string]>
+).filter(([screen]) => screen !== ScreenId.LOGIN);
+
+export function screenToPath(screen: ScreenId): string {
+  return SCREEN_PATHS[screen] ?? "/dashboard";
+}
+
+export function pathToScreen(pathname: string): ScreenId | null {
+  const normalized = pathname.replace(/\/+$/, "") || "/";
+  if (normalized === "/") return ScreenId.DASHBOARD;
+
+  for (const [screen, routePath] of Object.entries(SCREEN_PATHS) as Array<[ScreenId, string]>) {
+    if (routePath === normalized) return screen;
+  }
+
+  return null;
+}
+
+export function isAppPath(pathname: string): boolean {
+  return pathToScreen(pathname) !== null && pathToScreen(pathname) !== ScreenId.LOGIN;
+}

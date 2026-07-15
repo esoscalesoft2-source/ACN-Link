@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { Routes, Route, Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { ScreenId, UserProfile, BioPage, Contact, WhatsAppCampaign, WhatsAppTemplate, SmartLink, QRCodeItem, TemplateItem, IntegrationItem, IntegrationVote, TrackingPixel, MediaFile, CustomDomain, HelpArticle, BioPageDraft, BioPageTemplate, BioEditorBlock, AppNotification, PublishSettings } from "./types";
 import {
   initialUser,
@@ -62,7 +63,6 @@ import AccountScreen from "./components/AccountScreen";
 import PublicBioPageView from "./components/PublicBioPageView";
 import PublishModal from "./components/PublishModal";
 import {
-  buildEditorState,
   cloneBlocks,
   DEFAULT_COVER,
   deleteDraftByPageId,
@@ -90,6 +90,8 @@ import {
 } from "./storage/notificationStorage";
 import { getPublishSettings, persistPublishSettings } from "./storage/publishStorage";
 import { AppTheme, getStoredTheme, saveTheme } from "./lib/themeStorage";
+import { getBlankTemplate, resolveSystemTemplate } from "./lib/systemTemplates";
+import { APP_ROUTE_ENTRIES, pathToScreen, screenToPath } from "./navigation";
 
 const USER_PROFILE_STORAGE_KEY = "acnlink_user_profile";
 
@@ -125,6 +127,9 @@ function normalizeExternalUrl(value: string): string {
 }
 
 export default function App() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const isBrandedHost = !isPlatformHostname();
   const [brandedPageId, setBrandedPageId] = useState<string | null>(null);
   const [brandedResolveState, setBrandedResolveState] = useState<"pending" | "ready" | "missing">(
@@ -156,20 +161,12 @@ export default function App() {
     };
   }, [isBrandedHost]);
 
-  const [currentScreen, setCurrentScreen] = useState<ScreenId>(() => {
-    try {
-      if (!getAccessToken()) return ScreenId.LOGIN;
-      const saved = sessionStorage.getItem("acnlink_session");
-      if (saved) {
-        const { screen, loggedIn } = JSON.parse(saved);
-        if (loggedIn && screen) return screen as ScreenId;
-      }
-      return ScreenId.DASHBOARD;
-    } catch {
-      /* ignore */
-    }
-    return ScreenId.LOGIN;
-  });
+  const currentScreen = React.useMemo(
+    () => pathToScreen(location.pathname) ?? ScreenId.DASHBOARD,
+    [location.pathname]
+  );
+  const editPageIdFromUrl = searchParams.get("edit");
+
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(() => Boolean(getAccessToken() && getStoredAuthUser()));
   const [authBootstrapping, setAuthBootstrapping] = useState(() => Boolean(getAccessToken()));
@@ -215,7 +212,6 @@ export default function App() {
       const accessToken = getAccessToken();
       if (!accessToken) {
         setIsLoggedIn(false);
-        setCurrentScreen(ScreenId.LOGIN);
         setAuthBootstrapping(false);
         return;
       }
@@ -235,11 +231,9 @@ export default function App() {
           }));
           setIsLoggedIn(true);
           touchActivity();
-          setCurrentScreen((screen) => (screen === ScreenId.LOGIN ? ScreenId.DASHBOARD : screen));
         } else {
           clearAuthSession();
           setIsLoggedIn(false);
-          setCurrentScreen(ScreenId.LOGIN);
         }
         setAuthBootstrapping(false);
         return;
@@ -259,12 +253,10 @@ export default function App() {
         }));
         setIsLoggedIn(true);
         touchActivity();
-        setCurrentScreen((screen) => (screen === ScreenId.LOGIN ? ScreenId.DASHBOARD : screen));
       } catch {
         if (!cancelled) {
           clearAuthSession();
           setIsLoggedIn(false);
-          setCurrentScreen(ScreenId.LOGIN);
         }
       } finally {
         if (!cancelled) setAuthBootstrapping(false);
@@ -305,15 +297,32 @@ export default function App() {
   }, [isLoggedIn, idleTimeoutMs]);
 
   React.useEffect(() => {
+    if (isBrandedHost || previewPageId || authBootstrapping) return;
+
+    if (!isLoggedIn) {
+      if (location.pathname !== screenToPath(ScreenId.LOGIN)) {
+        navigate(screenToPath(ScreenId.LOGIN), { replace: true });
+      }
+      return;
+    }
+
+    if (location.pathname === screenToPath(ScreenId.LOGIN)) {
+      navigate(screenToPath(ScreenId.DASHBOARD), { replace: true });
+      return;
+    }
+
+    if (location.pathname === "/" || pathToScreen(location.pathname) === null) {
+      navigate(screenToPath(ScreenId.DASHBOARD), { replace: true });
+    }
+  }, [authBootstrapping, isBrandedHost, isLoggedIn, location.pathname, navigate, previewPageId]);
+
+  React.useEffect(() => {
     if (isLoggedIn) {
-      sessionStorage.setItem(
-        "acnlink_session",
-        JSON.stringify({ loggedIn: true, screen: currentScreen })
-      );
+      sessionStorage.setItem("acnlink_session", JSON.stringify({ loggedIn: true }));
     } else {
       sessionStorage.removeItem("acnlink_session");
     }
-  }, [isLoggedIn, currentScreen]);
+  }, [isLoggedIn]);
 
   React.useEffect(() => {
     try {
@@ -528,7 +537,13 @@ export default function App() {
 
   const [initialActiveEditPageId, setInitialActiveEditPageId] = useState<string | null>(null);
   const [initialActiveTemplateId, setInitialActiveTemplateId] = useState<string | null>(null);
-  const [quickCreateRequest, setQuickCreateRequest] = useState(0);
+  const [customDomainQuickCreateRequest, setCustomDomainQuickCreateRequest] = useState(0);
+
+  React.useEffect(() => {
+    if (editPageIdFromUrl) {
+      setInitialActiveEditPageId(editPageIdFromUrl);
+    }
+  }, [editPageIdFromUrl]);
 
   React.useEffect(() => {
     persistTemplates(savedTemplates);
@@ -705,9 +720,9 @@ export default function App() {
       mfaEnabled: authUser.mfaEnabled
     }));
     setIsLoggedIn(true);
-    setCurrentScreen(ScreenId.DASHBOARD);
+    navigate(screenToPath(ScreenId.DASHBOARD), { replace: true });
     if (window.location.search.includes("verifyToken") || window.location.search.includes("token=")) {
-      window.history.replaceState({}, "", window.location.pathname);
+      window.history.replaceState({}, "", screenToPath(ScreenId.DASHBOARD));
     }
   };
 
@@ -722,9 +737,8 @@ export default function App() {
       clearAuthSession();
     }
     setIsLoggedIn(false);
-    setCurrentScreen(ScreenId.LOGIN);
     setIsMobileNavOpen(false);
-    window.history.replaceState({}, "", window.location.pathname);
+    navigate(screenToPath(ScreenId.LOGIN), { replace: true });
   };
 
   const handleAddPage = (title: string, slug: string) => {
@@ -1081,26 +1095,27 @@ export default function App() {
   };
 
   const handleScreenChange = (screen: ScreenId) => {
-    setCurrentScreen(screen);
+    navigate(screenToPath(screen));
     setIsMobileNavOpen(false);
   };
 
   // Quick Action trigger on headers
   const handleQuickCreate = () => {
-    setCurrentScreen(ScreenId.BIO_PAGES);
-    setQuickCreateRequest((request) => request + 1);
+    setCustomDomainQuickCreateRequest((request) => request + 1);
   };
 
   const handleNotificationNavigate = (screen: ScreenId, pageId?: string) => {
     if (screen === ScreenId.BIO_PAGES && pageId) {
       setInitialActiveEditPageId(pageId);
+      navigate(`${screenToPath(screen)}?edit=${encodeURIComponent(pageId)}`);
+      return;
     }
-    setCurrentScreen(screen);
+    navigate(screenToPath(screen));
   };
 
   const handleOpenDashboardPage = (pageId: string) => {
     setInitialActiveEditPageId(pageId);
-    setCurrentScreen(ScreenId.BIO_PAGES);
+    navigate(`${screenToPath(ScreenId.BIO_PAGES)}?edit=${encodeURIComponent(pageId)}`);
   };
 
   // Helper object to serve metrics inside dashboard with server-side tracking support
@@ -1196,18 +1211,9 @@ export default function App() {
     }
   };
 
-  // Render relevant content component based on navigation state
-  const renderContent = () => {
-    if (!isLoggedIn || currentScreen === ScreenId.LOGIN) {
-      return (
-        <LoginScreen
-          onLoginSuccess={handleLoginSuccess}
-          initialView={authVerifyToken ? "verify" : "login"}
-          initialVerifyToken={authVerifyToken}
-        />
-      );
-    }
-    switch (currentScreen) {
+  // Render relevant content component based on route
+  const renderScreenElement = (screen: ScreenId) => {
+    switch (screen) {
       case ScreenId.DASHBOARD:
         return (
           <DashboardScreen
@@ -1238,7 +1244,6 @@ export default function App() {
             clearInitialActiveEditPageId={() => setInitialActiveEditPageId(null)}
             initialActiveTemplateId={initialActiveTemplateId}
             clearInitialActiveTemplateId={() => setInitialActiveTemplateId(null)}
-            quickCreateRequest={quickCreateRequest}
             onNotify={pushNotification}
             theme={uiTheme}
           />
@@ -1294,94 +1299,14 @@ export default function App() {
               deleteTemplateOnServer(id);
             }}
             onUseTemplate={(tplName, isCustom, customTpl) => {
-              let editorPayload = buildEditorState(
-                tplName,
-                "Write a short bio...",
-                DEFAULT_COVER,
-                [
-                  { id: "g1", type: "Header", label: `👤 ${tplName}`, value: `👤 ${tplName}` },
-                  {
-                    id: "g2",
-                    type: "Text",
-                    label: "Welcome to my responsive bio page! Customize me using the blocks.",
-                    value: "Welcome"
-                  },
-                  { id: "g3", type: "Button", label: "Visit My Website", value: "https://example.com" },
-                  {
-                    id: "g4",
-                    type: "WhatsApp",
-                    label: "Chat with me on WhatsApp",
-                    value: "https://wa.me/1234567890"
-                  }
-                ] as BioEditorBlock[]
-              );
+              let editorPayload = getBlankTemplate(tplName);
               let sourceTemplateId: string | null = null;
 
               if (isCustom && customTpl) {
                 editorPayload = getTemplateEditorPayload(customTpl);
                 sourceTemplateId = customTpl.id;
-              } else if (tplName === "Flash Sale Funnel") {
-                editorPayload = buildEditorState(
-                  "Flash Sale Funnel",
-                  "🚨 Mega Limited Discount Offer. Only valid for 24 hours. Get your premium toys before we run out of stock! 🚀",
-                  "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?auto=format&fit=crop&q=80&w=800",
-                  [
-                    { id: "fs1", type: "Header", label: "⚡ FLASH SALE: 50% OFF TODAY!", value: "⚡ FLASH SALE: 50% OFF TODAY!" },
-                    { id: "fs2", type: "Countdown", label: "Hurry! Offer ends in:", value: "1" },
-                    { id: "fs3", type: "Shop", label: "Featured Deals", value: "Products List" },
-                    { id: "fs4", type: "Coupon", label: "Use Code: FLASH50", value: "FLASH50" },
-                    { id: "fs5", type: "Link Spin", label: "Spin to Win Extra Discount!", value: "Spin Now" },
-                    { id: "fs6", type: "Button", label: "Shop All Products", value: "https://example.com/shop" },
-                    { id: "fs7", type: "Socials", label: "Follow us", value: "Socials" }
-                  ] as BioEditorBlock[]
-                );
-              } else if (tplName === "Ebook Download") {
-                editorPayload = buildEditorState(
-                  "Ebook Download",
-                  "Grab your FREE copy of the Ultimate Guide to scaling your digital business and maximizing conversion optimization. 📚",
-                  "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&q=80&w=800",
-                  [
-                    { id: "eb1", type: "Header", label: "📘 Free Ebook: Mastering BioLinks", value: "📘 Free Ebook: Mastering BioLinks" },
-                    { id: "eb2", type: "Text", label: "Download our comprehensive guide to skyrocketing your click-through rates.", value: "Ebook Description" },
-                    { id: "eb3", type: "Smart Form", label: "Enter your email to get it instantly", value: "Newsletter Signup" },
-                    { id: "eb4", type: "PDF", label: "Download PDF Directly", value: "https://example.com/ebook.pdf" },
-                    { id: "eb5", type: "Socials", label: "Stay connected", value: "Socials" }
-                  ] as BioEditorBlock[]
-                );
-              } else if (tplName === "Personal Bio Link") {
-                editorPayload = buildEditorState(
-                  "Personal Bio Link",
-                  "Tech developer and indie hacker crafting clean user interfaces and sharing digital insights daily.",
-                  "https://images.unsplash.com/photo-1511556532299-8f662fc26c06?auto=format&fit=crop&q=80&w=800",
-                  [
-                    { id: "pb1", type: "Header", label: "👋 Hi, I'm Alex Carter", value: "👋 Hi, I'm Alex Carter" },
-                    { id: "pb2", type: "Text", label: "Digital creator, developer, and writer. Sharing my journey and latest projects.", value: "Bio text" },
-                    { id: "pb3", type: "Button", label: "Read My Blog", value: "https://example.com/blog" },
-                    { id: "pb4", type: "vCard", label: "Save My Contact", value: "Alex Carter" },
-                    { id: "pb5", type: "Socials", label: "Follow my journey", value: "Socials" }
-                  ] as BioEditorBlock[]
-                );
-              } else if (tplName.toLowerCase().includes("marvel")) {
-                editorPayload = buildEditorState(
-                  "Marvel Products",
-                  "Official Marvel-Inspired Toys & Collectibles. Safe, fun & exciting toys for young superheroes.",
-                  DEFAULT_COVER,
-                  [
-                    { id: "b1", type: "Header", label: "👤 Marvel Toys for Kids", value: "👤 Marvel Toys for Kids" },
-                    { id: "b2", type: "Header", label: "Official Marvel-Inspired Toys & Collectibles", value: "Official Marvel-Inspired Toys & Collectibles" },
-                    { id: "b3", type: "Text", label: "🎁 Safe, fun & exciting toys for young superheroes.", value: "🎁 Safe, fun & exciting toys for young superheroes." },
-                    { id: "b4", type: "Header", label: "⭐ Why Shop With Us?", value: "⭐ Why Shop With Us?" },
-                    { id: "b5", type: "Text", label: "🛡️ Quality Marvel-themed toys, 🚚 Fast Shipping, 💯 Trusted", value: "🛡️ Quality Marvel-themed toys, 🚚 Fast Shipping, 💯 Trusted" },
-                    { id: "b6", type: "Shop", label: "Products For Kids (Iron Man, Spiderman, Hulk)", value: "Products For Kids" },
-                    { id: "b7", type: "Button", label: "Explore the Toys Section", value: "Explore the Toys Section" },
-                    { id: "b8", type: "Coupon", label: "Special Offer (MARVELTOYCODE007007)", value: "MARVELTOYCODE007007" },
-                    { id: "b9", type: "Countdown", label: "Sale ends in (9 Days Timer)", value: "9" },
-                    { id: "b10", type: "Link Spin", label: "Buy Now (Prize Wheel)", value: "Buy Now" },
-                    { id: "b11", type: "WhatsApp", label: "Message Us on WhatsApp", value: "Message Us on WhatsApp" },
-                    { id: "b12", type: "Smart Form", label: "Get in Touch Leads Form", value: "Get in Touch" },
-                    { id: "b13", type: "vCard", label: "Save Contact Card Info", value: "Save Contact" }
-                  ] as BioEditorBlock[]
-                );
+              } else {
+                editorPayload = resolveSystemTemplate(tplName) ?? getBlankTemplate(tplName);
               }
 
               const tplTitle = editorPayload.pageMeta.title;
@@ -1468,6 +1393,7 @@ export default function App() {
             onConnectDomain={handleConnectDomain}
             onVerifyDomain={handleVerifyDomain}
             onDeleteDomain={handleDeleteDomain}
+            quickCreateRequest={customDomainQuickCreateRequest}
           />
         );
       case ScreenId.HELP_CENTER:
@@ -1554,36 +1480,64 @@ export default function App() {
             onMarkAllNotificationsRead={handleMarkAllNotificationsRead}
             onNotificationNavigate={handleNotificationNavigate}
             onPublish={() => setIsPublishOpen(true)}
+            onLogout={handleLogout}
           />
         )}
 
         <main className="acn-main-scroll min-w-0 no-scrollbar">
-          {renderContent()}
-        </main>
-
-        {isLoggedIn && (
-          <footer className="h-10 acn-footer-bar text-slate-500 px-4 sm:px-6 flex items-center justify-between text-[10px] uppercase tracking-widest font-mono shrink-0 select-none relative z-[1]">
-            <div className="flex min-w-0">
-              <span className="flex items-center truncate" aria-live="polite">
-                <span
-                  className={`w-2 h-2 rounded-full mr-2 shrink-0 ${
-                    serverHealth === "online"
-                      ? "bg-emerald-500 animate-pulse"
-                      : serverHealth === "offline"
-                        ? "bg-rose-500"
-                        : "bg-amber-400 animate-pulse"
-                  }`}
+          <div className="acn-main-scroll__content">
+            {!isLoggedIn ? (
+              <Routes>
+                <Route
+                  path={screenToPath(ScreenId.LOGIN)}
+                  element={
+                    <LoginScreen
+                      onLoginSuccess={handleLoginSuccess}
+                      initialView={authVerifyToken ? "verify" : "login"}
+                      initialVerifyToken={authVerifyToken}
+                    />
+                  }
                 />
-                {serverHealth === "online"
-                  ? "System Operational"
-                  : serverHealth === "offline"
-                    ? "Server Offline"
-                    : "Checking Server"}
-              </span>
-            </div>
-            <div>ACN Link © 2026</div>
-          </footer>
-        )}
+                <Route path="*" element={<Navigate to={screenToPath(ScreenId.LOGIN)} replace />} />
+              </Routes>
+            ) : (
+              <Routes>
+                {APP_ROUTE_ENTRIES.map(([screen, path]) => (
+                  <React.Fragment key={path}>
+                    <Route path={path} element={renderScreenElement(screen)} />
+                  </React.Fragment>
+                ))}
+                <Route path="/" element={<Navigate to={screenToPath(ScreenId.DASHBOARD)} replace />} />
+                <Route path={screenToPath(ScreenId.LOGIN)} element={<Navigate to={screenToPath(ScreenId.DASHBOARD)} replace />} />
+                <Route path="*" element={<Navigate to={screenToPath(ScreenId.DASHBOARD)} replace />} />
+              </Routes>
+            )}
+          </div>
+
+          {isLoggedIn && (
+            <footer className="acn-footer-bar text-slate-500 px-4 sm:px-6 py-3 flex items-center justify-between text-[10px] uppercase tracking-widest font-mono shrink-0 select-none relative z-[1] mt-8">
+              <div className="flex min-w-0">
+                <span className="flex items-center truncate" aria-live="polite">
+                  <span
+                    className={`w-2 h-2 rounded-full mr-2 shrink-0 ${
+                      serverHealth === "online"
+                        ? "bg-emerald-500 animate-pulse"
+                        : serverHealth === "offline"
+                          ? "bg-rose-500"
+                          : "bg-amber-400 animate-pulse"
+                    }`}
+                  />
+                  {serverHealth === "online"
+                    ? "System Operational"
+                    : serverHealth === "offline"
+                      ? "Server Offline"
+                      : "Checking Server"}
+                </span>
+              </div>
+              <div>ACN Link © 2026</div>
+            </footer>
+          )}
+        </main>
       </div>
 
       {isLoggedIn && (

@@ -97,11 +97,13 @@ export interface QRCodeItem {
 export interface TemplateItem {
   id: string;
   name: string;
-  category: "Marketing" | "Personal Bio" | "Business" | "Packaging Insert";
+  category: string;
   widgets: number;
   usedCount: string;
   imageUrl: string;
   description: string;
+  price?: string;
+  suggested?: boolean;
 }
 
 export interface IntegrationItem {

@@ -1,19 +1,17 @@
 import React, { useMemo, useState } from "react";
 import { TemplateItem, BioPageTemplate } from "../types";
 import { formatStorageDate } from "../storage/bioBuilderStorage";
+import { TEMPLATE_CATEGORIES, GALLERY_TEMPLATE_COUNT } from "../lib/systemTemplates";
 import { Workspace } from "./layout/PageShell";
 import {
   Plus,
   Layers,
-  Flame,
-  BookOpen,
-  User,
-  Briefcase,
   Trash2,
   Search,
   Eye,
   X,
-  ImageOff
+  ImageOff,
+  Sparkles
 } from "lucide-react";
 
 interface TemplatesScreenProps {
@@ -26,20 +24,6 @@ interface TemplatesScreenProps {
 type PreviewTarget =
   | { kind: "system"; item: TemplateItem }
   | { kind: "custom"; item: BioPageTemplate };
-
-const CATEGORY_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  Marketing: Flame,
-  "Packaging Insert": BookOpen,
-  "Personal Bio": User,
-  Business: Briefcase
-};
-
-const CATEGORY_BADGE_STYLES: Record<string, string> = {
-  Marketing: "bg-orange-500",
-  "Packaging Insert": "bg-rose-500",
-  "Personal Bio": "bg-purple-500",
-  Business: "bg-sky-500"
-};
 
 function getBlockCount(tpl: BioPageTemplate) {
   return tpl.data?.blocks?.length ?? 0;
@@ -77,6 +61,43 @@ function ThumbnailImage({
   );
 }
 
+function TemplatePhonePreview({
+  imageUrl,
+  name,
+  onPreview
+}: {
+  imageUrl?: string;
+  name: string;
+  onPreview: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onPreview}
+      aria-label={`Preview ${name}`}
+      className="acn-template-phone group w-full"
+    >
+      <div className="acn-template-phone__frame">
+        <div className="acn-template-phone__notch" aria-hidden />
+        <div className="acn-template-phone__screen">
+          <ThumbnailImage
+            src={imageUrl}
+            alt={name}
+            overlayClassName="w-full h-full"
+            className="w-full h-full object-cover"
+          />
+        </div>
+      </div>
+      <div className="acn-template-phone__overlay">
+        <span className="text-white text-xs font-bold flex items-center gap-1.5 bg-black/45 px-3 py-1.5 rounded-full">
+          <Eye className="h-3.5 w-3.5" />
+          Preview
+        </span>
+      </div>
+    </button>
+  );
+}
+
 export default function TemplatesScreen({
   items,
   savedTemplates,
@@ -84,13 +105,11 @@ export default function TemplatesScreen({
   onDeleteCustomTemplate
 }: TemplatesScreenProps) {
   const [activeTab, setActiveTab] = useState<"SYSTEM" | "MY_TEMPLATES">("SYSTEM");
-  const [activeCategory, setActiveCategory] = useState("All");
+  const [activeCategory, setActiveCategory] = useState("All Categories");
   const [searchQuery, setSearchQuery] = useState("");
   const [previewTarget, setPreviewTarget] = useState<PreviewTarget | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-
-  const categories = ["All", "Packaging Insert", "Personal Bio", "Business", "Marketing"];
 
   const triggerToast = (msg: string) => {
     setToast(msg);
@@ -100,11 +119,13 @@ export default function TemplatesScreen({
   const filteredItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return items.filter((item) => {
-      const matchesCategory = activeCategory === "All" || item.category === activeCategory;
+      const matchesCategory =
+        activeCategory === "All Categories" || item.category === activeCategory;
       const matchesSearch =
         !query ||
         item.name.toLowerCase().includes(query) ||
-        item.description.toLowerCase().includes(query);
+        item.description.toLowerCase().includes(query) ||
+        item.category.toLowerCase().includes(query);
       return matchesCategory && matchesSearch;
     });
   }, [items, activeCategory, searchQuery]);
@@ -140,15 +161,17 @@ export default function TemplatesScreen({
     : null;
 
   return (
-    <div className="flex-1 p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto w-full min-w-0 relative">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+    <div className="flex-1 p-4 sm:p-6 lg:p-8 space-y-6 max-w-[1400px] mx-auto w-full min-w-0 relative">
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
         <div className="min-w-0">
           <h2 className="font-display font-bold text-2xl sm:text-3xl text-gray-950 tracking-tight">
             Templates
           </h2>
-          <p className="text-gray-500 text-sm mt-1">Start with a pre-built design or create from scratch</p>
+          <p className="text-gray-500 text-sm mt-1">
+            {GALLERY_TEMPLATE_COUNT} templates including Start from Scratch — preview, use, and edit any design.
+          </p>
         </div>
-        <div className="acn-icon-field w-full sm:w-72 shrink-0">
+        <div className="acn-icon-field w-full lg:w-80 shrink-0">
           <span className="acn-icon-field__icon">
             <Search className="h-4 w-4" />
           </span>
@@ -177,7 +200,7 @@ export default function TemplatesScreen({
         >
           System Templates
           <span className="ml-1.5 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 text-xs">
-            {items.length}
+            {GALLERY_TEMPLATE_COUNT}
           </span>
         </button>
 
@@ -200,8 +223,8 @@ export default function TemplatesScreen({
       </div>
 
       {activeTab === "SYSTEM" && (
-        <div className="flex flex-wrap gap-2 animate-in fade-in duration-200">
-          {categories.map((cat) => {
+        <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar animate-in fade-in duration-200">
+          {TEMPLATE_CATEGORIES.map((cat) => {
             const isSelected = activeCategory === cat;
             return (
               <button
@@ -209,7 +232,7 @@ export default function TemplatesScreen({
                 type="button"
                 aria-pressed={isSelected}
                 onClick={() => setActiveCategory(cat)}
-                className={`px-4 py-2 rounded-full text-xs font-semibold tracking-wide transition-all border ${
+                className={`px-4 py-2 rounded-full text-xs font-semibold tracking-wide transition-all border whitespace-nowrap shrink-0 ${
                   isSelected
                     ? "bg-[#4F46E5] border-[#4F46E5] text-white shadow-sm"
                     : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300"
@@ -248,188 +271,140 @@ export default function TemplatesScreen({
             </button>
           </Workspace>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 acn-workspace-grid animate-in fade-in duration-300">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5 acn-workspace-grid animate-in fade-in duration-300">
             {filteredCustomTemplates.map((tpl) => (
-              <div
+              <article
                 key={tpl.id}
-                className="acn-glass-card overflow-hidden hover:shadow-xl transition-all duration-300 flex flex-col group min-w-0"
+                className="acn-template-card acn-glass-card overflow-hidden flex flex-col min-w-0"
               >
-                <button
-                  type="button"
-                  onClick={() => setPreviewTarget({ kind: "custom", item: tpl })}
-                  aria-label={`Preview ${tpl.name}`}
-                  className="h-40 sm:h-48 bg-gradient-to-tr from-indigo-900 via-[#1e1b4b] to-[#311042] border-b border-gray-50 relative overflow-hidden flex flex-col items-center justify-center p-4 text-center w-full text-left cursor-pointer"
-                >
-                  {tpl.previewImage ? (
-                    <ThumbnailImage
-                      src={tpl.previewImage}
-                      alt=""
-                      overlayClassName="absolute inset-0 w-full h-full"
-                      className="absolute inset-0 w-full h-full object-cover opacity-40"
-                    />
-                  ) : null}
-                  <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <span className="text-white text-xs font-bold flex items-center gap-1.5 bg-black/40 px-3 py-1.5 rounded-full">
-                      <Eye className="h-3.5 w-3.5" />
-                      Preview
-                    </span>
-                  </div>
-
-                  <div className="relative h-12 w-12 bg-white/10 text-indigo-200 rounded-2xl flex items-center justify-center mb-3 border border-white/20 shadow-inner">
-                    <Layers className="h-5 w-5" />
-                  </div>
-
-                  <h5 className="relative font-display font-bold text-white text-base truncate max-w-full leading-tight drop-shadow-sm px-2">
-                    {tpl.name}
-                  </h5>
-
-                  <p className="relative text-indigo-300 text-[10px] mt-1.5 font-mono uppercase tracking-wider bg-white/5 px-2.5 py-1 rounded-full border border-white/10">
-                    {getBlockCount(tpl)} elements
-                  </p>
-
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setPendingDeleteId(tpl.id);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.stopPropagation();
-                        setPendingDeleteId(tpl.id);
-                      }
-                    }}
+                <div className="p-4 pb-0 relative">
+                  <TemplatePhonePreview
+                    imageUrl={tpl.previewImage}
+                    name={tpl.name}
+                    onPreview={() => setPreviewTarget({ kind: "custom", item: tpl })}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPendingDeleteId(tpl.id)}
                     aria-label={`Delete ${tpl.name}`}
                     title="Delete Template"
-                    className="absolute top-4 right-4 p-2 rounded-xl bg-red-500/10 hover:bg-red-600 text-red-400 hover:text-white transition-all duration-200 border border-red-500/20 hover:border-red-600 shadow-sm"
+                    className="absolute top-6 right-6 p-2 rounded-xl bg-red-500/10 hover:bg-red-600 text-red-500 hover:text-white transition-all border border-red-500/20 z-10"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
-                  </span>
-                </button>
+                  </button>
+                </div>
 
-                <Workspace stack className="flex-1 flex flex-col justify-between min-w-0">
+                <Workspace stack className="flex-1 flex flex-col justify-between min-w-0 p-4 pt-3">
                   <div className="space-y-1 min-w-0">
-                    <h4 className="font-display font-bold text-gray-950 text-base leading-tight truncate">
-                      {tpl.name}
-                    </h4>
+                    <div className="flex items-start justify-between gap-2">
+                      <h4 className="font-display font-bold text-gray-950 text-base leading-tight truncate">
+                        {tpl.name}
+                      </h4>
+                      <span className="text-[10px] font-bold text-slate-500 uppercase shrink-0">Custom</span>
+                    </div>
                     <p className="text-gray-400 text-xs line-clamp-2 leading-relaxed">
                       {tpl.description ||
                         `Custom design with ${getBlockCount(tpl)} widgets. Updated ${formatStorageDate(tpl.updatedAt)}.`}
                     </p>
-
-                    <div className="flex flex-wrap gap-1.5 pt-2">
-                      <span className="bg-purple-50 text-purple-600 border border-purple-100 text-[9px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
-                        My Template
-                      </span>
-                      <span className="bg-indigo-50 text-[#4F46E5] border border-indigo-100 text-[9px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
-                        {getBlockCount(tpl)} widgets
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-gray-400 pt-1">
-                      Saved {formatStorageDate(tpl.createdAt)}
-                      {tpl.updatedAt !== tpl.createdAt && ` · Updated ${formatStorageDate(tpl.updatedAt)}`}
-                    </p>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => onUseTemplate(tpl.name, true, tpl)}
-                    className="w-full bg-[#4F46E5] hover:bg-[#4338CA] text-white py-2.5 rounded-xl text-sm font-semibold shadow-sm transition-all active:scale-[0.98]"
-                  >
-                    Use Template
-                  </button>
+                  <div className="flex items-center gap-2 pt-4 mt-3 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewTarget({ kind: "custom", item: tpl })}
+                      className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+                    >
+                      Preview
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onUseTemplate(tpl.name, true, tpl)}
+                      className="flex-1 bg-[#4F46E5] hover:bg-[#4338CA] text-white py-2.5 rounded-xl text-sm font-semibold shadow-sm transition-all active:scale-[0.98]"
+                    >
+                      Use Custom Template
+                    </button>
+                  </div>
                 </Workspace>
-              </div>
+              </article>
             ))}
           </div>
         )
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 acn-workspace-grid animate-in fade-in duration-300">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-5 acn-workspace-grid animate-in fade-in duration-300">
           <button
             type="button"
-            onClick={() => onUseTemplate("Blank Scratch template")}
-            className="border-2 border-dashed border-gray-200 hover:border-[#4F46E5] rounded-2xl p-4 flex flex-col items-center justify-center text-center cursor-pointer hover:shadow-lg transition-all duration-300 min-h-[320px] group w-full"
+            onClick={() => onUseTemplate("Start from Scratch")}
+            className="acn-template-card acn-template-card--scratch border-2 border-dashed border-gray-200 hover:border-[#4F46E5] rounded-2xl p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:shadow-lg transition-all duration-300 min-h-[420px] group w-full"
           >
-            <div className="h-14 w-14 rounded-full bg-slate-50 border border-slate-150 flex items-center justify-center text-gray-400 mb-6 group-hover:bg-indigo-50 group-hover:text-[#4F46E5] transition-colors">
-              <Plus className="h-6 w-6" />
+            <div className="acn-template-phone acn-template-phone--scratch mb-5 pointer-events-none">
+              <div className="acn-template-phone__frame acn-template-phone__frame--scratch">
+                <div className="acn-template-phone__screen flex items-center justify-center bg-slate-50">
+                  <Plus className="h-8 w-8 text-slate-400 group-hover:text-[#4F46E5] transition-colors" />
+                </div>
+              </div>
             </div>
             <h4 className="font-display font-bold text-gray-950 text-base">Start from Scratch</h4>
-            <p className="text-gray-400 text-xs mt-2 max-w-[180px]">
-              Begin with a blank page and build your own design.
+            <p className="text-gray-400 text-xs mt-2 max-w-[220px] leading-relaxed">
+              Begin with a blank page and build your own design in the editor.
             </p>
           </button>
 
-          {filteredItems.map((item) => {
-            const CategoryIcon = CATEGORY_ICONS[item.category] ?? Layers;
-            const badgeStyle = CATEGORY_BADGE_STYLES[item.category] ?? "bg-slate-500";
-            return (
-              <div
-                key={item.id}
-                className="acn-glass-card overflow-hidden hover:shadow-xl transition-all duration-300 flex flex-col min-w-0"
-              >
-                <button
-                  type="button"
-                  onClick={() => setPreviewTarget({ kind: "system", item })}
-                  aria-label={`Preview ${item.name}`}
-                  className="h-40 sm:h-48 bg-slate-50 border-b border-gray-50 relative overflow-hidden flex items-center justify-center w-full group"
-                >
-                  <ThumbnailImage
-                    src={item.imageUrl}
-                    alt={item.name}
-                    overlayClassName="w-full h-full"
-                    className="w-full h-full object-cover opacity-85 group-hover:opacity-100 transition-opacity"
-                  />
-                  <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <span className="text-white text-xs font-bold flex items-center gap-1.5 bg-black/40 px-3 py-1.5 rounded-full">
-                      <Eye className="h-3.5 w-3.5" />
-                      Preview
-                    </span>
-                  </div>
+          {filteredItems.map((item) => (
+            <article key={item.id} className="acn-template-card acn-glass-card overflow-hidden flex flex-col min-w-0">
+              <div className="p-4 pb-0 relative">
+                {item.suggested && (
+                  <span className="acn-template-suggested absolute top-5 left-5 z-10 inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide">
+                    <Sparkles className="h-3 w-3" />
+                    Suggested for you
+                  </span>
+                )}
+                <TemplatePhonePreview
+                  imageUrl={item.imageUrl}
+                  name={item.name}
+                  onPreview={() => setPreviewTarget({ kind: "system", item })}
+                />
+              </div>
 
-                  <div className="absolute top-4 left-4">
-                    <span className={`p-1.5 rounded-lg ${badgeStyle} text-white flex items-center justify-center`}>
-                      <CategoryIcon className="h-4.5 w-4.5" />
-                    </span>
-                  </div>
-                </button>
-
-                <Workspace stack className="flex-1 flex flex-col justify-between min-w-0">
-                  <div>
+              <Workspace stack className="flex-1 flex flex-col justify-between min-w-0 p-4 pt-3">
+                <div className="min-w-0">
+                  <div className="flex items-start justify-between gap-2">
                     <h4 className="font-display font-bold text-gray-950 text-base leading-tight">
                       {item.name}
                     </h4>
-                    <p className="text-gray-400 text-xs mt-1.5 line-clamp-2 leading-relaxed">
-                      {item.description}
-                    </p>
-
-                    <div className="flex flex-wrap gap-1.5 mt-4">
-                      <span className="bg-amber-50 text-amber-600 border border-amber-100 text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
-                        {item.category}
-                      </span>
-                      <span className="bg-indigo-50 text-[#4F46E5] border border-indigo-100 text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
-                        {item.widgets} widgets
-                      </span>
-                      <span className="bg-slate-50 text-slate-500 border border-slate-100 text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
-                        Used {item.usedCount}
-                      </span>
-                    </div>
+                    <span className="text-[10px] font-bold text-emerald-600 uppercase shrink-0">
+                      {item.price || "Free"}
+                    </span>
                   </div>
+                  <p className="text-gray-400 text-xs mt-1.5 line-clamp-2 leading-relaxed">
+                    {item.description}
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-2 font-medium">
+                    {item.category} · {item.widgets} widgets · Used {item.usedCount}
+                  </p>
+                </div>
 
+                <div className="flex items-center gap-2 pt-4 mt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewTarget({ kind: "system", item })}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+                  >
+                    Preview
+                  </button>
                   <button
                     type="button"
                     onClick={() => onUseTemplate(item.name)}
-                    className="w-full bg-[#4F46E5] hover:bg-[#4338CA] text-white py-2.5 rounded-xl text-sm font-semibold shadow-sm transition-all active:scale-[0.98]"
+                    className="flex-1 bg-[#4F46E5] hover:bg-[#4338CA] text-white py-2.5 rounded-xl text-sm font-semibold shadow-sm transition-all active:scale-[0.98]"
                   >
                     Use Template
                   </button>
-                </Workspace>
-              </div>
-            );
-          })}
+                </div>
+              </Workspace>
+            </article>
+          ))}
 
           {filteredItems.length === 0 && (
-            <div className="sm:col-span-2 lg:col-span-3 acn-glass-card border-dashed p-4 text-center flex flex-col items-center justify-center min-h-[320px]">
+            <div className="sm:col-span-2 xl:col-span-3 2xl:col-span-3 acn-glass-card border-dashed p-8 text-center flex flex-col items-center justify-center min-h-[320px]">
               <p className="text-gray-500 text-sm">
                 {searchQuery
                   ? `No system templates match "${searchQuery}".`
@@ -439,7 +414,7 @@ export default function TemplatesScreen({
                 type="button"
                 onClick={() => {
                   setSearchQuery("");
-                  setActiveCategory("All");
+                  setActiveCategory("All Categories");
                 }}
                 className="text-[#4F46E5] text-sm font-semibold mt-2 hover:underline"
               >
@@ -458,17 +433,24 @@ export default function TemplatesScreen({
             aria-labelledby="preview-template-title"
             className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-slate-100 overflow-hidden max-h-[90vh] flex flex-col"
           >
-            <div className="relative h-52 sm:h-64 bg-gradient-to-tr from-indigo-900 via-[#1e1b4b] to-[#311042] shrink-0">
-              <ThumbnailImage
-                src={
-                  previewTarget.kind === "system"
-                    ? previewTarget.item.imageUrl
-                    : previewTarget.item.previewImage
-                }
-                alt=""
-                overlayClassName="absolute inset-0 w-full h-full"
-                className="absolute inset-0 w-full h-full object-cover opacity-60"
-              />
+            <div className="relative h-72 sm:h-80 bg-slate-100 shrink-0 flex items-center justify-center p-6">
+              <div className="acn-template-phone acn-template-phone--modal w-[220px]">
+                <div className="acn-template-phone__frame">
+                  <div className="acn-template-phone__notch" aria-hidden />
+                  <div className="acn-template-phone__screen">
+                    <ThumbnailImage
+                      src={
+                        previewTarget.kind === "system"
+                          ? previewTarget.item.imageUrl
+                          : previewTarget.item.previewImage
+                      }
+                      alt=""
+                      overlayClassName="w-full h-full"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                </div>
+              </div>
               <button
                 type="button"
                 onClick={() => setPreviewTarget(null)}
@@ -480,7 +462,7 @@ export default function TemplatesScreen({
               <div className="absolute bottom-4 left-5 right-5">
                 <h3
                   id="preview-template-title"
-                  className="font-display font-black text-white text-xl drop-shadow-sm truncate"
+                  className="font-display font-black text-slate-900 text-xl truncate"
                 >
                   {previewTarget.item.name}
                 </h3>
@@ -494,31 +476,6 @@ export default function TemplatesScreen({
                   : previewTarget.item.description ||
                     `Custom design with ${getBlockCount(previewTarget.item)} widgets.`}
               </p>
-
-              <div className="flex flex-wrap gap-1.5">
-                {previewTarget.kind === "system" ? (
-                  <>
-                    <span className="bg-amber-50 text-amber-600 border border-amber-100 text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
-                      {previewTarget.item.category}
-                    </span>
-                    <span className="bg-indigo-50 text-[#4F46E5] border border-indigo-100 text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
-                      {previewTarget.item.widgets} widgets
-                    </span>
-                    <span className="bg-slate-50 text-slate-500 border border-slate-100 text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
-                      Used {previewTarget.item.usedCount}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span className="bg-purple-50 text-purple-600 border border-purple-100 text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
-                      My Template
-                    </span>
-                    <span className="bg-indigo-50 text-[#4F46E5] border border-indigo-100 text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider">
-                      {getBlockCount(previewTarget.item)} widgets
-                    </span>
-                  </>
-                )}
-              </div>
 
               <div className="flex items-center gap-2.5 pt-2 border-t border-slate-100">
                 <button

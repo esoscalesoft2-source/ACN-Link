@@ -1,7 +1,8 @@
 import React from "react";
+import { NavLink } from "react-router-dom";
 import { ScreenId } from "../types";
 import { User, ChevronLeft, ChevronRight } from "lucide-react";
-import { NAV_CATEGORIES, NavItem } from "../navigation";
+import { NAV_CATEGORIES, NavItem, screenToPath } from "../navigation";
 import AcnLogo3D from "./AcnLogo3D";
 
 interface SidebarProps {
@@ -30,42 +31,47 @@ export function SidebarNav({
   showBrand = true,
   onNavigate
 }: SidebarNavProps) {
-  const handleNavClick = (screen: ScreenId) => {
-    onScreenChange(screen);
+  const handleAccountClick = () => {
     onNavigate?.();
   };
 
   const renderItem = (item: NavItem) => {
-    const isActive = currentScreen === item.id;
     const IconComponent = item.icon;
 
     return (
-      <button
+      <NavLink
         key={item.id}
-        onClick={() => handleNavClick(item.id)}
-        className={`flex items-center w-full rounded-lg px-4 py-2 transition-all text-left duration-200 group relative ${
-          isActive
-            ? "acn-nav-active"
-            : "acn-sidebar-nav-idle text-slate-400 hover:text-slate-200"
-        }`}
+        to={screenToPath(item.id)}
+        onClick={() => onNavigate?.()}
+        className={({ isActive }) =>
+          `flex items-center w-full rounded-lg px-4 py-2 transition-all text-left duration-200 group relative ${
+            isActive
+              ? "acn-nav-active"
+              : "acn-sidebar-nav-idle text-slate-400 hover:text-slate-200"
+          }`
+        }
         title={isCollapsed ? item.label : undefined}
       >
-        <IconComponent
-          className={`h-4.5 w-4.5 shrink-0 ${
-            isActive ? "text-indigo-400" : "text-slate-500 group-hover:text-slate-300"
-          }`}
-        />
+        {({ isActive }) => (
+          <>
+            <IconComponent
+              className={`h-4.5 w-4.5 shrink-0 ${
+                isActive ? "text-indigo-400" : "text-slate-500 group-hover:text-slate-300"
+              }`}
+            />
 
-        {!isCollapsed && (
-          <span className="ml-3 text-sm truncate flex-1">{item.label}</span>
-        )}
+            {!isCollapsed && (
+              <span className="ml-3 text-sm truncate flex-1">{item.label}</span>
+            )}
 
-        {!isCollapsed && item.pro && (
-          <span className="ml-2 text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 uppercase tracking-wider scale-90">
-            PRO
-          </span>
+            {!isCollapsed && item.pro && (
+              <span className="ml-2 text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 uppercase tracking-wider scale-90">
+                PRO
+              </span>
+            )}
+          </>
         )}
-      </button>
+      </NavLink>
     );
   };
 
@@ -91,26 +97,31 @@ export function SidebarNav({
       </div>
 
       <div className="p-3 shrink-0">
-        <button
-          onClick={() => handleNavClick(ScreenId.ACCOUNT)}
-          className={`flex items-center w-full rounded-lg px-4 py-2 transition-all text-left duration-200 group relative mb-1.5 ${
-            currentScreen === ScreenId.ACCOUNT
-              ? "acn-nav-active"
-              : "acn-sidebar-nav-idle text-slate-400 hover:text-slate-200"
-          }`}
+        <NavLink
+          to={screenToPath(ScreenId.ACCOUNT)}
+          onClick={handleAccountClick}
+          className={({ isActive }) =>
+            `flex items-center w-full rounded-lg px-4 py-2 transition-all text-left duration-200 group relative mb-1.5 ${
+              isActive
+                ? "acn-nav-active"
+                : "acn-sidebar-nav-idle text-slate-400 hover:text-slate-200"
+            }`
+          }
           title={isCollapsed ? "Account" : undefined}
         >
-          <User
-            className={`h-4.5 w-4.5 shrink-0 ${
-              currentScreen === ScreenId.ACCOUNT
-                ? "text-indigo-400"
-                : "text-slate-500 group-hover:text-slate-300"
-            }`}
-          />
-          {!isCollapsed && (
-            <span className="ml-3 text-sm truncate flex-1">Account</span>
+          {({ isActive }) => (
+            <>
+              <User
+                className={`h-4.5 w-4.5 shrink-0 ${
+                  isActive ? "text-indigo-400" : "text-slate-500 group-hover:text-slate-300"
+                }`}
+              />
+              {!isCollapsed && (
+                <span className="ml-3 text-sm truncate flex-1">Account</span>
+              )}
+            </>
           )}
-        </button>
+        </NavLink>
 
         {showCollapse && setIsCollapsed && (
           <button

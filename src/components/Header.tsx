@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { AppNotification, ScreenId, UserProfile } from "../types";
-import { Search, Plus, Menu, Rocket } from "lucide-react";
+import { Plus, Menu, Rocket } from "lucide-react";
 import AcnLogo3D from "./AcnLogo3D";
 import NotificationPanel from "./NotificationPanel";
+import ProfileMenu from "./ProfileMenu";
 
 interface HeaderProps {
   currentScreen: ScreenId;
@@ -17,6 +18,7 @@ interface HeaderProps {
   onMarkAllNotificationsRead: () => void;
   onNotificationNavigate?: (screen: ScreenId, pageId?: string) => void;
   onPublish?: () => void;
+  onLogout: () => void;
 }
 
 export default function Header({
@@ -31,53 +33,13 @@ export default function Header({
   onMarkNotificationRead,
   onMarkAllNotificationsRead,
   onNotificationNavigate,
-  onPublish
+  onPublish,
+  onLogout
 }: HeaderProps) {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
 
-  const getSearchPlaceholder = () => {
-    switch (currentScreen) {
-      case ScreenId.BIO_PAGES:
-        return "Search bio pages...";
-      case ScreenId.CONTACTS:
-        return "Search by name, email, or phone...";
-      case ScreenId.WHATSAPP:
-        return "Search campaigns...";
-      case ScreenId.LINKS:
-        return "Search commands or links...";
-      case ScreenId.QR_CODES:
-        return "Search QR Codes...";
-      case ScreenId.PIXELS:
-        return "Search pixels...";
-      default:
-        return "Search resources...";
-    }
-  };
-
-  const getUserDetails = () => {
-    const initials =
-      user.name
-        .trim()
-        .split(/\s+/)
-        .map((part) => part[0])
-        .join("")
-        .slice(0, 2)
-        .toUpperCase() || "U";
-
-    return { initials };
-  };
-
-  const details = getUserDetails();
-  const hasProfilePhoto = /^(data:image\/|https?:\/\/)/i.test(user.avatarUrl);
-
-  const showQuickCreate =
-    currentScreen === ScreenId.DASHBOARD ||
-    currentScreen === ScreenId.CONTACTS ||
-    currentScreen === ScreenId.WHATSAPP ||
-    currentScreen === ScreenId.LINKS ||
-    currentScreen === ScreenId.INTEGRATIONS ||
-    currentScreen === ScreenId.MEDIA_LIBRARY ||
-    currentScreen === ScreenId.CUSTOM_DOMAINS;
+  const showQuickCreate = currentScreen === ScreenId.CUSTOM_DOMAINS;
   const showPublish =
     currentScreen === ScreenId.DASHBOARD || currentScreen === ScreenId.ACCOUNT;
 
@@ -100,17 +62,6 @@ export default function Header({
           <p className="acn-page-title text-base sm:text-lg truncate">
             ACN Link
           </p>
-        </div>
-
-        <div className="acn-search-field relative w-full max-w-md hidden md:block">
-          <span className="acn-search-field__icon">
-            <Search className="h-4 w-4" />
-          </span>
-          <input
-            type="text"
-            placeholder={getSearchPlaceholder()}
-            className="w-full acn-input acn-search-input py-1.5 text-sm"
-          />
         </div>
       </div>
 
@@ -141,31 +92,26 @@ export default function Header({
           notifications={notifications}
           unreadCount={unreadCount}
           isOpen={notificationsOpen}
-          onToggle={() => setNotificationsOpen((open) => !open)}
+          onToggle={() => {
+            setProfileOpen(false);
+            setNotificationsOpen((open) => !open);
+          }}
           onClose={() => setNotificationsOpen(false)}
           onMarkRead={onMarkNotificationRead}
           onMarkAllRead={onMarkAllNotificationsRead}
           onNavigate={onNotificationNavigate || onScreenChange}
         />
 
-        <button
-          type="button"
-          onClick={() => onScreenChange(ScreenId.ACCOUNT)}
-          className="flex items-center hover:bg-white/5 p-1.5 rounded-lg transition-colors select-none"
-          aria-label="Go to account"
-        >
-          <div className="h-9 w-9 rounded-lg bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 font-sans font-semibold text-sm flex items-center justify-center overflow-hidden">
-            {hasProfilePhoto ? (
-              <img
-                src={user.avatarUrl}
-                alt={`${user.name} profile`}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              details.initials
-            )}
-          </div>
-        </button>
+        <ProfileMenu
+          user={user}
+          isOpen={profileOpen}
+          onToggle={() => {
+            setNotificationsOpen(false);
+            setProfileOpen((open) => !open);
+          }}
+          onClose={() => setProfileOpen(false)}
+          onLogout={onLogout}
+        />
       </div>
     </header>
   );

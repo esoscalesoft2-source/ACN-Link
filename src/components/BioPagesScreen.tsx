@@ -1,4 +1,7 @@
 import React, { useState, useRef } from "react";
+import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
+import { screenToPath } from "../navigation";
 import { BioPage, BioPageDraft, BioPageTemplate, BioEditorState, BioEditorBlock, ScreenId } from "../types";
 import {
   buildEditorState,
@@ -6,6 +9,7 @@ import {
   DEFAULT_COVER,
   deleteDraftByPageId,
   upsertDraft,
+  persistDrafts,
   upsertTemplate,
   syncTemplateToServer,
   persistPagePreviewStorage
@@ -185,7 +189,6 @@ interface BioPagesScreenProps {
   clearInitialActiveEditPageId: () => void;
   initialActiveTemplateId: string | null;
   clearInitialActiveTemplateId: () => void;
-  quickCreateRequest: number;
   onNotify: (input: CreateNotificationInput) => void;
   theme?: AppTheme;
 }
@@ -208,10 +211,10 @@ export default function BioPagesScreen({
   clearInitialActiveEditPageId,
   initialActiveTemplateId,
   clearInitialActiveTemplateId,
-  quickCreateRequest,
   onNotify,
   theme = "dark"
 }: BioPagesScreenProps) {
+  const navigate = useNavigate();
   const [isAdding, setIsAdding] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -224,10 +227,6 @@ export default function BioPagesScreen({
   const [selectedAnalyticsPage, setSelectedAnalyticsPage] = useState<BioPage | null>(null);
   const [selectedEditPage, setSelectedEditPage] = useState<BioPage | null>(null);
   const [selectedQRPage, setSelectedQRPage] = useState<BioPage | null>(null);
-
-  React.useEffect(() => {
-    if (quickCreateRequest > 0) setIsAdding(true);
-  }, [quickCreateRequest]);
 
   React.useEffect(() => {
     if (selectedEditPage) {
@@ -480,6 +479,7 @@ export default function BioPagesScreen({
 
   // Custom states to store saved templates, saved drafts, and active blocks mappings (with localStorage persistence)
   const [toast, setToast] = useState<string | null>(null);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
   
   const [nextInitialBlocks, setNextInitialBlocks] = useState<Array<{ id: string; type: string; label: string; value: string }> | null>(genericInitialBlocks);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("generic");
@@ -767,34 +767,57 @@ export default function BioPagesScreen({
       return;
     }
 
-    const state = buildCurrentEditorState();
-    const now = new Date().toISOString();
-    const existingDraft = savedDrafts.find((draft) => draft.pageId === selectedEditPage.id);
+    if (isSavingDraft) return;
 
-    const draftRecord: BioPageDraft = {
-      id: existingDraft?.id || `draft_${selectedEditPage.id}`,
-      pageId: selectedEditPage.id,
-      pageSlug: selectedEditPage.slug,
-      data: state,
-      createdAt: existingDraft?.createdAt || now,
-      updatedAt: now
-    };
+    setIsSavingDraft(true);
 
-    setSavedDrafts((prev) => upsertDraft(draftRecord, prev));
+    try {
+      const state = buildCurrentEditorState();
+      const now = new Date().toISOString();
+      const existingDraft = savedDrafts.find((draft) => draft.pageId === selectedEditPage.id);
 
-    setPageBlocksMap((prev) => ({
-      ...prev,
-      [selectedEditPage.id]: cloneBlocks(state.blocks),
-      [selectedEditPage.slug]: cloneBlocks(state.blocks)
-    }));
+      const draftRecord: BioPageDraft = {
+        id: existingDraft?.id || `draft_${selectedEditPage.id}`,
+        pageId: selectedEditPage.id,
+        pageSlug: selectedEditPage.slug,
+        data: state,
+        createdAt: existingDraft?.createdAt || now,
+        updatedAt: now
+      };
 
-    triggerToast(`💾 Draft for "${editorTitle}" saved successfully!`);
-    onNotify({
-      type: "draft_saved",
-      title: "Draft saved",
-      message: `Your edits to "${editorTitle}" were saved locally.`,
-      targetScreen: ScreenId.BIO_PAGES
-    });
+      let persisted = true;
+      setSavedDrafts((prev) => {
+        const next = upsertDraft(draftRecord, prev);
+        persisted = persistDrafts(next);
+        return next;
+      });
+
+      if (!persisted) {
+        triggerToast("⚠️ Draft saved for this session. Browser storage is full.");
+      } else {
+        triggerToast(`💾 Draft for "${editorTitle}" saved successfully!`);
+      }
+
+      onUpdatePage(selectedEditPage.id, editorTitle, editorBio, editorCoverPhoto);
+
+      setPageBlocksMap((prev) => ({
+        ...prev,
+        [selectedEditPage.id]: cloneBlocks(state.blocks),
+        [selectedEditPage.slug]: cloneBlocks(state.blocks)
+      }));
+
+      onNotify({
+        type: "draft_saved",
+        title: "Draft saved",
+        message: `Your edits to "${editorTitle}" were saved locally.`,
+        targetScreen: ScreenId.BIO_PAGES
+      });
+    } catch (err) {
+      console.error("Failed to save draft:", err);
+      triggerToast("⚠️ Could not save draft. Please try again.");
+    } finally {
+      setIsSavingDraft(false);
+    }
   };
 
   const startEditingBlock = (id: string, label: string, value: string) => {
@@ -956,13 +979,25 @@ export default function BioPagesScreen({
     }
   };
 
+  const exitEditor = () => {
+    setSelectedEditPage(null);
+    setShowPublishSuccess(false);
+    setShowSaveTemplateModal(false);
+    setIsPublishing(false);
+    setEditorTab("Edit");
+    setEditorViewPanel("edit");
+    clearInitialActiveEditPageId();
+    clearInitialActiveTemplateId();
+    navigate(screenToPath(ScreenId.BIO_PAGES), { replace: true });
+  };
+
   const closeEditor = () => {
     if (
       window.confirm(
         "Close the editor? Changes that have not been saved as a draft or published will be lost."
       )
     ) {
-      setSelectedEditPage(null);
+      exitEditor();
     }
   };
 
@@ -1022,35 +1057,41 @@ export default function BioPagesScreen({
   };
 
   const openEditor = (page: BioPage, options?: { templateId?: string | null; preferPublished?: boolean }) => {
-    setSelectedEditPage(page);
-    setEditorTab("Edit");
-    setEditorViewPanel("edit");
-    setLinkedTemplateId(options?.templateId ?? null);
+    const isAlreadyEditing = selectedEditPage?.id === page.id;
 
-    const pageDraft = savedDrafts.find((draft) => draft.pageId === page.id);
+    if (!isAlreadyEditing) {
+      setSelectedEditPage(page);
+      setEditorTab("Edit");
+      setEditorViewPanel("edit");
+      setShowPublishSuccess(false);
+      setShowSaveTemplateModal(false);
+      setLinkedTemplateId(options?.templateId ?? null);
 
-    if (pageDraft && !options?.preferPublished) {
-      hydrateEditorFromState(pageDraft.data);
-      triggerToast(`📂 Restored draft for "${pageDraft.data.pageMeta.title}"`);
-      return;
+      const pageDraft = savedDrafts.find((draft) => draft.pageId === page.id);
+
+      if (pageDraft && !options?.preferPublished) {
+        hydrateEditorFromState(pageDraft.data);
+        triggerToast(`📂 Restored draft for "${pageDraft.data.pageMeta.title}"`);
+      } else {
+        setEditorTitle(page.title);
+        setEditorBio(page.bio || "Write a short bio...");
+        setEditorCoverPhoto(page.coverPhoto || DEFAULT_COVER);
+        setEditorBlocks(resolvePageBlocks(page));
+      }
     }
 
-    setEditorTitle(page.title);
-    setEditorBio(page.bio || "Write a short bio...");
-    setEditorCoverPhoto(page.coverPhoto || DEFAULT_COVER);
-    setEditorBlocks(resolvePageBlocks(page));
+    navigate(`${screenToPath(ScreenId.BIO_PAGES)}?edit=${encodeURIComponent(page.id)}`, { replace: true });
   };
 
   // Auto-load editor when arriving from Templates page or deep links
   React.useEffect(() => {
-    if (initialActiveEditPageId) {
-      const pageToEdit = pages.find((p) => p.id === initialActiveEditPageId);
-      if (pageToEdit) {
-        openEditor(pageToEdit, { templateId: initialActiveTemplateId });
-      }
-      clearInitialActiveEditPageId();
-      clearInitialActiveTemplateId();
+    if (!initialActiveEditPageId) return;
+    const pageToEdit = pages.find((p) => p.id === initialActiveEditPageId);
+    if (pageToEdit && selectedEditPage?.id !== pageToEdit.id) {
+      openEditor(pageToEdit, { templateId: initialActiveTemplateId });
     }
+    clearInitialActiveEditPageId();
+    clearInitialActiveTemplateId();
   }, [initialActiveEditPageId, initialActiveTemplateId, pages]);
 
   const handlePublishEditor = async () => {
@@ -1619,10 +1660,19 @@ export default function BioPagesScreen({
       )}
 
       {/* 2nd - High-fidelity full-page Editor Modal exactly matching the builder screen with sidebar and live interactive preview in pristine Light Mode */}
-      {selectedEditPage && (
-        <div className={`fixed inset-0 z-50 flex flex-col animate-in fade-in duration-200 acn-bio-editor-shell acn-theme-${theme}`}>
+      {selectedEditPage &&
+        createPortal(
+        <div className={`acn-bio-editor-portal acn-theme-${theme}`}>
+          <div className="acn-bg-clouds" aria-hidden>
+            <span className="acn-bg-cloud acn-bg-cloud--1" />
+            <span className="acn-bg-cloud acn-bg-cloud--2" />
+            <span className="acn-bg-cloud acn-bg-cloud--3" />
+            <span className="acn-bg-cloud acn-bg-cloud--4" />
+            <span className="acn-bg-cloud acn-bg-cloud--5" />
+          </div>
+        <div className="acn-bio-editor-shell flex flex-col h-full min-h-0 animate-in fade-in duration-200">
           {/* Editor Header — same fixed height as main app navbar */}
-          <header className="acn-app-navbar acn-editor-header shrink-0">
+          <header className="acn-app-navbar acn-glass-header acn-editor-header shrink-0">
             <div className="acn-editor-header__left">
               <button
                 type="button"
@@ -1635,7 +1685,7 @@ export default function BioPagesScreen({
               </button>
               <span className="acn-editor-header__divider" aria-hidden />
               <div className="acn-editor-header__brand min-w-0">
-                <span className="acn-editor-header__domain shrink-0">acn.link</span>
+                <span className="acn-editor-header__domain shrink-0">acnlink</span>
                 <span className="acn-editor-header__slash shrink-0">/</span>
                 <input
                   type="text"
@@ -1675,31 +1725,42 @@ export default function BioPagesScreen({
               <button
                 type="button"
                 onClick={handleSaveAsTemplate}
-                className="acn-editor-nav-btn"
+                className="acn-editor-nav-btn acn-editor-nav-btn--template"
               >
                 Save as Template
               </button>
               <button
                 type="button"
                 onClick={handleSaveDraft}
-                className="acn-editor-nav-btn"
+                disabled={isSavingDraft}
+                className="acn-editor-nav-btn acn-editor-nav-btn--draft"
               >
-                Save Draft
+                {isSavingDraft ? (
+                  <Loader className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Save className="h-3.5 w-3.5" />
+                )}
+                <span>{isSavingDraft ? "Saving…" : "Save Draft"}</span>
               </button>
               <button
                 type="button"
                 onClick={handlePublishEditor}
                 disabled={isPublishing}
+                aria-busy={isPublishing}
                 className="acn-editor-nav-btn acn-editor-nav-btn--primary"
               >
-                <Save className="h-3.5 w-3.5" />
+                {isPublishing ? (
+                  <Loader className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Save className="h-3.5 w-3.5" />
+                )}
                 <span>{isPublishing ? "Publishing…" : "Publish"}</span>
               </button>
             </div>
           </header>
 
           {editorTab === "Edit" && !showPublishSuccess && (
-            <div className="xl:hidden acn-editor-subnav px-3 sm:px-6 py-2 shrink-0">
+            <div className="lg:hidden acn-editor-subnav px-3 sm:px-6 py-2 shrink-0">
               <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 gap-1">
                 {(
                   [
@@ -1727,11 +1788,11 @@ export default function BioPagesScreen({
           )}
 
           {/* Editor Body */}
-          <div className="acn-editor-body flex-1 overflow-hidden flex flex-col xl:flex-row min-h-0">
+          <div className="acn-editor-body flex-1 overflow-hidden flex flex-col lg:flex-row min-h-0">
             {/* Main: Block library + Page editor */}
             <div
-              className={`acn-editor-body__main flex-1 overflow-y-auto min-h-0 min-w-0 ${
-                editorViewPanel === "preview" ? "hidden xl:block" : "block"
+              className={`acn-editor-body__main flex-1 overflow-hidden min-h-0 min-w-0 flex flex-col ${
+                editorViewPanel === "preview" ? "hidden lg:block" : "block"
               }`}
             >
               {showPublishSuccess ? (
@@ -1763,10 +1824,7 @@ export default function BioPagesScreen({
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        setShowPublishSuccess(false);
-                        setSelectedEditPage(null);
-                      }}
+                      onClick={exitEditor}
                       className="text-xs font-bold text-emerald-700 hover:underline"
                     >
                       Done
@@ -1839,13 +1897,13 @@ export default function BioPagesScreen({
                   <div
                     className={`acn-editor-zone acn-editor-zone--blocks ${
                       editorViewPanel === "blocks" ? "block" : "hidden"
-                    } xl:block`}
-                  >
+                    } lg:block`}
+                    >
                     <div className="acn-editor-zone__head">
                       <LayoutGrid className="h-3.5 w-3.5" />
                       Block Library
                     </div>
-                    <div className="acn-editor-zone__body acn-workspace--stack">
+                    <div className="acn-editor-zone__body acn-workspace--stack no-scrollbar">
                     <div className="acn-editor-blocks-palette">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-3">
                         CORE BLOCKS
@@ -2214,13 +2272,13 @@ export default function BioPagesScreen({
                   <div
                     className={`acn-editor-zone acn-editor-zone--compose ${
                       editorViewPanel === "edit" ? "block" : "hidden"
-                    } xl:block`}
-                  >
+                    } lg:block`}
+                    >
                     <div className="acn-editor-zone__head">
                       <Edit3 className="h-3.5 w-3.5" />
                       Page Editor
                     </div>
-                    <div className="acn-editor-zone__body acn-workspace--stack">
+                    <div className="acn-editor-zone__body acn-workspace--stack no-scrollbar">
                     {/* COVER IMAGE & BIO CARD */}
                     <div className="acn-editor-panel p-5 shadow-sm space-y-6">
                       <div className="flex items-center justify-between">
@@ -2341,7 +2399,7 @@ export default function BioPagesScreen({
                         onDragEnter={handleDragEnterManager}
                         onDragLeave={handleDragLeaveManager}
                         onDrop={handleDropOnManager}
-                        className={`acn-editor-accordions space-y-3 p-4 rounded-3xl border transition-all max-h-[50vh] xl:max-h-[580px] overflow-y-auto shadow-inner ${
+                        className={`acn-editor-accordions space-y-3 p-4 rounded-3xl border transition-all max-h-[50vh] lg:max-h-[580px] overflow-y-auto shadow-inner ${
                           isDraggingOverManager
                             ? "ring-2 ring-indigo-400 ring-opacity-50 border-indigo-400"
                             : isAccordionReorderDrag
@@ -2905,7 +2963,7 @@ export default function BioPagesScreen({
             <div
               className={`acn-editor-zone acn-editor-zone--preview acn-editor-preview-rail flex flex-col h-full min-h-0 shrink-0 ${
                 editorViewPanel === "preview" ? "flex" : "hidden"
-              } xl:flex`}
+              } lg:flex`}
             >
               <div className="acn-editor-zone__head">
                 <Smartphone className="h-3.5 w-3.5" />
@@ -2913,72 +2971,77 @@ export default function BioPagesScreen({
               </div>
 
               <div className="acn-editor-preview-rail__stage">
-                <div className="acn-phone-preview" aria-label="Mobile live preview">
-                  <div className="acn-phone-preview__side-btn acn-phone-preview__side-btn--silent" />
-                  <div className="acn-phone-preview__side-btn acn-phone-preview__side-btn--volume-up" />
-                  <div className="acn-phone-preview__side-btn acn-phone-preview__side-btn--volume-down" />
-                  <div className="acn-phone-preview__side-btn acn-phone-preview__side-btn--power" />
-
+                <div className="acn-phone-preview acn-phone-preview--samsung acn-phone-preview--slim acn-phone-preview--device-4k acn-phone-preview--black-case" aria-label="Mobile live preview">
+                  <div className="acn-phone-preview__side-key acn-phone-preview__side-key--volume-up" aria-hidden />
+                  <div className="acn-phone-preview__side-key acn-phone-preview__side-key--volume-down" aria-hidden />
                   <div className="acn-phone-preview__bezel">
-                    <div className="acn-phone-preview__island" aria-hidden>
-                      <span className="acn-phone-preview__island-lens" />
-                    </div>
+                    <div className="acn-phone-preview__hole-punch" aria-hidden />
 
-                    <div
-                      ref={previewScrollRef}
-                      onMouseDown={handleMouseDownScroll}
-                      onMouseLeave={handleMouseLeaveScroll}
-                      onMouseUp={handleMouseUpScroll}
-                      onMouseMove={handleMouseMoveScroll}
-                      onDragOver={handleDragOverTarget}
-                      onDragEnter={handleDragEnterPreview}
-                      onDragLeave={handleDragLeavePreview}
-                      onDrop={handleDropOnPreview}
-                      style={{ cursor: "grab" }}
-                      className={`acn-preview-isolate acn-phone-preview__screen no-scrollbar transition-all duration-200 ${
-                        isDraggingOverPreview ? "acn-phone-preview__screen--drop-target" : ""
-                      }`}
-                    >
-                  {/* Header Cover */}
-                  <div className="h-48 w-full relative overflow-hidden bg-cover bg-center bg-slate-200">
-                    <img
-                      src={editorCoverPhoto || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800"}
-                      alt="Hero Cover"
-                      className="w-full h-full object-cover opacity-90"
-                      referrerPolicy="no-referrer"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-50 to-transparent" />
-                  </div>
+                    <div className="acn-phone-preview__display">
+                      <div className="acn-phone-preview__chrome">
+                        <div className="acn-phone-preview__status-bar">
+                          <span>12:33</span>
+                          <span className="acn-phone-preview__status-icons">▮▮▮ 100%</span>
+                        </div>
+                        <div className="acn-phone-preview__browser-bar">
+                          <span className="acn-phone-preview__browser-home" aria-hidden>⌂</span>
+                          <span className="acn-phone-preview__browser-url">
+                            {PRIMARY_DOMAIN}/{selectedEditPage.slug.split("/").pop() || "page"}
+                          </span>
+                          <span className="acn-phone-preview__browser-tabs" aria-hidden>1</span>
+                        </div>
+                      </div>
 
-                  {/* Bio Details */}
-                  <div className="px-5 text-center -mt-10 relative z-10">
-                    <div className="w-20 h-20 mx-auto rounded-full border-4 border-slate-50 overflow-hidden shadow-md bg-white flex items-center justify-center">
-                      <span className="text-4xl">👤</span>
-                    </div>
+                      <div
+                        ref={previewScrollRef}
+                        onMouseDown={handleMouseDownScroll}
+                        onMouseLeave={handleMouseLeaveScroll}
+                        onMouseUp={handleMouseUpScroll}
+                        onMouseMove={handleMouseMoveScroll}
+                        onDragOver={handleDragOverTarget}
+                        onDragEnter={handleDragEnterPreview}
+                        onDragLeave={handleDragLeavePreview}
+                        onDrop={handleDropOnPreview}
+                        style={{ cursor: "grab" }}
+                        className={`acn-preview-isolate acn-phone-preview__screen no-scrollbar transition-all duration-200 ${
+                          isDraggingOverPreview ? "acn-phone-preview__screen--drop-target" : ""
+                        }`}
+                      >
+                        <div className="acn-phone-preview__cover">
+                          <img
+                            src={editorCoverPhoto || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800"}
+                            alt="Hero Cover"
+                            referrerPolicy="no-referrer"
+                          />
+                          <div className="acn-phone-preview__cover-fade" />
+                          <div className="acn-phone-preview__hero-meta">
+                            <h3 className="acn-phone-preview__title font-display">
+                              {editorTitle || "Marvel Products"}
+                            </h3>
+                            <p className="acn-phone-preview__handle">
+                              @{editorTitle.toLowerCase().replace(/\s+/g, "") || "marvel"}
+                            </p>
+                          </div>
+                        </div>
 
-                    <h3 className="font-display font-extrabold text-xl text-slate-900 mt-2.5 leading-snug">
-                      {editorTitle || "Marvel Products"}
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-1 font-medium">@{editorTitle.toLowerCase().replace(/\s+/g, "") || "marvel"}</p>
-                    {editorBio && (
-                      <p className="text-xs text-slate-600 mt-2 leading-relaxed max-w-[280px] mx-auto bg-white/90 py-2 px-3.5 rounded-xl border border-slate-200/50 shadow-sm font-medium">{editorBio}</p>
-                    )}
-                  </div>
+                        <div className="acn-phone-preview__body">
+                          {editorBio && (
+                            <p className="acn-phone-preview__bio-text">{editorBio}</p>
+                          )}
 
-                  {/* Dynamic Items on the landing page rendered in real-time */}
-                  <div className="px-4 mt-6 space-y-4 text-sm">
+                          <div className="acn-phone-preview__blocks">
                     {editorBlocks.map((block, idx) => {
                       const getBlockContent = () => {
                         switch (block.type) {
                           case "Header":
                             return (
-                              <h4 className="text-center font-display font-extrabold text-base text-slate-900 mt-1 leading-tight">
+                              <h4 className="acn-phone-preview__block-heading font-display">
                                 {block.label}
                               </h4>
                             );
                           case "Text":
                             return (
-                              <p className="text-center text-xs text-slate-600 bg-white border border-slate-200/60 p-3 rounded-xl leading-relaxed shadow-sm">
+                              <p className="acn-phone-preview__block-text">
                                 {block.label}
                               </p>
                             );
@@ -3298,7 +3361,7 @@ export default function BioPagesScreen({
                           }}
                         >
                           {/* Floating Live Editor Controls */}
-                          <div className="absolute -top-3.5 right-1.5 hidden max-xl:flex xl:group-hover:flex items-center gap-1 bg-white border border-[#6366f1]/30 shadow-md py-0.5 px-1.5 rounded-lg z-30 animate-in zoom-in-95 duration-150">
+                          <div className="absolute -top-3.5 right-1.5 hidden max-lg:flex lg:group-hover:flex items-center gap-1 bg-white border border-[#6366f1]/30 shadow-md py-0.5 px-1.5 rounded-lg z-30 animate-in zoom-in-95 duration-150">
                             <span className="text-[7px] font-mono font-bold text-[#6366f1] uppercase tracking-widest mr-1">
                               {block.type}
                             </span>
@@ -3328,9 +3391,10 @@ export default function BioPagesScreen({
                     })}
                   </div>
 
-                  <div className="text-center mt-8 pb-2">
-                    <span className="text-[10px] text-slate-400 font-medium tracking-wider">Powered by ACN Link</span>
+                  <div className="text-center mt-8 pb-2 acn-phone-preview__footer">
+                    <span className="text-[10px] text-slate-500 font-medium tracking-wider">Powered by ACN Link</span>
                   </div>
+                        </div>
 
                   {/* Interactive Simulator Toast Overlay */}
                   {simulatorToast && (
@@ -3437,17 +3501,22 @@ export default function BioPagesScreen({
                     </div>
                   )}
 
-                </div>
-
-                    <div className="acn-phone-preview__home-bar" aria-hidden />
+                        <div className="acn-phone-preview__home-bar" aria-hidden />
+                      </div>
+                    </div>
                   </div>
+                  <div className="acn-phone-preview__side-key acn-phone-preview__side-key--power" aria-hidden />
                 </div>
               </div>
             </div>
           </div>
 
           {showSaveTemplateModal && (
-            <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+            <div
+              className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4"
+              onClick={() => setShowSaveTemplateModal(false)}
+              role="presentation"
+            >
               <div
                 className="bg-white rounded-3xl max-w-md w-full p-4 shadow-2xl border border-gray-50"
                 onClick={(e) => e.stopPropagation()}
@@ -3507,7 +3576,15 @@ export default function BioPagesScreen({
             </div>
           )}
         </div>
-      )}
+
+          {toast && (
+            <div className="acn-editor-toast fixed bottom-6 right-6 z-[120] bg-slate-900 text-white px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 border border-indigo-500/40 animate-in fade-in slide-in-from-bottom-5 duration-300">
+              <span className="text-sm font-bold">{toast}</span>
+            </div>
+          )}
+        </div>,
+        document.body
+        )}
 
       {/* 4th - QR Code Customizer Popup Modal matching screenshot 3 perfectly */}
       {selectedQRPage && (
@@ -3706,8 +3783,8 @@ export default function BioPagesScreen({
         </div>
       )}
 
-      {toast && (
-        <div className="fixed bottom-6 right-6 z-[100] bg-slate-900 text-white px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 border border-slate-800 animate-in fade-in slide-in-from-bottom-5 duration-300">
+      {toast && !selectedEditPage && (
+        <div className="fixed bottom-6 right-6 z-[200] bg-slate-900 text-white px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 border border-slate-800 animate-in fade-in slide-in-from-bottom-5 duration-300">
           <span className="text-sm font-bold">{toast}</span>
         </div>
       )}

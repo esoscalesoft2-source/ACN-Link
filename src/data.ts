@@ -13,6 +13,7 @@ import {
   MediaFile,
   HelpArticle
 } from "./types";
+import { getSystemTemplateCatalog } from "./lib/systemTemplates";
 
 export const initialUser: UserProfile = {
   name: "Eso Tech",
@@ -119,35 +120,7 @@ export const initialQRCodes: QRCodeItem[] = [
   }
 ];
 
-export const initialTemplates: TemplateItem[] = [
-  {
-    id: "t1",
-    name: "Flash Sale Funnel",
-    category: "Marketing",
-    widgets: 16,
-    usedCount: "68x",
-    imageUrl: "https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?auto=format&fit=crop&q=80&w=400",
-    description: "High-energy flash-sale funnel: a perfect design for limited-time retail pushes."
-  },
-  {
-    id: "t2",
-    name: "Ebook Download",
-    category: "Packaging Insert",
-    widgets: 10,
-    usedCount: "22x",
-    imageUrl: "https://images.unsplash.com/photo-1544947950-fa07a98d237f?auto=format&fit=crop&q=80&w=400",
-    description: "Free ebook or PDF download page designed for capturing newsletter subscribers on inserts."
-  },
-  {
-    id: "t3",
-    name: "Personal Bio Link",
-    category: "Personal Bio",
-    widgets: 8,
-    usedCount: "145x",
-    imageUrl: "https://images.unsplash.com/photo-1511556532299-8f662fc26c06?auto=format&fit=crop&q=80&w=400",
-    description: "The ultimate link-in-bio for creators and professionals to share social channels and work."
-  }
-];
+export const initialTemplates: TemplateItem[] = getSystemTemplateCatalog();
 
 export const initialIntegrations: IntegrationItem[] = [
   {

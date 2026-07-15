@@ -8,7 +8,7 @@ interface PageShellProps {
 export default function PageShell({ children, className = "" }: PageShellProps) {
   return (
     <div
-      className={`flex-1 p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8 max-w-7xl mx-auto w-full min-w-0 relative z-[1] ${className}`}
+      className={`acn-page-shell flex-1 p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8 max-w-7xl mx-auto w-full min-w-0 relative z-[1] ${className}`}
     >
       {children}
     </div>

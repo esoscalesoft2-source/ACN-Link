@@ -52,7 +52,21 @@ export async function verifyDomainDns(hostname: string): Promise<DnsVerification
   );
   const addressMatches =
     addresses.length > 0 && addresses.some((address) => targetAddresses.has(address));
-  const verified = cnameMatches || addressMatches;
+  let verified = cnameMatches || addressMatches;
+  let message = verified
+    ? "DNS points to ACN Link."
+    : `Create a CNAME record pointing ${host} to ${expectedTarget}.`;
+
+  // Orange-cloud (proxied) CNAMEs often expose only Cloudflare edge IPs, so
+  // resolveCname/resolve4 checks fail even when the customer hostname reaches us.
+  if (!verified) {
+    const reachable = await verifyHostnameReachability(host, expectedTarget);
+    if (reachable) {
+      verified = true;
+      message =
+        "DNS points to ACN Link (live check passed; Cloudflare proxy hides the CNAME from public DNS lookups).";
+    }
+  }
 
   return {
     verified,
@@ -61,8 +75,33 @@ export async function verifyDomainDns(hostname: string): Promise<DnsVerification
     addresses,
     txtRecords,
     checkedAt: new Date().toISOString(),
-    message: verified
-      ? "DNS points to ACN Link."
-      : `Create a CNAME record pointing ${host} to ${expectedTarget}.`
+    message
   };
+}
+
+async function verifyHostnameReachability(hostname: string, expectedTarget: string): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    const response = await fetch(`https://${hostname}/api/health`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+      redirect: "follow"
+    });
+    clearTimeout(timeout);
+    if (!response.ok) return false;
+
+    const data = (await response.json().catch(() => null)) as {
+      status?: string;
+      customDomains?: { cnameTarget?: string };
+    } | null;
+    if (data?.status !== "ok") return false;
+
+    const reportedTarget = normalizeHostname(data.customDomains?.cnameTarget || "");
+    const expected = normalizeHostname(expectedTarget);
+    return reportedTarget === expected;
+  } catch {
+    return false;
+  }
 }

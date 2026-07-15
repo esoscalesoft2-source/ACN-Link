@@ -30,11 +30,15 @@ interface CustomDomainsScreenProps {
   onDeleteDomain: (id: string) => Promise<void>;
 }
 
+function isDomainLive(domain: CustomDomain) {
+  return domain.status === "Verified" || domain.status === "DNS Verified";
+}
+
 function statusBadge(domain: CustomDomain) {
-  const verified = domain.status === "Verified";
+  const live = isDomainLive(domain);
   const failed = domain.status === "Error" || domain.providerStatus === "error";
-  const Icon = verified ? CheckCircle : failed ? AlertCircle : Clock;
-  const colors = verified
+  const Icon = live ? CheckCircle : failed ? AlertCircle : Clock;
+  const colors = live
     ? "bg-emerald-50 text-emerald-700"
     : failed
       ? "bg-rose-50 text-rose-700"
@@ -130,8 +134,8 @@ export default function CustomDomainsScreen({
     try {
       await onVerifyDomain(domain.id);
       triggerToast(
-        domain.status === "Verified"
-          ? "Domain and SSL status refreshed."
+        isDomainLive(domain)
+          ? "Domain is live. DNS and routing status refreshed."
           : "DNS checked. SSL provisioning can take several minutes."
       );
     } catch (error) {
@@ -199,15 +203,15 @@ export default function CustomDomainsScreen({
           <p className="mt-1 text-2xl font-black">{domains.length}</p>
         </div>
         <div className="rounded-2xl border bg-white p-4">
-          <p className="text-[10px] font-bold uppercase text-slate-400">Verified</p>
+          <p className="text-[10px] font-bold uppercase text-slate-400">Live</p>
           <p className="mt-1 text-2xl font-black text-emerald-600">
-            {domains.filter((domain) => domain.status === "Verified").length}
+            {domains.filter((domain) => isDomainLive(domain)).length}
           </p>
         </div>
         <div className="rounded-2xl border bg-white p-4">
           <p className="text-[10px] font-bold uppercase text-slate-400">Pending</p>
           <p className="mt-1 text-2xl font-black text-amber-600">
-            {domains.filter((domain) => domain.status !== "Verified").length}
+            {domains.filter((domain) => !isDomainLive(domain)).length}
           </p>
         </div>
       </div>
@@ -252,7 +256,13 @@ export default function CustomDomainsScreen({
                       Opens: {pageName(domain.pageId)} · SSL: {domain.sslStatus}
                     </p>
                     {domain.errorMessage && (
-                      <p className="mt-2 max-w-2xl text-xs text-rose-600">{domain.errorMessage}</p>
+                      <p
+                        className={`mt-2 max-w-2xl text-xs ${
+                          isDomainLive(domain) ? "text-slate-600" : "text-rose-600"
+                        }`}
+                      >
+                        {domain.errorMessage}
+                      </p>
                     )}
                   </div>
                   <div className="flex flex-wrap items-center gap-1">
@@ -408,6 +418,12 @@ export default function CustomDomainsScreen({
                 </button>
               </div>
             </div>
+            <p className="mt-4 rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-xs text-indigo-900">
+              <span className="font-bold">Railway free plan (1 domain)?</span> After DNS shows
+              verified, add a free Cloudflare Worker on this hostname so traffic reaches ACN Link.
+              See <code className="font-mono">docs/cloudflare-worker-free-custom-domain.md</code> in
+              the project repo.
+            </p>
             {dnsHelpDomain.ownershipVerification && (
               <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
                 <p className="font-bold">Additional SSL ownership verification</p>

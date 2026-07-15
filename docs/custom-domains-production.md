@@ -42,10 +42,28 @@ Existing variables (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `AUTH_SECRET`,
    ```
 
 4. Verify performs live DNS resolution and refreshes Cloudflare hostname/SSL
-   status. Only DNS + active provider certificate produces `Verified`.
-5. Cloudflare terminates TLS and forwards the original customer Host header to
-   Railway. The server resolves that verified hostname to its stored page and
-   serves the published website.
+   status. `Verified` requires active Cloudflare for SaaS SSL. Without SaaS,
+   `DNS Verified` is enough for routing when the customer uses a Cloudflare
+   Worker (see `docs/cloudflare-worker-free-custom-domain.md`).
+5. Cloudflare (SaaS or customer Worker) forwards traffic to Railway. The server
+   reads `X-Forwarded-Host` (or `Host`), resolves a **DNS Verified** or
+   **Verified** hostname to its stored page, and serves the published website.
+
+## Railway single-domain limit (free test)
+
+Railway free/hobby plans often allow only one custom domain on the service
+(`acnlink.mindflo.today`). Customer hostnames such as `links.customer.com`
+cannot be added on Railway directly.
+
+For a free test on a customer zone you control:
+
+1. Customer CNAME: `links` → `acnlink.mindflo.today` (Proxied).
+2. ACN Link shows **DNS Verified**.
+3. Deploy a Cloudflare Worker on `links.customer.com` per
+   `docs/cloudflare-worker-free-custom-domain.md`.
+
+The Worker sends `Host: acnlink.mindflo.today` so Railway accepts the request,
+and `X-Forwarded-Host: links.customer.com` so ACN Link routes correctly.
 
 ## Security notes
 

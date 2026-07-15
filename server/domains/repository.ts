@@ -96,18 +96,24 @@ export async function findDomainById(
   return data ? mapRow(data as DomainRow) : null;
 }
 
-export async function findVerifiedDomainByHostname(
+/** Hostnames that may serve a published page (full SSL or DNS-only + customer proxy). */
+export const ROUTABLE_DOMAIN_STATUSES: DomainStatus[] = ["Verified", "DNS Verified"];
+
+export async function findRoutableDomainByHostname(
   hostname: string
 ): Promise<CustomDomainRecord | null> {
   const { data, error } = await db()
     .from("custom_domains")
     .select("*")
     .eq("domain_name", hostname.toLowerCase())
-    .eq("status", "Verified")
+    .in("status", ROUTABLE_DOMAIN_STATUSES)
     .maybeSingle();
   if (error) throw new Error(error.message);
   return data ? mapRow(data as DomainRow) : null;
 }
+
+/** @deprecated Use findRoutableDomainByHostname */
+export const findVerifiedDomainByHostname = findRoutableDomainByHostname;
 
 export async function createDomain(input: {
   id: string;

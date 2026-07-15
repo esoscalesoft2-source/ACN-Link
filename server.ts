@@ -8,7 +8,7 @@ import { getDataStoreStatus, getRootStore, initRootStore, setRootStore } from ".
 import { getSupabase, isSupabaseConfigured } from "./server/db/supabase";
 import { mergeWorkspaceIntoRoot, syncRootToNormalizedTables } from "./server/db/syncNormalized";
 import { createDomainsRouter } from "./server/domains/routes";
-import { findVerifiedDomainByHostname } from "./server/domains/repository";
+import { findRoutableDomainByHostname } from "./server/domains/repository";
 import { isCloudflareForSaasConfigured } from "./server/domains/cloudflare";
 
 const app = express();
@@ -397,9 +397,9 @@ function isPlatformHostname(hostname: string) {
 }
 
 /**
- * Customer hostnames reach the Railway origin through Cloudflare for SaaS.
- * Keep the hostname and redirect only the path so the SPA can render the
- * correct published page and continue serving it at the branded URL.
+ * Customer hostnames reach Railway via Cloudflare for SaaS or a customer
+ * Cloudflare Worker that sets X-Forwarded-Host. Redirect only the path so the
+ * SPA renders the correct published page at the branded URL.
  */
 app.use(async (req, res, next) => {
   if (req.path.startsWith("/api/") || req.method !== "GET") {
@@ -413,7 +413,7 @@ app.use(async (req, res, next) => {
   }
 
   try {
-    const domain = await findVerifiedDomainByHostname(hostname);
+    const domain = await findRoutableDomainByHostname(hostname);
     if (!domain) {
       res
         .status(404)

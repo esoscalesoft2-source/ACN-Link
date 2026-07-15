@@ -1,6 +1,12 @@
 import type { CustomDomain } from "../types";
 import { apiUrl } from "./apiBase";
-import { getAccessToken } from "./authApi";
+import {
+  clearAuthSession,
+  getAccessToken,
+  getRefreshToken,
+  isPreviewToken,
+  refreshSession
+} from "./authApi";
 
 export class DomainApiError extends Error {
   status: number;
@@ -13,10 +19,18 @@ export class DomainApiError extends Error {
   }
 }
 
-async function domainFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function domainFetch<T>(path: string, init: RequestInit = {}, retry = true): Promise<T> {
+  const token = getAccessToken();
+  if (isPreviewToken(token)) {
+    throw new DomainApiError(
+      "Sign in with a real account to manage custom domains.",
+      401,
+      "PREVIEW_SESSION"
+    );
+  }
+
   const headers = new Headers(init.headers || {});
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  const token = getAccessToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
   let response: Response;
@@ -28,6 +42,15 @@ async function domainFetch<T>(path: string, init: RequestInit = {}): Promise<T> 
     });
   } catch {
     throw new DomainApiError("Could not reach the domain service.", 0, "NETWORK_ERROR");
+  }
+
+  if (response.status === 401 && retry && getRefreshToken()) {
+    try {
+      await refreshSession();
+      return domainFetch<T>(path, init, false);
+    } catch {
+      clearAuthSession();
+    }
   }
 
   const data = await response.json().catch(() => null);

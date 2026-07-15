@@ -183,7 +183,7 @@ export function createDomainsRouter() {
         record = await updateDomain(record.id, req.authUser!.id, {
           provider_status: "configuration_required",
           error_message:
-            "Cloudflare for SaaS is not configured on the server; SSL cannot be issued yet."
+            "Automatic SSL is not configured. After DNS verify, use a Cloudflare Worker on your domain (see docs/cloudflare-worker-free-custom-domain.md)."
         });
       }
 
@@ -244,11 +244,12 @@ export function createDomainsRouter() {
         dns_verified_at: dnsVerified ? dns.checkedAt : null,
         last_checked_at: dns.checkedAt,
         ...(providerState ? providerPatch(providerState) : {}),
-        error_message:
-          !dnsVerified
-            ? dns.message
-            : providerState
-              ? null
+        error_message: !dnsVerified
+          ? dns.message
+          : providerState
+            ? null
+            : record.provider === "manual"
+              ? "DNS verified and routable. Add a Cloudflare Worker on your domain so traffic reaches Railway (see docs/cloudflare-worker-free-custom-domain.md)."
               : "DNS is verified, but automatic SSL is not configured."
       });
 

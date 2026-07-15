@@ -432,6 +432,14 @@ function isPlatformHostname(hostname: string) {
   });
 }
 
+function isStaticAssetPath(pathname: string) {
+  return (
+    pathname.startsWith("/assets/") ||
+    pathname === "/favicon.ico" ||
+    /\.(js|css|map|ico|png|jpg|jpeg|gif|svg|webp|woff2?|ttf|txt|xml)$/i.test(pathname)
+  );
+}
+
 /**
  * Customer hostnames reach Railway via Cloudflare for SaaS or a customer
  * Cloudflare Worker that sets X-Forwarded-Host. Redirect only the path so the
@@ -439,6 +447,10 @@ function isPlatformHostname(hostname: string) {
  */
 app.use(async (req, res, next) => {
   if (req.path.startsWith("/api/") || req.method !== "GET") {
+    next();
+    return;
+  }
+  if (isStaticAssetPath(req.path)) {
     next();
     return;
   }
@@ -457,7 +469,7 @@ app.use(async (req, res, next) => {
         .send("<!doctype html><title>Domain not connected</title><h1>Domain not connected</h1><p>This hostname is not verified in ACN Link.</p>");
       return;
     }
-    if (!req.query.previewPageId) {
+    if (req.path === "/" && !req.query.previewPageId) {
       const params = new URLSearchParams();
       params.set("previewPageId", domain.pageId);
       res.redirect(302, `/?${params.toString()}`);

@@ -15,7 +15,8 @@ import {
   persistDrafts,
   upsertTemplate,
   syncTemplateToServer,
-  persistPagePreviewStorage,
+  persistAndSyncPagePreview,
+  syncPageDocumentToServer,
   readStoredPageTheme
 } from "../storage/bioBuilderStorage";
 import { CreateNotificationInput } from "../storage/notificationStorage";
@@ -685,13 +686,50 @@ export default function BioPagesScreen({
 
   const syncPreviewStorage = (theme: BioPagePreviewTheme = editorPageTheme) => {
     if (!selectedEditPage) return;
-    persistPagePreviewStorage(
+    persistAndSyncPagePreview(
       selectedEditPage.id,
       selectedEditPage.slug,
       editorBlocks,
       buildCurrentPreviewDetails(theme)
     );
   };
+
+  const skipEditorAutoSyncRef = React.useRef(true);
+
+  React.useEffect(() => {
+    skipEditorAutoSyncRef.current = true;
+  }, [selectedEditPage?.id]);
+
+  React.useEffect(() => {
+    if (!selectedEditPage || showPublishSuccess) return;
+    if (skipEditorAutoSyncRef.current) {
+      skipEditorAutoSyncRef.current = false;
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      syncPreviewStorage();
+    }, 800);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    editorBlocks,
+    editorTitle,
+    editorBio,
+    editorCoverPhoto,
+    editorHandle,
+    editorPageTheme,
+    selectedEditPage?.id,
+    showPublishSuccess
+  ]);
+
+  React.useEffect(() => {
+    if (!selectedEditPage || editorBlocks.length === 0) return;
+    const timer = window.setTimeout(() => {
+      syncPreviewStorage();
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [selectedEditPage?.id]);
 
   const handlePreviewThemeChange = (theme: BioPagePreviewTheme) => {
     setEditorPageTheme(theme);
@@ -770,10 +808,17 @@ export default function BioPagesScreen({
         [selectedEditPage.slug]: cloneBlocks(state.blocks)
       }));
 
+      persistAndSyncPagePreview(
+        selectedEditPage.id,
+        selectedEditPage.slug,
+        state.blocks,
+        buildCurrentPreviewDetails()
+      );
+
       onNotify({
         type: "draft_saved",
         title: "Draft saved",
-        message: `Your edits to "${editorTitle}" were saved locally.`,
+        message: `Your edits to "${editorTitle}" were saved and synced to your live domain.`,
         targetScreen: ScreenId.BIO_PAGES
       });
     } catch (err) {
@@ -995,6 +1040,14 @@ export default function BioPagesScreen({
       [fullSlug]: [...selectedBlocks]
     }));
 
+    persistAndSyncPagePreview(newlyCreatedPage.id, fullSlug, selectedBlocks as BioEditorBlock[], {
+      title: newlyCreatedPage.title,
+      bio: newlyCreatedPage.bio || "Write a short bio...",
+      coverPhoto: newlyCreatedPage.coverPhoto || DEFAULT_COVER,
+      handle: newlyCreatedPage.handle || defaultHandleFromTitle(newlyCreatedPage.title),
+      pageTheme: "dark"
+    });
+
     // Reset create modal states
     setNextInitialBlocks(genericInitialBlocks);
     setSelectedTemplateId("generic");
@@ -1078,20 +1131,11 @@ export default function BioPagesScreen({
 
       const details = buildCurrentPreviewDetails();
 
-      // Persist preview data locally when browser storage is available.
-      persistPagePreviewStorage(selectedEditPage.id, selectedEditPage.slug, editorBlocks, details);
+      persistAndSyncPagePreview(selectedEditPage.id, selectedEditPage.slug, editorBlocks, details);
 
-      // Also save to server backend for cross-device linking (Mobile / QR Code support)
       try {
-        const response = await fetch(apiUrl(`/api/page/${selectedEditPage.id}`), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {})
-          },
-          body: JSON.stringify({ blocks: editorBlocks, details })
-        });
-        if (!response.ok) throw new Error("The server could not save this page.");
+        const synced = await syncPageDocumentToServer(selectedEditPage.id, editorBlocks, details);
+        if (!synced) throw new Error("The server could not save this page.");
 
         setSavedDrafts((drafts) => deleteDraftByPageId(selectedEditPage.id, drafts));
         onNotify({

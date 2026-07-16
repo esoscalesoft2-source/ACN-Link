@@ -209,6 +209,7 @@ export interface BioPageDraft {
   id: string;
   pageId: string;
   pageSlug?: string;
+  ownerUserId?: string;
   data: BioEditorState;
   createdAt: string;
   updatedAt: string;

@@ -1,5 +1,6 @@
 import { BioEditorBlock, BioEditorState, BioPageDraft, BioPagePreviewDetails, BioPagePreviewTheme, BioPageTemplate } from "../types";
 import { apiUrl } from "../lib/apiBase";
+import { getAccessToken } from "../lib/authApi";
 
 export const DRAFTS_STORAGE_KEY = "acnlink_bio_page_drafts";
 export const TEMPLATES_STORAGE_KEY = "acnlink_bio_page_templates";
@@ -298,20 +299,134 @@ export function persistPagePreviewStorage(
   details: BioPagePreviewDetails
 ): void {
   try {
+    const updatedAt = new Date().toISOString();
     const blocksJson = JSON.stringify(blocks);
     const detailsJson = JSON.stringify(details);
     localStorage.setItem(`biolink_blocks_${pageId}`, blocksJson);
     localStorage.setItem(`biolink_blocks_${pageSlug}`, blocksJson);
     localStorage.setItem(`biolink_details_${pageId}`, detailsJson);
     localStorage.setItem(`biolink_details_${pageSlug}`, detailsJson);
+    localStorage.setItem(`biolink_synced_at_${pageId}`, updatedAt);
+    localStorage.setItem(`biolink_synced_at_${pageSlug}`, updatedAt);
     window.dispatchEvent(
       new CustomEvent("acn-page-preview-updated", {
-        detail: { pageId, pageSlug, details }
+        detail: { pageId, pageSlug, details, updatedAt }
       })
     );
   } catch (err) {
     console.error("Failed to persist page preview storage:", err);
   }
+}
+
+export function readLocalPageUpdatedAt(pageId: string, pageSlug?: string): string | null {
+  try {
+    const stamps = [
+      localStorage.getItem(`biolink_synced_at_${pageId}`),
+      pageSlug ? localStorage.getItem(`biolink_synced_at_${pageSlug}`) : null
+    ].filter((value): value is string => Boolean(value));
+    if (!stamps.length) return null;
+    return stamps.sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
+  } catch {
+    return null;
+  }
+}
+
+export function readLocalPageDocument(
+  pageId: string,
+  pageSlug?: string
+): { blocks: BioEditorBlock[]; details: BioPagePreviewDetails | null; updatedAt: string | null } | null {
+  try {
+    const blocksRaw =
+      localStorage.getItem(`biolink_blocks_${pageId}`) ||
+      (pageSlug ? localStorage.getItem(`biolink_blocks_${pageSlug}`) : null);
+    if (!blocksRaw) return null;
+    const blocks = JSON.parse(blocksRaw) as BioEditorBlock[];
+    if (!Array.isArray(blocks) || blocks.length === 0) return null;
+
+    const detailsRaw =
+      localStorage.getItem(`biolink_details_${pageId}`) ||
+      (pageSlug ? localStorage.getItem(`biolink_details_${pageSlug}`) : null);
+    const details = detailsRaw ? (JSON.parse(detailsRaw) as BioPagePreviewDetails) : null;
+
+    return {
+      blocks,
+      details,
+      updatedAt: readLocalPageUpdatedAt(pageId, pageSlug)
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Push the latest browser preview document to the server (custom domains read this). */
+export async function syncLocalPageDocumentToServer(
+  pageId: string,
+  pageSlug?: string
+): Promise<boolean> {
+  const local = readLocalPageDocument(pageId, pageSlug);
+  if (!local) return false;
+  return syncPageDocumentToServer(
+    pageId,
+    local.blocks,
+    local.details || {
+      title: "",
+      bio: "",
+      coverPhoto: DEFAULT_COVER,
+      handle: "profile",
+      pageTheme: "dark"
+    }
+  );
+}
+
+export async function syncAllLocalPageDocumentsToServer(
+  pages: Array<{ id: string; slug?: string }>
+): Promise<number> {
+  let synced = 0;
+  for (const page of pages) {
+    const ok = await syncLocalPageDocumentToServer(page.id, page.slug);
+    if (ok) synced += 1;
+  }
+  return synced;
+}
+
+/** Push published page content to the server so custom domains and mobile visitors see the latest UI. */
+export async function syncPageDocumentToServer(
+  pageId: string,
+  blocks: BioEditorBlock[],
+  details: BioPagePreviewDetails
+): Promise<boolean> {
+  try {
+    const token = getAccessToken();
+    if (!token) return false;
+    const response = await fetch(apiUrl(`/api/page/${pageId}`), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      credentials: "include",
+      body: JSON.stringify({
+        blocks,
+        details,
+        updatedAt: new Date().toISOString()
+      })
+    });
+    return response.ok;
+  } catch (err) {
+    console.error("Failed to sync page document to server:", err);
+    return false;
+  }
+}
+
+/** Save preview keys locally and sync to server for live custom-domain visitors. */
+export function persistAndSyncPagePreview(
+  pageId: string,
+  pageSlug: string,
+  blocks: BioEditorBlock[],
+  details: BioPagePreviewDetails
+): void {
+  persistPagePreviewStorage(pageId, pageSlug, blocks, details);
+  void syncPageDocumentToServer(pageId, blocks, details);
 }
 
 export function mergeTemplates(
@@ -331,6 +446,32 @@ export function mergeTemplates(
   return Array.from(map.values()).sort(
     (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
   );
+}
+
+export function mergeDrafts(local: BioPageDraft[], remote: BioPageDraft[]): BioPageDraft[] {
+  const map = new Map<string, BioPageDraft>();
+  for (const draft of remote) {
+    map.set(draft.pageId, draft);
+  }
+  for (const draft of local) {
+    const existing = map.get(draft.pageId);
+    if (!existing || new Date(draft.updatedAt) >= new Date(existing.updatedAt)) {
+      map.set(draft.pageId, draft);
+    }
+  }
+  return Array.from(map.values()).sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  );
+}
+
+export interface WorkspaceExportPayload {
+  pages?: Array<{ id: string; slug?: string; title?: string; [key: string]: unknown }>;
+  bio_page_drafts?: BioPageDraft[];
+  page_documents?: Record<
+    string,
+    { blocks?: BioEditorBlock[]; details?: BioPagePreviewDetails; updatedAt?: string }
+  >;
+  publish_settings?: unknown;
 }
 
 export async function fetchServerTemplates(): Promise<BioPageTemplate[]> {
@@ -374,5 +515,52 @@ export async function syncAllTemplatesToServer(templates: BioPageTemplate[]): Pr
     });
   } catch (err) {
     console.error("Failed to bulk sync templates:", err);
+  }
+}
+
+export async function fetchServerDrafts(): Promise<BioPageDraft[]> {
+  try {
+    const token = getAccessToken();
+    const res = await fetch(apiUrl("/api/drafts"), {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      credentials: "include"
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (!Array.isArray(data)) return [];
+    return data.map((item) => normalizeDraft(item as Record<string, unknown>));
+  } catch {
+    return [];
+  }
+}
+
+export async function syncAllDraftsToServer(drafts: BioPageDraft[]): Promise<void> {
+  try {
+    const token = getAccessToken();
+    await fetch(apiUrl("/api/drafts"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      credentials: "include",
+      body: JSON.stringify({ drafts })
+    });
+  } catch (err) {
+    console.error("Failed to bulk sync drafts:", err);
+  }
+}
+
+export async function fetchWorkspaceExport(): Promise<WorkspaceExportPayload | null> {
+  try {
+    const token = getAccessToken();
+    const res = await fetch(apiUrl("/api/workspace/export"), {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      credentials: "include"
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as WorkspaceExportPayload;
+  } catch {
+    return null;
   }
 }

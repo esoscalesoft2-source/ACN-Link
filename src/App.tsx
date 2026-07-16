@@ -75,7 +75,12 @@ import {
   persistTemplates,
   persistPagePreviewStorage,
   fetchServerTemplates,
+  fetchWorkspaceExport,
+  mergeDrafts,
   mergeTemplates,
+  syncAllDraftsToServer,
+  syncAllLocalPageDocumentsToServer,
+  syncLocalPageDocumentToServer,
   syncTemplateToServer,
   deleteTemplateOnServer,
   syncAllTemplatesToServer
@@ -195,6 +200,7 @@ export default function App() {
     return readLocalStorage("biolinks_pages_list", initialBioPages);
   });
   const [isPagesSyncReady, setIsPagesSyncReady] = useState(false);
+  const [workspaceHydrated, setWorkspaceHydrated] = useState(false);
 
   // Server state and sync for pages list & analytics metrics
   const [serverMetrics, setServerMetrics] = useState<{
@@ -400,6 +406,76 @@ export default function App() {
     });
   }, [isLoggedIn]);
 
+  // Hydrate drafts, pages, and editor blocks from server (cross-device sync)
+  React.useEffect(() => {
+    if (!isLoggedIn || isPreviewToken(getAccessToken())) {
+      setWorkspaceHydrated(false);
+      return;
+    }
+    let cancelled = false;
+    setWorkspaceHydrated(false);
+
+    (async () => {
+      const exported = await fetchWorkspaceExport();
+      if (cancelled || !exported) {
+        setWorkspaceHydrated(true);
+        return;
+      }
+
+      if (Array.isArray(exported.bio_page_drafts) && exported.bio_page_drafts.length > 0) {
+        setSavedDrafts((local) => {
+          const normalized = exported.bio_page_drafts!.map((draft) =>
+            normalizeDraft(draft as unknown as Record<string, unknown>)
+          );
+          const merged = mergeDrafts(local, normalized);
+          persistDrafts(merged);
+          return merged;
+        });
+      }
+
+      if (Array.isArray(exported.pages) && exported.pages.length > 0) {
+        setPages((localPages) => {
+          const merged = new Map(localPages.map((page) => [page.id, page]));
+          exported.pages!.forEach((page) => merged.set(page.id, page as BioPage));
+          return Array.from(merged.values());
+        });
+      }
+
+      if (exported.page_documents && typeof exported.page_documents === "object") {
+        setPageBlocksMap((localMap) => {
+          const next = { ...localMap };
+          let changed = false;
+          for (const [pageId, doc] of Object.entries(exported.page_documents!)) {
+            if (!Array.isArray(doc.blocks) || doc.blocks.length === 0) continue;
+            const localBlocks = localMap[pageId];
+            if (Array.isArray(localBlocks) && localBlocks.length > 0) continue;
+            next[pageId] = doc.blocks;
+            changed = true;
+            const page = exported.pages?.find((item) => item.id === pageId);
+            if (doc.details && page?.slug) {
+              persistPagePreviewStorage(pageId, page.slug, doc.blocks, doc.details);
+            }
+          }
+          return changed ? next : localMap;
+        });
+      }
+
+      setWorkspaceHydrated(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn]);
+
+  const didPushLocalPagesRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!isLoggedIn || !workspaceHydrated || isPreviewToken(getAccessToken())) return;
+    if (!pages.length || didPushLocalPagesRef.current) return;
+    didPushLocalPagesRef.current = true;
+    void syncAllLocalPageDocumentsToServer(pages);
+  }, [isLoggedIn, workspaceHydrated, pages]);
+
   // Notify on new live analytics events (skip initial load)
   React.useEffect(() => {
     if (!serverMetrics?.events?.length) return;
@@ -476,7 +552,7 @@ export default function App() {
 
     loadInitialData();
 
-    // Poll for real-time analytics updates every 5 seconds!
+    // Poll for analytics updates every 30 seconds
     const interval = setInterval(() => {
       fetch(apiUrl("/api/analytics"))
         .then(res => res.json())
@@ -490,7 +566,7 @@ export default function App() {
           });
         })
         .catch(err => console.error("Error polling analytics:", err));
-    }, 5000);
+    }, 30000);
 
     return () => clearInterval(interval);
   }, [isLoggedIn]);
@@ -553,7 +629,11 @@ export default function App() {
 
   React.useEffect(() => {
     persistDrafts(savedDrafts);
-  }, [savedDrafts]);
+    if (!isLoggedIn || isPreviewToken(getAccessToken()) || !workspaceHydrated) return;
+    if (savedDrafts.length > 0) {
+      void syncAllDraftsToServer(savedDrafts);
+    }
+  }, [savedDrafts, isLoggedIn, workspaceHydrated]);
 
   React.useEffect(() => {
     writeLocalStorage("pageBlocksMap", pageBlocksMap);
@@ -606,7 +686,8 @@ export default function App() {
 
   // Push browser workspace fields → Railway → Supabase normalized tables
   React.useEffect(() => {
-    if (!isLoggedIn) return;
+    if (!isLoggedIn || !workspaceHydrated) return;
+
     const timer = window.setTimeout(() => {
       let supportTickets: unknown[] = [];
       try {
@@ -649,6 +730,7 @@ export default function App() {
 
     return () => window.clearTimeout(timer);
   }, [
+    workspaceHydrated,
     isLoggedIn,
     contacts,
     whatsAppCampaigns,
@@ -736,6 +818,8 @@ export default function App() {
       clearAuthSession();
     }
     setIsLoggedIn(false);
+    setWorkspaceHydrated(false);
+    didPushLocalPagesRef.current = false;
     setIsMobileNavOpen(false);
     navigate(screenToPath(ScreenId.LOGIN), { replace: true });
   };
@@ -1077,11 +1161,18 @@ export default function App() {
   };
 
   const handleConnectDomain = async (domainName: string, pageId: string) => {
+    const page = pages.find((item) => item.id === pageId);
+    await syncLocalPageDocumentToServer(pageId, page?.slug);
     const created = await connectDomain(domainName, pageId);
     setDomains((current) => [created, ...current.filter((domain) => domain.id !== created.id)]);
   };
 
   const handleVerifyDomain = async (id: string) => {
+    const domain = domains.find((item) => item.id === id);
+    if (domain) {
+      const page = pages.find((item) => item.id === domain.pageId);
+      await syncLocalPageDocumentToServer(domain.pageId, page?.slug);
+    }
     const updated = await verifyDomain(id);
     setDomains((current) => current.map((domain) => (domain.id === updated.id ? updated : domain)));
   };

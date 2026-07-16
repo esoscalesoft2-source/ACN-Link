@@ -6,7 +6,11 @@ import cookieParser from "cookie-parser";
 import { createAuthRouter, requireAuth } from "./server/auth/routes";
 import { getDataStoreStatus, getRootStore, initRootStore, setRootStore } from "./server/db/rootStore";
 import { getSupabase, isSupabaseConfigured } from "./server/db/supabase";
-import { mergeWorkspaceIntoRoot, syncRootToNormalizedTables } from "./server/db/syncNormalized";
+import {
+  mergeBioPageDrafts,
+  mergeWorkspaceIntoRoot,
+  syncRootToNormalizedTables
+} from "./server/db/syncNormalized";
 import { createDomainsRouter } from "./server/domains/routes";
 import { findRoutableDomainByHostname } from "./server/domains/repository";
 import { isCloudflareForSaasConfigured } from "./server/domains/cloudflare";
@@ -112,11 +116,36 @@ app.get("/api/public/custom-domain/:hostname", async (req, res) => {
 app.use("/api/auth", createAuthRouter());
 app.use("/api/domains", createDomainsRouter());
 
+/** Pull workspace collections for the signed-in user (cross-device hydration). */
+app.get("/api/workspace/export", requireAuth, (req, res) => {
+  const userId = (req as any).authUser.id as string;
+  const store = readStore();
+  const pages = (Array.isArray(store["pages_list"]) ? store["pages_list"] : []).filter(
+    (page: any) => page.ownerUserId === userId
+  );
+  const drafts = mergeBioPageDrafts(store["bio_page_drafts"], [], userId).filter(
+    (draft) => !draft.ownerUserId || draft.ownerUserId === userId
+  );
+  const pageDocuments: Record<string, unknown> = {};
+  for (const page of pages) {
+    if (store[page.id]) {
+      pageDocuments[page.id] = store[page.id];
+    }
+  }
+  res.json({
+    pages,
+    bio_page_drafts: drafts,
+    page_documents: pageDocuments,
+    publish_settings: store["publish_settings"] ?? null
+  });
+});
+
 /** Import browser localStorage workspace collections → root + normalized Supabase tables */
 app.post("/api/workspace/import", requireAuth, async (req, res) => {
   try {
+    const userId = (req as any).authUser.id as string;
     const workspace = (req.body?.workspace || req.body || {}) as Record<string, unknown>;
-    const root = mergeWorkspaceIntoRoot(getRootStore(), workspace);
+    const root = mergeWorkspaceIntoRoot(getRootStore(), workspace, userId);
     setRootStore(root);
 
     let normalized: { ok: boolean; counts?: Record<string, number>; error?: string } = {
@@ -215,6 +244,7 @@ app.get("/api/page/:id", (req, res) => {
   const { id } = req.params;
   const store = readStore();
   const pageData = store[id];
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate");
   if (pageData) {
     res.json(pageData);
   } else {
@@ -373,6 +403,32 @@ app.delete("/api/templates/:id", (req, res) => {
     writeStore(store);
   }
   res.json({ success: true });
+});
+
+// Bio page drafts — cross-device editor history
+app.get("/api/drafts", requireAuth, (req, res) => {
+  const userId = (req as any).authUser.id as string;
+  const store = readStore();
+  const drafts = mergeBioPageDrafts(store["bio_page_drafts"], [], userId).filter(
+    (draft) => !draft.ownerUserId || draft.ownerUserId === userId
+  );
+  res.json(drafts);
+});
+
+app.post("/api/drafts", requireAuth, (req, res) => {
+  const userId = (req as any).authUser.id as string;
+  const store = readStore();
+
+  if (req.body.draft) {
+    const draft = { ...req.body.draft, ownerUserId: userId };
+    store["bio_page_drafts"] = mergeBioPageDrafts(store["bio_page_drafts"], [draft], userId);
+  } else if (Array.isArray(req.body.drafts)) {
+    const stamped = req.body.drafts.map((draft: any) => ({ ...draft, ownerUserId: userId }));
+    store["bio_page_drafts"] = mergeBioPageDrafts(store["bio_page_drafts"], stamped, userId);
+  }
+
+  writeStore(store);
+  res.json({ success: true, drafts: store["bio_page_drafts"] });
 });
 
 // Analytics Retrieval API

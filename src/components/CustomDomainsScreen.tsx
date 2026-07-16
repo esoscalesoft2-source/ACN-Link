@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import type { BioPage, CustomDomain } from "../types";
 import { isValidHostname, normaliseHostname } from "../storage/publishStorage";
+import { syncLocalPageDocumentToServer } from "../storage/bioBuilderStorage";
 import PageShell, { PageHeader, SectionCard, Workspace } from "./layout/PageShell";
 
 interface CustomDomainsScreenProps {
@@ -130,19 +131,7 @@ export default function CustomDomainsScreen({
   };
 
   const verify = async (domain: CustomDomain) => {
-    setVerifyingId(domain.id);
-    try {
-      await onVerifyDomain(domain.id);
-      triggerToast(
-        isDomainLive(domain)
-          ? "Domain is live. DNS and routing status refreshed."
-          : "DNS checked. SSL provisioning can take several minutes."
-      );
-    } catch (error) {
-      triggerToast(error instanceof Error ? error.message : "DNS verification failed.");
-    } finally {
-      setVerifyingId(null);
-    }
+    await verifyAndSync(domain);
   };
 
   const remove = async (domain: CustomDomain) => {
@@ -160,6 +149,30 @@ export default function CustomDomainsScreen({
   };
 
   const pageName = (id: string) => pages.find((page) => page.id === id)?.title || "Published website";
+
+  const openLiveWebsite = async (domain: CustomDomain) => {
+    const page = pages.find((item) => item.id === domain.pageId);
+    await syncLocalPageDocumentToServer(domain.pageId, page?.slug);
+    window.open(`https://${domain.domainName}`, "_blank", "noopener,noreferrer");
+  };
+
+  const verifyAndSync = async (domain: CustomDomain) => {
+    setVerifyingId(domain.id);
+    try {
+      const page = pages.find((item) => item.id === domain.pageId);
+      await syncLocalPageDocumentToServer(domain.pageId, page?.slug);
+      await onVerifyDomain(domain.id);
+      triggerToast(
+        isDomainLive(domain)
+          ? "Domain refreshed and latest page content synced."
+          : "DNS checked and latest page content synced."
+      );
+    } catch (error) {
+      triggerToast(error instanceof Error ? error.message : "DNS verification failed.");
+    } finally {
+      setVerifyingId(null);
+    }
+  };
 
   return (
     <PageShell>
@@ -185,6 +198,7 @@ export default function CustomDomainsScreen({
         <p className="mt-1 text-indigo-800">
           Pick your published page → enter your own website address (e.g. links.yourbrand.com) → add one
           DNS record at GoDaddy/Namecheap → click Verify. Your brand address goes live with HTTPS.
+          Bio Pages edits sync here when you save a draft or publish.
         </p>
       </div>
 
@@ -256,7 +270,7 @@ export default function CustomDomainsScreen({
                       {statusBadge(domain)}
                     </div>
                     <p className="mt-1 text-xs text-slate-500">
-                      Opens: {pageName(domain.pageId)} · SSL: {domain.sslStatus}
+                      Opens: {pageName(domain.pageId)} · Page ID: {domain.pageId} · SSL: {domain.sslStatus}
                     </p>
                     {domain.errorMessage && (
                       <p
@@ -286,15 +300,14 @@ export default function CustomDomainsScreen({
                     >
                       <RefreshCw className={`h-4 w-4 ${verifyingId === domain.id ? "animate-spin" : ""}`} />
                     </button>
-                    <a
-                      href={`https://${domain.domainName}`}
-                      target="_blank"
-                      rel="noreferrer"
+                    <button
+                      type="button"
+                      onClick={() => void openLiveWebsite(domain)}
                       className="rounded-lg p-2 text-slate-500 hover:bg-indigo-50 hover:text-indigo-700"
-                      title="Open website"
+                      title="Open website (syncs latest edits first)"
                     >
                       <ExternalLink className="h-4 w-4" />
-                    </a>
+                    </button>
                     <button
                       type="button"
                       disabled={deletingId === domain.id}

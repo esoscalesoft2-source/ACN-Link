@@ -1566,10 +1566,16 @@ html.acn-public-scroll #root {
 
 .acn-public-bio-page {
   min-height: 100dvh;
+  min-height: 100svh;
   background: #3a3a3c;
   color: #f1f5f9;
   position: relative;
-  padding: 10px 1rem 2rem;
+  padding:
+    max(12px, env(safe-area-inset-top, 0px))
+    max(12px, env(safe-area-inset-right, 0px))
+    max(16px, env(safe-area-inset-bottom, 0px))
+    max(12px, env(safe-area-inset-left, 0px));
+  -webkit-text-size-adjust: 100%;
 }
 
 .acn-public-bio-page.acn-bio-page-theme-light {
@@ -1579,13 +1585,26 @@ html.acn-public-scroll #root {
 
 .acn-public-bio-page__card {
   margin: 0 auto;
-  border-radius: 1.25rem;
+  width: 100%;
+  max-width: 28rem;
+  border-radius: 1.5rem;
   overflow: hidden;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.32),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
   display: flex;
   flex-direction: column;
-  min-height: calc(100dvh - 10px - 2rem);
-  width: 100%;
+  min-height: auto;
+  position: relative;
+  isolation: isolate;
+  transform: translateZ(0);
+}
+
+.acn-public-bio-page__card.acn-public-bio-page__screen {
+  height: auto !important;
+  min-height: auto !important;
+  max-height: none !important;
+  flex: none !important;
 }
 
 .acn-public-bio-page__screen {
@@ -1593,13 +1612,14 @@ html.acn-public-scroll #root {
   display: flex !important;
   flex-direction: column !important;
   height: auto !important;
-  min-height: 100% !important;
+  min-height: auto !important;
   max-height: none !important;
-  overflow: visible !important;
+  overflow: hidden !important;
   margin-top: 0 !important;
   width: 100%;
   position: relative;
   background: #161b27 !important;
+  border-radius: 1.5rem;
 }
 
 .acn-public-bio-page__screen.acn-bio-page-theme-light {
@@ -1608,15 +1628,39 @@ html.acn-public-scroll #root {
 
 .acn-public-bio-page__cover {
   height: 11.5rem;
+  min-height: 11.5rem;
   flex-shrink: 0;
+  overflow: hidden;
+  border-top-left-radius: 1.5rem;
+  border-top-right-radius: 1.5rem;
+}
+
+.acn-public-bio-page__cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-top-left-radius: 1.5rem;
+  border-top-right-radius: 1.5rem;
 }
 
 .acn-public-bio-page__body {
-  padding: 0.75rem 1.25rem 1.25rem;
-  flex: 1;
+  padding: 0.875rem 1.25rem 1.25rem;
+  flex: 1 1 auto !important;
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  min-height: auto !important;
+  height: auto !important;
+  width: 100%;
+  overflow: visible;
+}
+
+.acn-public-bio-page__card .acn-phone-preview__body,
+.acn-public-bio-page__card .acn-public-bio-page__body {
+  flex: 1 1 auto !important;
+  min-height: auto !important;
+  height: auto !important;
+  overflow: visible !important;
 }
 
 .acn-public-bio-page__profile {
@@ -1670,13 +1714,30 @@ html.acn-public-scroll #root {
 .acn-phone-preview__footer,
 .acn-bio-page-footer {
   margin-top: auto;
-  padding-top: 2rem;
-  padding-bottom: 1.25rem;
+  padding-top: 1.5rem;
+  padding-bottom: 0.5rem;
   text-align: center;
   flex-shrink: 0;
   font-size: 0.75rem;
   font-weight: 500;
   letter-spacing: 0.06em;
+}
+
+.acn-public-bio-page__screen .acn-phone-preview__blocks {
+  width: 100%;
+  flex: 1 1 auto !important;
+  min-height: auto !important;
+  overflow: visible !important;
+}
+
+.acn-public-bio-page__card .acn-phone-preview__footer,
+.acn-public-bio-page__card .acn-bio-page-footer {
+  border-bottom-left-radius: 1.5rem;
+  border-bottom-right-radius: 1.5rem;
+}
+
+.acn-public-bio-page__loading {
+  font-size: 0.875rem;
 }
 
 .acn-public-bio-page__screen .acn-phone-preview__bio-text {
@@ -3780,8 +3841,9 @@ body.acn-editor-open header.acn-glass-header {
 }
 
 .acn-phone-preview__screen .acn-phone-preview__body.acn-public-bio-page__body {
-  flex: 1 0 auto;
-  min-height: calc(100% - 12rem);
+  flex: 1 1 auto !important;
+  min-height: auto !important;
+  height: auto !important;
 }
 
 .acn-phone-preview__screen .acn-phone-preview__bio {

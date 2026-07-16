@@ -241,6 +241,7 @@ export async function syncRootToNormalizedTables(
           id: String(d.id),
           page_id: d.pageId || "",
           page_slug: d.pageSlug ?? null,
+          owner_user_id: d.ownerUserId ?? null,
           data: d.data || {},
           created_at: d.createdAt || new Date().toISOString(),
           updated_at: d.updatedAt || new Date().toISOString()
@@ -498,10 +499,47 @@ export async function syncRootToNormalizedTables(
   }
 }
 
+function draftKey(row: Record<string, unknown>): string {
+  return String(row.pageId || row.id || "");
+}
+
+/** Last-write-wins merge for bio page drafts (prevents empty client wipe on new devices). */
+export function mergeBioPageDrafts(
+  existing: unknown,
+  incoming: unknown,
+  ownerUserId?: string
+): Record<string, unknown>[] {
+  const map = new Map<string, Record<string, unknown>>();
+
+  for (const row of asArray(existing)) {
+    const key = draftKey(row);
+    if (!key) continue;
+    if (ownerUserId && row.ownerUserId && row.ownerUserId !== ownerUserId) continue;
+    map.set(key, row);
+  }
+
+  for (const row of asArray(incoming)) {
+    const key = draftKey(row);
+    if (!key) continue;
+    const stamped = ownerUserId ? { ...row, ownerUserId } : row;
+    const prev = map.get(key);
+    if (
+      !prev ||
+      new Date(String(stamped.updatedAt || 0)).getTime() >=
+        new Date(String(prev.updatedAt || 0)).getTime()
+    ) {
+      map.set(key, stamped);
+    }
+  }
+
+  return Array.from(map.values());
+}
+
 /** Map workspace payload from the browser into root + normalized tables. */
 export function mergeWorkspaceIntoRoot(
   root: Record<string, unknown>,
-  workspace: Record<string, unknown>
+  workspace: Record<string, unknown>,
+  ownerUserId?: string
 ): Record<string, unknown> {
   const next = { ...root };
   const keys = [
@@ -518,12 +556,20 @@ export function mergeWorkspaceIntoRoot(
     "help_articles",
     "support_tickets",
     "notifications",
-    "bio_page_drafts",
     "publish_settings"
   ] as const;
 
   for (const key of keys) {
     if (key in workspace) next[key] = workspace[key];
   }
+
+  if ("bio_page_drafts" in workspace) {
+    next.bio_page_drafts = mergeBioPageDrafts(
+      root.bio_page_drafts,
+      workspace.bio_page_drafts,
+      ownerUserId
+    );
+  }
+
   return next;
 }

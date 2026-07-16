@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
-import { ArrowRight, Copy, Check, MessageSquare, User, X, AlertCircle } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { ArrowRight, Copy, MessageSquare, User, X } from "lucide-react";
 import { apiUrl } from "../lib/apiBase";
 import { BIO_LINK, getLinkArrowColor, getLinkButtonStyle, isDefaultBrightLink } from "../lib/bioLinkColors";
-import { formatDisplayHandle } from "../storage/bioBuilderStorage";
+import { formatDisplayHandle, readLocalPageUpdatedAt } from "../storage/bioBuilderStorage";
 import type { BioPagePreviewDetails, BioPagePreviewTheme } from "../types";
 
 interface Block {
@@ -78,6 +78,141 @@ const getCurrencySymbol = (currency: string = "₹ INR") => {
   return currency.split(" ")[0] || "₹";
 };
 
+type BlockRecord = Block & Record<string, unknown>;
+
+function normalizeExternalUrl(value: string): string {
+  const target = value.trim();
+  if (!target) return "";
+  if (/^(https?:\/\/|mailto:|tel:|whatsapp:)/i.test(target)) return target;
+  if (/^[\w.-]+@[\w.-]+\.\w+$/.test(target)) return `mailto:${target}`;
+  if (/^\+?[\d\s()-]{7,}$/.test(target)) return `tel:${target.replace(/\s/g, "")}`;
+  return `https://${target}`;
+}
+
+function getGalleryImages(block: BlockRecord): string[] {
+  return [block.img1, block.img2, block.img3]
+    .filter((url): url is string => typeof url === "string" && url.trim().length > 0);
+}
+
+function getVideoThumbnail(block: BlockRecord): string {
+  const customThumb = typeof block.thumbUrl === "string" ? block.thumbUrl : "";
+  if (customThumb) return customThumb;
+  const url = block.value || "";
+  const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]{6,})/i);
+  if (ytMatch?.[1]) return `https://img.youtube.com/vi/${ytMatch[1]}/hqdefault.jpg`;
+  return "https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&q=80&w=800";
+}
+
+function downloadVCard(options: { name: string; phone?: string; email?: string; handle?: string }) {
+  const phone = options.phone?.replace(/[^\d+]/g, "") || "";
+  const email = options.email?.includes("@") ? options.email : "";
+  const vcard = [
+    "BEGIN:VCARD",
+    "VERSION:3.0",
+    `FN:${options.name}`,
+    options.handle ? `NICKNAME:${options.handle.replace(/^@/, "")}` : "",
+    phone ? `TEL;TYPE=CELL:${phone}` : "",
+    email ? `EMAIL:${email}` : "",
+    "END:VCARD"
+  ]
+    .filter(Boolean)
+    .join("\r\n");
+  const blob = new Blob([vcard], { type: "text/vcard;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${options.name.replace(/[^\w.-]+/g, "_") || "contact"}.vcf`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function parseCountdownDays(value: string | undefined, fallback = 9): number {
+  const parsed = Number.parseInt(String(value || "").replace(/\D/g, ""), 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function readCachedPage(pageId: string): { blocks?: Block[]; details?: BioPagePreviewDetails } | null {
+  try {
+    const raw = sessionStorage.getItem(`acn_public_page_${pageId}`);
+    if (!raw) return null;
+    return JSON.parse(raw) as { blocks?: Block[]; details?: BioPagePreviewDetails };
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedPage(pageId: string, blocks: Block[], details: BioPagePreviewDetails | null) {
+  try {
+    sessionStorage.setItem(
+      `acn_public_page_${pageId}`,
+      JSON.stringify({ blocks, details, cachedAt: Date.now() })
+    );
+  } catch {
+    /* ignore quota errors */
+  }
+}
+
+function destinationEmailFromBlock(block: BlockRecord): string | undefined {
+  const raw = typeof block.email === "string" ? block.email : block.value;
+  return typeof raw === "string" && raw.includes("@") ? raw : undefined;
+}
+
+function readLocalPageData(pageId: string, pageSlug: string) {
+  let loadedBlocks: Block[] | null = null;
+  let loadedDetails: BioPagePreviewDetails | null = null;
+
+  const cached = readCachedPage(pageId);
+  if (cached?.blocks?.length) {
+    loadedBlocks = cached.blocks;
+    loadedDetails = cached.details ?? null;
+  }
+
+  const savedBlocks =
+    localStorage.getItem(`biolink_blocks_${pageId}`) ||
+    localStorage.getItem(`biolink_blocks_${pageSlug}`);
+  if (savedBlocks) {
+    try {
+      const parsed = JSON.parse(savedBlocks);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        loadedBlocks = parsed;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const savedDetails =
+    localStorage.getItem(`biolink_details_${pageId}`) ||
+    localStorage.getItem(`biolink_details_${pageSlug}`);
+  if (savedDetails) {
+    try {
+      loadedDetails = JSON.parse(savedDetails) as BioPagePreviewDetails;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return { loadedBlocks, loadedDetails };
+}
+
+function getInitialPageState(pageId: string, pageSlug: string, mode: "preview" | "live") {
+  if (mode === "live") {
+    return {
+      blocks: [] as Block[],
+      details: null as BioPagePreviewDetails | null,
+      status: "loading" as const
+    };
+  }
+  const { loadedBlocks, loadedDetails } = readLocalPageData(pageId, pageSlug);
+  return {
+    blocks: loadedBlocks ?? [],
+    details: loadedDetails,
+    status: (loadedBlocks?.length ? "ready" : "loading") as "loading" | "ready" | "not_found"
+  };
+}
+
 export default function PublicBioPageView({
   pageId,
   pageTitle,
@@ -86,16 +221,18 @@ export default function PublicBioPageView({
   pageCoverPhoto,
   mode = "preview"
 }: PublicBioPageViewProps) {
-  const [blocks, setBlocks] = useState<Block[]>([]);
-  const [customDetails, setCustomDetails] = useState<BioPagePreviewDetails | null>(null);
-  const [pageTheme, setPageTheme] = useState<BioPagePreviewTheme>("dark");
-  const [pageLoadStatus, setPageLoadStatus] = useState<"loading" | "ready" | "not_found">("loading");
+  const initialPage = getInitialPageState(pageId, pageSlug, mode);
+  const [blocks, setBlocks] = useState<Block[]>(initialPage.blocks);
+  const [customDetails, setCustomDetails] = useState<BioPagePreviewDetails | null>(initialPage.details);
+  const [pageTheme, setPageTheme] = useState<BioPagePreviewTheme>(
+    initialPage.details?.pageTheme === "light" ? "light" : "dark"
+  );
+  const [pageLoadStatus, setPageLoadStatus] = useState<"loading" | "ready" | "not_found">(initialPage.status);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [showNoticePanel, setShowNoticePanel] = useState(false);
-  const noticeRef = useRef<HTMLDivElement>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [leadEmail, setLeadEmail] = useState("");
+  const [leadEmails, setLeadEmails] = useState<Record<string, string>>({});
   const [showSpinWheel, setShowSpinWheel] = useState(false);
+  const [activeSpinBlockId, setActiveSpinBlockId] = useState<string | null>(null);
   const [isSpinning, setIsSpinning] = useState(false);
   const [spinResult, setSpinResult] = useState<string | null>(null);
 
@@ -118,6 +255,8 @@ export default function PublicBioPageView({
   };
 
   useEffect(() => {
+    if (mode === "live") return;
+
     const handleStorage = (event: StorageEvent) => {
       if (
         event.key === `biolink_details_${pageId}` ||
@@ -144,7 +283,7 @@ export default function PublicBioPageView({
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("acn-page-preview-updated", handlePreviewUpdated as EventListener);
     };
-  }, [pageId, pageSlug]);
+  }, [pageId, pageSlug, mode]);
 
   useEffect(() => {
     document.documentElement.classList.add("acn-public-scroll");
@@ -152,26 +291,6 @@ export default function PublicBioPageView({
       document.documentElement.classList.remove("acn-public-scroll");
     };
   }, []);
-
-  useEffect(() => {
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setShowNoticePanel(false);
-    };
-
-    const handleClickOutside = (event: MouseEvent) => {
-      if (noticeRef.current && !noticeRef.current.contains(event.target as Node)) {
-        setShowNoticePanel(false);
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [showNoticePanel]);
 
   const trackAction = (eventType: "visit" | "click" | "register", eventLabel: string, details?: any) => {
     fetch(apiUrl("/api/track"), {
@@ -217,12 +336,78 @@ export default function PublicBioPageView({
       return;
     }
 
-    const url = /^https?:\/\//i.test(target) ? target : `https://${target}`;
+    const url = normalizeExternalUrl(target);
     try {
+      if (url.startsWith("mailto:") || url.startsWith("tel:")) {
+        window.location.href = url;
+        return;
+      }
       window.open(url, "_blank", "noopener,noreferrer");
     } catch {
       triggerToast("Your browser blocked this link. Please try again.");
     }
+  };
+
+  const applyLoadedPage = (
+    nextBlocks: Block[],
+    details: BioPagePreviewDetails | null,
+    status: "ready" | "not_found" = "ready"
+  ) => {
+    setBlocks(nextBlocks);
+    setPageLoadStatus(status);
+    if (details) {
+      setCustomDetails(details);
+      setPageTheme(details.pageTheme === "light" ? "light" : "dark");
+    }
+    if (nextBlocks.length > 0) {
+      writeCachedPage(pageId, nextBlocks, details);
+    }
+  };
+
+  const readLocalPageDataForPage = () => readLocalPageData(pageId, pageSlug);
+
+  const fetchServerPageDocument = async () => {
+    const res = await fetch(apiUrl(`/api/page/${pageId}`), {
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        Pragma: "no-cache"
+      }
+    });
+    if (!res.ok) return null;
+    return res.json() as Promise<{
+      blocks?: Block[];
+      details?: BioPagePreviewDetails;
+      updatedAt?: string;
+    } | null>;
+  };
+
+  const applyServerDocument = (
+    data: { blocks?: Block[]; details?: BioPagePreviewDetails; updatedAt?: string },
+    localUpdatedAt: string | null
+  ) => {
+    const serverBlocks = Array.isArray(data.blocks) ? data.blocks : [];
+    const serverDetails = data.details ?? null;
+    const serverUpdatedAt = typeof data.updatedAt === "string" ? data.updatedAt : null;
+    const localIsNewer =
+      localUpdatedAt &&
+      serverUpdatedAt &&
+      new Date(localUpdatedAt).getTime() > new Date(serverUpdatedAt).getTime();
+
+    if (mode !== "live" && localIsNewer) {
+      return false;
+    }
+    if (serverBlocks.length > 0) {
+      applyLoadedPage(serverBlocks, serverDetails, "ready");
+      return true;
+    }
+    if (serverDetails) {
+      setCustomDetails(serverDetails);
+      setPageTheme(serverDetails.pageTheme === "light" ? "light" : "dark");
+      setPageLoadStatus("ready");
+      return true;
+    }
+    return false;
   };
 
   // Track initial visit on mount
@@ -230,107 +415,84 @@ export default function PublicBioPageView({
     trackAction("visit", "BioLink Page Visited");
   }, [pageId]);
 
-  // Live countdown state
+  // Live countdown — only when page has a Countdown block
+  const countdownSeedDays = parseCountdownDays(
+    blocks.find((block) => block.type === "Countdown")?.value,
+    9
+  );
   const [countdown, setCountdown] = useState({
-    days: 9,
+    days: countdownSeedDays,
     hrs: 19,
     mins: 45,
     secs: 30
   });
 
-  // Ticking countdown effect
   useEffect(() => {
+    const days = parseCountdownDays(blocks.find((block) => block.type === "Countdown")?.value, 9);
+    setCountdown({ days, hrs: 19, mins: 45, secs: 30 });
+  }, [blocks]);
+
+  useEffect(() => {
+    if (!blocks.some((block) => block.type === "Countdown")) return;
     const timer = setInterval(() => {
-      setCountdown(prev => {
-        if (prev.secs > 0) {
-          return { ...prev, secs: prev.secs - 1 };
-        } else if (prev.mins > 0) {
-          return { ...prev, mins: prev.mins - 1, secs: 59 };
-        } else if (prev.hrs > 0) {
-          return { ...prev, hrs: prev.hrs - 1, mins: 59, secs: 59 };
-        } else if (prev.days > 0) {
-          return { ...prev, days: prev.days - 1, hrs: 23, mins: 59, secs: 59 };
-        }
+      setCountdown((prev) => {
+        if (prev.secs > 0) return { ...prev, secs: prev.secs - 1 };
+        if (prev.mins > 0) return { ...prev, mins: prev.mins - 1, secs: 59 };
+        if (prev.hrs > 0) return { ...prev, hrs: prev.hrs - 1, mins: 59, secs: 59 };
+        if (prev.days > 0) return { ...prev, days: prev.days - 1, hrs: 23, mins: 59, secs: 59 };
         return prev;
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [blocks]);
 
-  // Load custom published blocks & details from server first, and local storage as fallback
+  // Load published blocks from server (custom domains always use server; preview uses local cache first)
   useEffect(() => {
     let isMounted = true;
 
     async function loadPageData() {
       setLoadError(null);
 
-      // 1. Try fetching from server first (critical for multi-device/mobile preview)
+      const { loadedBlocks, loadedDetails } = readLocalPageDataForPage();
+      const localUpdatedAt = readLocalPageUpdatedAt(pageId, pageSlug);
+
+      if (mode !== "live" && isMounted && loadedBlocks?.length) {
+        applyLoadedPage(loadedBlocks, loadedDetails, "ready");
+      }
+
       try {
-        const res = await fetch(apiUrl(`/api/page/${pageId}`));
-        if (res.ok) {
-          const data = await res.json();
-          if (isMounted && data) {
-            if (Array.isArray(data.blocks) && data.blocks.length > 0) {
-              setBlocks(data.blocks);
-              setPageLoadStatus("ready");
-              if (data.details) {
-                setCustomDetails(data.details);
-                setPageTheme(data.details.pageTheme === "light" ? "light" : "dark");
-              }
-              return;
-            }
-            if (data.details) {
-              setCustomDetails(data.details);
-              setPageTheme(data.details.pageTheme === "light" ? "light" : "dark");
-            }
+        const data = await fetchServerPageDocument();
+        if (isMounted && data) {
+          const applied = applyServerDocument(data, localUpdatedAt);
+          if (applied) return;
+          if (mode !== "live" && loadedBlocks?.length) {
+            applyLoadedPage(loadedBlocks, loadedDetails ?? data.details ?? null, "ready");
+            return;
           }
-        } else if (res.status === 404) {
-          if (isMounted) setPageLoadStatus("not_found");
-        } else if (isMounted) {
-          setLoadError(`Server returned ${res.status}. Could not load this page.`);
+        } else if (isMounted && mode === "live") {
+          setPageLoadStatus("not_found");
         }
       } catch (err) {
         console.error("Failed to fetch page data from server:", err);
-        if (isMounted) {
+        if (isMounted && (mode === "live" || !loadedBlocks?.length)) {
           setLoadError("Could not reach the server. Check your connection and try again.");
         }
       }
 
-      // 2. Fallback to localStorage (for offline/local-only compatibility)
-      let loadedBlocks: Block[] | null = null;
-      const savedBlocks = localStorage.getItem(`biolink_blocks_${pageId}`) || localStorage.getItem(`biolink_blocks_${pageSlug}`);
-      if (savedBlocks) {
-        try {
-          const parsed = JSON.parse(savedBlocks);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            loadedBlocks = parsed;
-          }
-        } catch (e) {
-          console.error("Error loading custom blocks:", e);
-        }
-      }
-
       if (isMounted) {
-        if (loadedBlocks) {
-          setBlocks(loadedBlocks);
-          setPageLoadStatus("ready");
-        } else {
+        if (mode !== "live" && loadedBlocks?.length) {
+          applyLoadedPage(loadedBlocks, loadedDetails, "ready");
+        } else if (mode === "live") {
+          setPageLoadStatus((status) => (status === "loading" ? "not_found" : status));
+        } else if (!loadedBlocks?.length) {
           setPageLoadStatus("not_found");
         }
-      }
-
-      // Load custom details from localStorage
-      const savedDetails = localStorage.getItem(`biolink_details_${pageId}`) || localStorage.getItem(`biolink_details_${pageSlug}`);
-      if (savedDetails) {
-        try {
-          const parsed = JSON.parse(savedDetails) as BioPagePreviewDetails;
-          if (isMounted) applyStoredDetails(parsed);
-        } catch (e) {
-          console.error("Error loading custom details:", e);
+        if (loadedDetails && mode !== "live") {
+          applyStoredDetails(loadedDetails);
+        } else if (!loadedBlocks?.length && mode !== "live") {
+          setCustomDetails(null);
+          setPageTheme("dark");
         }
-      } else if (isMounted) {
-        setCustomDetails(null);
-        setPageTheme("dark");
       }
     }
 
@@ -339,57 +501,29 @@ export default function PublicBioPageView({
     return () => {
       isMounted = false;
     };
-  }, [pageId, pageSlug, pageTitle]);
+  }, [pageId, pageSlug, pageTitle, mode]);
 
-  const pageNotices = useMemo(() => {
-    const notices: Array<{ id: string; title: string; body: React.ReactNode; kind: "info" | "error" }> = [];
+  // Custom domains poll the server so edits appear without manual refresh
+  useEffect(() => {
+    if (mode !== "live") return;
 
-    if (mode === "preview") {
-      notices.push({
-        id: "sandbox",
-        title: "Secure Sandboxed Preview Mode",
-        kind: "info",
-        body: (
-          <>
-            <p>You are viewing your live BioLink output safely hosted on our secure origin.</p>
-            <p className="mt-2">
-              <strong>Note on Privacy Error:</strong> Custom mock domains (like{" "}
-              <code className="bg-amber-100/20 px-1 rounded text-amber-100">acn.link</code>) require real DNS
-              records and SSL certificates to work globally. Our sandbox securely routes this preview for you to test
-              functionality instantly!
-            </p>
-          </>
-        )
-      });
-    }
+    const pollLatest = async () => {
+      try {
+        const data = await fetchServerPageDocument();
+        if (data) {
+          applyServerDocument(data, null);
+        }
+      } catch {
+        /* ignore transient poll errors */
+      }
+    };
 
-    if (pageLoadStatus === "not_found") {
-      notices.push({
-        id: "not-found",
-        title: "Page Not Available",
-        kind: "error",
-        body: (
-          <p>
-            This page is not available yet. Ask the owner to publish it and try again.
-          </p>
-        )
-      });
-    }
+    const interval = window.setInterval(() => {
+      void pollLatest();
+    }, 12000);
 
-    if (loadError) {
-      notices.push({
-        id: "load-error",
-        title: "Could Not Load Page",
-        kind: "error",
-        body: <p>{loadError}</p>
-      });
-    }
-
-    return notices;
-  }, [mode, pageLoadStatus, loadError]);
-
-  const hasPageNotices = pageNotices.length > 0;
-  const hasErrorNotice = pageNotices.some((notice) => notice.kind === "error");
+    return () => window.clearInterval(interval);
+  }, [mode, pageId]);
 
   const triggerToast = (msg: string) => {
     setToast(msg);
@@ -401,6 +535,10 @@ export default function PublicBioPageView({
   const displayTitle = customDetails?.title || pageTitle;
   const displayHandle = formatDisplayHandle(customDetails?.handle, displayTitle);
   const displayBio = customDetails?.bio || pageBio;
+  const spinCouponCode =
+    blocks.find((block) => block.type === "Coupon" && block.value)?.value ||
+    blocks.find((block) => block.id === activeSpinBlockId)?.value ||
+    "SAVE20";
   const coverPhoto =
     customDetails?.coverPhoto ||
     pageCoverPhoto ||
@@ -408,54 +546,6 @@ export default function PublicBioPageView({
 
   return (
     <div className={`acn-public-bio-page acn-bio-page-theme-${pageTheme} flex flex-col items-center justify-start font-sans`}>
-      {hasPageNotices && (
-        <div className="acn-public-notice" ref={noticeRef}>
-          <button
-            type="button"
-            className="acn-public-notice__trigger"
-            onClick={() => setShowNoticePanel((open) => !open)}
-            aria-label="View page notices"
-            aria-expanded={showNoticePanel}
-            aria-haspopup="dialog"
-          >
-            <AlertCircle className="acn-public-notice__icon" />
-            <span
-              className={`acn-public-notice__dot${hasErrorNotice ? " acn-public-notice__dot--error" : ""}`}
-              aria-hidden
-            />
-          </button>
-
-          {showNoticePanel && (
-            <div className="acn-public-notice__panel" role="dialog" aria-label="Page notices">
-              <div className="acn-public-notice__panel-head">
-                <span className="acn-public-notice__panel-title">Page notices</span>
-                <button
-                  type="button"
-                  className="acn-public-notice__close"
-                  onClick={() => setShowNoticePanel(false)}
-                  aria-label="Close notices"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="acn-public-notice__panel-body">
-                {pageNotices.map((notice) => (
-                  <article
-                    key={notice.id}
-                    className={`acn-public-notice__item${
-                      notice.kind === "error" ? " acn-public-notice__item--error" : " acn-public-notice__item--info"
-                    }`}
-                  >
-                    <h3 className="acn-public-notice__item-title">{notice.title}</h3>
-                    <div className="acn-public-notice__item-body">{notice.body}</div>
-                  </article>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       <div className={`acn-public-bio-page__card acn-preview-isolate acn-public-bio-page__screen acn-bio-page-theme-${pageTheme} w-full max-w-md`}>
         <div className="acn-phone-preview__cover acn-public-bio-page__cover">
           <img
@@ -463,6 +553,9 @@ export default function PublicBioPageView({
             alt="Hero Cover"
             className="w-full h-full object-cover"
             referrerPolicy="no-referrer"
+            loading="eager"
+            decoding="async"
+            fetchPriority="high"
           />
           <div className="acn-phone-preview__cover-fade" />
         </div>
@@ -526,46 +619,71 @@ export default function PublicBioPageView({
                   </button>
                 );
 
-              case "Socials":
+              case "Socials": {
+                const socialBlock = block as BlockRecord;
+                const websiteUrl =
+                  (socialBlock.websiteUrl as string) ||
+                  blocks.find((b) => b.type === "Button" && b.value?.startsWith("http"))?.value ||
+                  "";
+                const whatsappVal =
+                  (socialBlock.whatsappUrl as string) ||
+                  blocks.find((b) => b.type === "WhatsApp" && b.value)?.value ||
+                  "";
+                const instagramUrl =
+                  (socialBlock.instagramUrl as string) ||
+                  blocks.find((b) => b.value?.includes("instagram.com"))?.value ||
+                  "";
+
                 return (
                   <div key={block.id} className="flex items-center justify-center gap-4 py-2">
-                    <span
-                      onClick={() => {
-                        trackAction("click", "Social Icon: Website");
-                        const webBlock = blocks.find(b => b.type === "Button" && b.value && b.value.startsWith("http"));
-                        const targetUrl = webBlock ? webBlock.value : "https://google.com";
-                        window.open(targetUrl, "_blank", "noopener,noreferrer");
-                      }}
-                      className="p-3 bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 rounded-full cursor-pointer transition-all shadow-sm active:scale-90"
-                    >
-                      🌐
-                    </span>
-                    <span
-                      onClick={() => {
-                        trackAction("click", "Social Icon: WhatsApp");
-                        const whatsappBlock = blocks.find(b => b.type === "WhatsApp" && b.value);
-                        const whatsappVal = whatsappBlock ? whatsappBlock.value : "+919876543210";
-                        openWhatsAppLink(whatsappVal);
-                      }}
-                      className="p-3 bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 rounded-full cursor-pointer transition-all shadow-sm active:scale-90"
-                    >
-                      💬
-                    </span>
-                    <span
-                      onClick={() => {
-                        trackAction("click", "Social Icon: Instagram");
-                        const targetUrl = "https://instagram.com";
-                        window.open(targetUrl, "_blank", "noopener,noreferrer");
-                      }}
-                      className="p-3 bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 rounded-full cursor-pointer transition-all shadow-sm active:scale-90"
-                    >
-                      📸
-                    </span>
+                    {websiteUrl && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          trackAction("click", "Social Icon: Website");
+                          openExternalLink(websiteUrl);
+                        }}
+                        className="p-3 bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 rounded-full cursor-pointer transition-all shadow-sm active:scale-90"
+                        aria-label="Open website"
+                      >
+                        🌐
+                      </button>
+                    )}
+                    {whatsappVal && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          trackAction("click", "Social Icon: WhatsApp");
+                          openWhatsAppLink(whatsappVal);
+                        }}
+                        className="p-3 bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 rounded-full cursor-pointer transition-all shadow-sm active:scale-90"
+                        aria-label="Open WhatsApp"
+                      >
+                        💬
+                      </button>
+                    )}
+                    {instagramUrl && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          trackAction("click", "Social Icon: Instagram");
+                          openExternalLink(instagramUrl);
+                        }}
+                        className="p-3 bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 rounded-full cursor-pointer transition-all shadow-sm active:scale-90"
+                        aria-label="Open Instagram"
+                      >
+                        📸
+                      </button>
+                    )}
                   </div>
                 );
+              }
 
               case "Shop": {
-                const shopProducts = (block as any).products || defaultProductsList;
+                const shopBlock = block as BlockRecord;
+                const shopProducts = Array.isArray(shopBlock.products) && shopBlock.products.length
+                  ? shopBlock.products
+                  : defaultProductsList;
                 const align = (block as any).alignment || "Centre";
                 const alignClass = align === "Left" ? "text-left" : align === "Right" ? "text-right" : "text-center";
                 const symbol = getCurrencySymbol((block as any).currency);
@@ -596,6 +714,8 @@ export default function PublicBioPageView({
                                 alt={p.name}
                                 className="h-full object-contain max-h-full max-w-full"
                                 referrerPolicy="no-referrer"
+                                loading="lazy"
+                                decoding="async"
                               />
                             ) : (
                               <div className="text-xs text-slate-400 font-bold">No Image</div>
@@ -691,6 +811,7 @@ export default function PublicBioPageView({
                     key={block.id}
                     onClick={() => {
                       trackAction("click", `Spin Wheel: ${block.label}`);
+                      setActiveSpinBlockId(block.id);
                       setSpinResult(null);
                       setIsSpinning(false);
                       setShowSpinWheel(true);
@@ -708,7 +829,11 @@ export default function PublicBioPageView({
                     key={block.id}
                     onClick={() => {
                       trackAction("click", `WhatsApp: ${block.label}`);
-                      openWhatsAppLink(block.value || "+919876543210");
+                      if (!block.value?.trim()) {
+                        triggerToast("WhatsApp number is not configured yet.");
+                        return;
+                      }
+                      openWhatsAppLink(block.value);
                     }}
                     style={{
                       backgroundColor: (block as any).bgColor || "#25D366",
@@ -721,7 +846,9 @@ export default function PublicBioPageView({
                   </button>
                 );
 
-              case "Smart Form":
+              case "Smart Form": {
+                const leadEmail = leadEmails[block.id] || "";
+                const destinationEmail = block.value?.includes("@") ? block.value : "";
                 return (
                   <div key={block.id} className="bg-white border border-slate-200 p-4.5 rounded-2xl space-y-2.5 text-left shadow-sm">
                     <span className="font-bold text-[10px] block text-center text-slate-700 uppercase tracking-widest font-mono">{block.label}</span>
@@ -730,19 +857,26 @@ export default function PublicBioPageView({
                         type="email"
                         required
                         value={leadEmail}
-                        onChange={(e) => setLeadEmail(e.target.value)}
+                        onChange={(e) =>
+                          setLeadEmails((prev) => ({ ...prev, [block.id]: e.target.value }))
+                        }
                         placeholder="Enter your email"
                         className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-violet-500"
                       />
                       <button
+                        type="button"
                         onClick={() => {
-                          if (leadEmail) {
-                            trackAction("register", `Smart Form Lead: ${block.label}`, { email: leadEmail });
-                            triggerToast(`✅ Subscription Successful! Email saved.`);
-                            setLeadEmail("");
-                          } else {
-                            triggerToast(`❌ Please enter a valid email address.`);
+                          if (!leadEmail || !leadEmail.includes("@")) {
+                            triggerToast("Please enter a valid email address.");
+                            return;
                           }
+                          trackAction("register", `Smart Form Lead: ${block.label}`, { email: leadEmail });
+                          if (destinationEmail) {
+                            const mailUrl = `mailto:${destinationEmail}?subject=${encodeURIComponent(`Lead from ${displayTitle}`)}&body=${encodeURIComponent(leadEmail)}`;
+                            window.location.href = mailUrl;
+                          }
+                          triggerToast("Thanks! Your email was sent to the page owner.");
+                          setLeadEmails((prev) => ({ ...prev, [block.id]: "" }));
                         }}
                         className="w-full bg-[#7c3aed] hover:bg-[#6d28d9] text-white font-bold py-2 rounded-xl text-xs transition-colors shadow-md shadow-violet-500/25"
                       >
@@ -751,14 +885,24 @@ export default function PublicBioPageView({
                     </div>
                   </div>
                 );
+              }
 
               case "vCard":
                 return (
                   <button
                     key={block.id}
+                    type="button"
                     onClick={() => {
                       trackAction("click", `vCard Contact: ${block.label}`);
-                      triggerToast(`🪪 Live Simulation: Downloaded vCard Contact Card directly to phone!`);
+                      const raw = block.value || "";
+                      const isEmail = raw.includes("@");
+                      downloadVCard({
+                        name: displayTitle,
+                        handle: displayHandle,
+                        phone: isEmail ? undefined : raw,
+                        email: isEmail ? raw : destinationEmailFromBlock(block as BlockRecord)
+                      });
+                      triggerToast("Contact card downloaded to your device.");
                     }}
                     className="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-3.5 px-4 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-sm text-sm active:scale-95 border-0"
                   >
@@ -767,114 +911,160 @@ export default function PublicBioPageView({
                   </button>
                 );
 
-              case "Video":
+              case "Video": {
+                const videoBlock = block as BlockRecord;
+                const thumb = getVideoThumbnail(videoBlock);
                 return (
                   <div key={block.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:border-slate-300 transition-colors">
-                    <div
-                      className="h-44 bg-slate-950 flex items-center justify-center relative group cursor-pointer"
+                    <button
+                      type="button"
+                      className="h-44 w-full bg-slate-950 flex items-center justify-center relative group cursor-pointer border-0 p-0"
                       onClick={() => {
                         trackAction("click", `Video: ${block.label}`);
-                        triggerToast(`🎥 Playing Video Stream: ${block.value || "https://youtube.com"}`);
+                        openExternalLink(block.value || "");
                       }}
                     >
-                      <div className="absolute inset-0 bg-cover bg-center opacity-70" style={{ backgroundImage: "url('https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&q=80&w=800')" }} />
+                      <div
+                        className="absolute inset-0 bg-cover bg-center opacity-70"
+                        style={{ backgroundImage: `url('${thumb}')` }}
+                      />
                       <div className="absolute h-12 w-12 bg-red-600 rounded-full flex items-center justify-center text-white text-xl font-bold shadow-md transform group-hover:scale-110 transition-transform">
                         ▶
                       </div>
-                    </div>
+                    </button>
                     <div className="p-3 text-left">
                       <span className="text-xs font-bold text-slate-800 block truncate">{block.label}</span>
                     </div>
                   </div>
                 );
+              }
 
               case "Music":
                 return (
-                  <div
+                  <button
                     key={block.id}
-                    className="bg-gradient-to-r from-violet-500 to-indigo-600 p-4 rounded-2xl text-white shadow-sm flex items-center justify-between gap-3 cursor-pointer"
+                    type="button"
+                    className="w-full bg-gradient-to-r from-violet-500 to-indigo-600 p-4 rounded-2xl text-white shadow-sm flex items-center justify-between gap-3 cursor-pointer border-0"
                     onClick={() => {
                       trackAction("click", `Music Track: ${block.label}`);
-                      triggerToast(`🎵 Playing Audio Soundtrack: ${block.value || "Soundtrack"}`);
+                      openExternalLink(block.value || "");
                     }}
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <span className="text-2xl">🎵</span>
                       <div className="min-w-0 text-left">
                         <span className="font-bold text-xs block truncate">{block.label}</span>
-                        <span className="text-[10px] text-indigo-200 block">Theme Track • 3:24</span>
+                        {(block as BlockRecord).subtext && (
+                          <span className="text-[10px] text-indigo-200 block">{(block as BlockRecord).subtext as string}</span>
+                        )}
                       </div>
                     </div>
                     <div className="h-9 w-9 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white shrink-0">
                       ▶
                     </div>
-                  </div>
+                  </button>
                 );
 
-              case "Gallery":
+              case "Gallery": {
+                const images = getGalleryImages(block as BlockRecord);
+                if (!images.length) return null;
                 return (
                   <div key={block.id} className="space-y-2 text-left pt-2">
                     <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider font-mono">{block.label}</span>
                     <div className="grid grid-cols-3 gap-2">
-                      <img onClick={() => { trackAction("click", `Gallery 1: ${block.label}`); triggerToast("🖼️ Opened gallery image 1"); }} src="https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&q=80&w=300" alt="1" className="h-20 w-full object-cover rounded-xl cursor-pointer hover:opacity-90 transition-opacity shadow-sm border border-slate-100" />
-                      <img onClick={() => { trackAction("click", `Gallery 2: ${block.label}`); triggerToast("🖼️ Opened gallery image 2"); }} src="https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&q=80&w=300" alt="2" className="h-20 w-full object-cover rounded-xl cursor-pointer hover:opacity-90 transition-opacity shadow-sm border border-slate-100" />
-                      <img onClick={() => { trackAction("click", `Gallery 3: ${block.label}`); triggerToast("🖼️ Opened gallery image 3"); }} src="https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&q=80&w=300" alt="3" className="h-20 w-full object-cover rounded-xl cursor-pointer hover:opacity-90 transition-opacity shadow-sm border border-slate-100" />
+                      {images.map((src, index) => (
+                        <button
+                          key={`${block.id}-${index}`}
+                          type="button"
+                          onClick={() => {
+                            trackAction("click", `Gallery ${index + 1}: ${block.label}`);
+                            openExternalLink(src);
+                          }}
+                          className="h-20 w-full overflow-hidden rounded-xl border border-slate-100 p-0"
+                        >
+                          <img
+                            src={src}
+                            alt={`Gallery ${index + 1}`}
+                            className="h-full w-full object-cover hover:opacity-90 transition-opacity"
+                            loading="lazy"
+                            decoding="async"
+                            referrerPolicy="no-referrer"
+                          />
+                        </button>
+                      ))}
                     </div>
                   </div>
                 );
+              }
 
-              case "PDF":
+              case "PDF": {
+                const pdfBlock = block as BlockRecord;
                 return (
-                  <div
+                  <button
                     key={block.id}
-                    className="bg-white border border-slate-200 p-4 rounded-2xl flex items-center justify-between gap-3 hover:border-slate-300 transition-colors cursor-pointer shadow-sm"
+                    type="button"
+                    className="w-full bg-white border border-slate-200 p-4 rounded-2xl flex items-center justify-between gap-3 hover:border-slate-300 transition-colors cursor-pointer shadow-sm text-left"
                     onClick={() => {
                       trackAction("click", `PDF Download: ${block.label}`);
-                      triggerToast(`📄 Opening PDF Document: ${block.value || "catalog.pdf"}`);
+                      openExternalLink(block.value || "");
                     }}
                   >
-                    <div className="flex items-center gap-2.5 min-w-0 text-left">
+                    <div className="flex items-center gap-2.5 min-w-0">
                       <span className="text-2xl">📄</span>
                       <div className="min-w-0">
                         <span className="font-bold text-xs block text-slate-800 truncate">{block.label}</span>
-                        <span className="text-[10px] text-slate-400 block font-mono mt-0.5">PDF Document • 3.2 MB</span>
+                        <span className="text-[10px] text-slate-400 block font-mono mt-0.5">
+                          PDF Document{(pdfBlock.fileSize as string) ? ` • ${pdfBlock.fileSize}` : ""}
+                        </span>
                       </div>
                     </div>
-                    <span className="text-xs bg-slate-100 text-slate-600 px-3 py-1.5 rounded-xl font-bold shrink-0">DOWNLOAD</span>
-                  </div>
+                    <span className="text-xs bg-slate-100 text-slate-600 px-3 py-1.5 rounded-xl font-bold shrink-0">OPEN</span>
+                  </button>
                 );
+              }
 
-              case "Events":
+              case "Events": {
+                const eventBlock = block as BlockRecord;
+                const eventMonth = (eventBlock.eventMonth as string) || "JUL";
+                const eventDay = (eventBlock.eventDay as string) || "20";
+                const eventMeta = (eventBlock.subtext as string) || "Tap to RSVP";
                 return (
-                  <div
+                  <button
                     key={block.id}
-                    className="bg-white border border-slate-200 p-4 rounded-2xl flex items-center justify-between gap-3 hover:border-slate-300 transition-colors cursor-pointer shadow-sm"
+                    type="button"
+                    className="w-full bg-white border border-slate-200 p-4 rounded-2xl flex items-center justify-between gap-3 hover:border-slate-300 transition-colors cursor-pointer shadow-sm text-left"
                     onClick={() => {
                       trackAction("click", `Event RSVP: ${block.label}`);
-                      triggerToast(`📅 RSVP Registration Saved for Event: ${block.label}`);
+                      openExternalLink(block.value || "");
                     }}
                   >
-                    <div className="flex items-center gap-3 min-w-0 text-left">
+                    <div className="flex items-center gap-3 min-w-0">
                       <div className="bg-violet-50 border border-violet-100 text-violet-600 rounded-xl p-1.5 text-center min-w-[42px] shrink-0 font-bold">
-                        <span className="text-[9px] block uppercase leading-none font-mono">JUL</span>
-                        <span className="text-sm block leading-none mt-1">20</span>
+                        <span className="text-[9px] block uppercase leading-none font-mono">{eventMonth}</span>
+                        <span className="text-sm block leading-none mt-1">{eventDay}</span>
                       </div>
                       <div className="min-w-0">
                         <span className="font-bold text-xs block text-slate-800 truncate">{block.label}</span>
-                        <span className="text-[10px] text-slate-500 block mt-0.5">7:00 PM • Virtual Event</span>
+                        <span className="text-[10px] text-slate-500 block mt-0.5">{eventMeta}</span>
                       </div>
                     </div>
-                    <span className="text-xs bg-[#7c3aed] hover:bg-[#6d28d9] text-white px-4 py-2 rounded-xl font-bold shadow-md shadow-violet-500/25 shrink-0">RSVP NOW</span>
-                  </div>
+                    <span className="text-xs bg-[#7c3aed] hover:bg-[#6d28d9] text-white px-4 py-2 rounded-xl font-bold shadow-md shadow-violet-500/25 shrink-0">RSVP</span>
+                  </button>
                 );
+              }
 
               default:
                 return (
                   <button
                     key={block.id}
+                    type="button"
                     onClick={() => {
                       trackAction("click", `Action Block: ${block.label}`);
-                      triggerToast(`✨ Action triggered: ${block.label}`);
+                      if (block.value && block.value !== block.label) {
+                        openExternalLink(block.value);
+                      } else {
+                        triggerToast(`${block.label} is not configured yet.`);
+                      }
                     }}
                     className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold py-3 px-4 rounded-2xl text-xs shadow-sm border border-slate-200 transition-colors"
                   >
@@ -946,12 +1136,14 @@ export default function PublicBioPageView({
               <div className="text-center space-y-3.5 animate-in zoom-in-95 duration-200 max-w-xs">
                 <p className="text-sm font-black text-green-400">🎉 CONGRATULATIONS! 🎉</p>
                 <p className="text-sm font-black text-white">{spinResult}</p>
-                <p className="text-xs text-slate-400 bg-slate-950 px-3 py-2 rounded-xl font-mono border border-slate-800">Use Code: <span className="font-bold text-cyan-400">LUCKYSPIN20</span></p>
+                <p className="text-xs text-slate-400 bg-slate-950 px-3 py-2 rounded-xl font-mono border border-slate-800">
+                  Use Code: <span className="font-bold text-cyan-400">{spinCouponCode}</span>
+                </p>
                 <div className="flex gap-2 justify-center pt-2">
                   <button
                     onClick={() => {
-                      navigator.clipboard.writeText("LUCKYSPIN20");
-                      triggerToast("🎟️ Spin coupon code copied!");
+                      navigator.clipboard.writeText(spinCouponCode);
+                      triggerToast("Spin coupon code copied!");
                       setShowSpinWheel(false);
                     }}
                     className="px-4 py-2 bg-cyan-500 hover:bg-cyan-600 text-slate-950 rounded-xl text-xs font-bold"
@@ -977,13 +1169,14 @@ export default function PublicBioPageView({
                   setTimeout(() => {
                     setIsSpinning(false);
                     const prizes = [
-                      "FREE Superhero Action Figure!",
-                      "20% Discount Code!",
-                      "Buy 1 Get 1 Free Marvel Poster!",
-                      "Free shipping on next order!"
+                      `You won! Use code ${spinCouponCode}`,
+                      "20% discount unlocked!",
+                      "Free gift with your next order!",
+                      "Free shipping on your order!"
                     ];
                     const won = prizes[Math.floor(Math.random() * prizes.length)];
                     setSpinResult(won);
+                    trackAction("register", "Spin Wheel Prize Won", { prize: won, code: spinCouponCode });
                   }, 1800);
                 }}
                 disabled={isSpinning}

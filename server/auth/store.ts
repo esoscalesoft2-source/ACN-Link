@@ -6,6 +6,7 @@ import {
   publicUser,
   randomToken
 } from "./crypto";
+import { buildDefaultAvatarUrl } from "./avatars";
 
 function readRootStore(): Record<string, unknown> {
   return getRootStore();
@@ -45,7 +46,7 @@ function seedDemoUser(store: AuthStoreShape): AuthStoreShape {
     businessName: "ACN Link",
     phone: "",
     country: "United States",
-    avatarUrl: "https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=ACN",
+    avatarUrl: buildDefaultAvatarUrl("acn"),
     plan: "Free Plan",
     isVerified: true,
     emailVerified: true,

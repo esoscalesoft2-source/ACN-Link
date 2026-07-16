@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { AppNotification, ScreenId, UserProfile } from "../types";
-import { Plus, Menu, Rocket } from "lucide-react";
+import { Menu, Rocket } from "lucide-react";
 import AcnLogo3D from "./AcnLogo3D";
 import NotificationPanel from "./NotificationPanel";
 import ProfileMenu from "./ProfileMenu";
@@ -9,7 +9,6 @@ interface HeaderProps {
   currentScreen: ScreenId;
   user: UserProfile;
   onScreenChange: (screen: ScreenId) => void;
-  onQuickCreate?: () => void;
   onMenuToggle?: () => void;
   isMobileNavOpen?: boolean;
   notifications: AppNotification[];
@@ -25,7 +24,6 @@ export default function Header({
   currentScreen,
   user,
   onScreenChange,
-  onQuickCreate,
   onMenuToggle,
   isMobileNavOpen = false,
   notifications,
@@ -39,7 +37,6 @@ export default function Header({
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
-  const showQuickCreate = currentScreen === ScreenId.CUSTOM_DOMAINS;
   const showPublish =
     currentScreen === ScreenId.DASHBOARD || currentScreen === ScreenId.ACCOUNT;
 
@@ -75,16 +72,6 @@ export default function Header({
           >
             <Rocket className="h-4 w-4" />
             <span className="hidden sm:inline">Publish</span>
-          </button>
-        )}
-
-        {showQuickCreate && (
-          <button
-            onClick={onQuickCreate}
-            className="acn-btn-chip px-3 sm:px-4 py-2 text-sm"
-          >
-            <Plus className="h-4 w-4" />
-            <span className="hidden sm:inline">Quick Create</span>
           </button>
         )}
 

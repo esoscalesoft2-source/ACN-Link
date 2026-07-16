@@ -1,4 +1,4 @@
-import { BioEditorBlock, BioEditorState, BioPageDraft, BioPageTemplate } from "../types";
+import { BioEditorBlock, BioEditorState, BioPageDraft, BioPagePreviewDetails, BioPagePreviewTheme, BioPageTemplate } from "../types";
 import { apiUrl } from "../lib/apiBase";
 
 export const DRAFTS_STORAGE_KEY = "acnlink_bio_page_drafts";
@@ -8,6 +8,22 @@ const LEGACY_TEMPLATES_KEY = "savedTemplates";
 
 const DEFAULT_COVER =
   "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800";
+
+export { DEFAULT_COVER };
+
+export function defaultHandleFromTitle(title: string): string {
+  return title.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/\s+/g, "") || "profile";
+}
+
+export function normalizeHandleInput(value: string): string {
+  return value.trim().replace(/^@+/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+export function formatDisplayHandle(raw?: string, fallbackTitle?: string): string {
+  const cleaned = normalizeHandleInput(raw || "");
+  const source = cleaned || (fallbackTitle ? defaultHandleFromTitle(fallbackTitle) : "profile");
+  return `@${source}`;
+}
 
 function safeParse<T>(raw: string | null, fallback: T): T {
   if (!raw) return fallback;
@@ -53,17 +69,40 @@ export function buildEditorState(
   shortBio: string,
   coverImage: string,
   blocks: BioEditorBlock[],
-  slug?: string
+  slug?: string,
+  handle?: string,
+  pageTheme: BioPagePreviewTheme = "dark"
 ): BioEditorState {
   return {
     pageMeta: {
       title: title || "Untitled Page",
       slug,
       shortBio: shortBio || "Write a short bio...",
-      coverImage: coverImage || DEFAULT_COVER
+      coverImage: coverImage || DEFAULT_COVER,
+      handle: normalizeHandleInput(handle || "") || defaultHandleFromTitle(title || "Untitled Page"),
+      pageTheme
     },
     blocks: cloneBlocks(blocks)
   };
+}
+
+export function readStoredPageDetails(pageId: string, pageSlug: string): BioPagePreviewDetails | null {
+  try {
+    const raw =
+      localStorage.getItem(`biolink_details_${pageId}`) ||
+      localStorage.getItem(`biolink_details_${pageSlug}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as BioPagePreviewDetails;
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function readStoredPageTheme(pageId: string, pageSlug: string): BioPagePreviewTheme {
+  const details = readStoredPageDetails(pageId, pageSlug);
+  return details?.pageTheme === "light" ? "light" : "dark";
 }
 
 function isBioEditorState(value: unknown): value is BioEditorState {
@@ -256,7 +295,7 @@ export function persistPagePreviewStorage(
   pageId: string,
   pageSlug: string,
   blocks: BioEditorBlock[],
-  details: { title: string; bio: string; coverPhoto: string }
+  details: BioPagePreviewDetails
 ): void {
   try {
     const blocksJson = JSON.stringify(blocks);
@@ -265,6 +304,11 @@ export function persistPagePreviewStorage(
     localStorage.setItem(`biolink_blocks_${pageSlug}`, blocksJson);
     localStorage.setItem(`biolink_details_${pageId}`, detailsJson);
     localStorage.setItem(`biolink_details_${pageSlug}`, detailsJson);
+    window.dispatchEvent(
+      new CustomEvent("acn-page-preview-updated", {
+        detail: { pageId, pageSlug, details }
+      })
+    );
   } catch (err) {
     console.error("Failed to persist page preview storage:", err);
   }
@@ -332,5 +376,3 @@ export async function syncAllTemplatesToServer(templates: BioPageTemplate[]): Pr
     console.error("Failed to bulk sync templates:", err);
   }
 }
-
-export { DEFAULT_COVER };

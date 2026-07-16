@@ -1,4 +1,5 @@
 import { apiUrl } from "./apiBase";
+import { defaultAvatarUrlForEmail } from "./avatarPresets";
 
 export interface AuthUser {
   id: string;
@@ -115,8 +116,7 @@ export function createPreviewAuthUser(
     phone: "",
     country: "United States",
     avatarUrl:
-      input.avatarUrl ||
-      `https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=${encodeURIComponent(email)}`,
+      input.avatarUrl || defaultAvatarUrlForEmail(email),
     plan: "Free Plan",
     isVerified: true,
     emailVerified: true,

@@ -10,6 +10,7 @@ import {
   verifyAccessToken,
   verifyPassword
 } from "./crypto";
+import { defaultAvatarUrlForEmail } from "./avatars";
 import {
   audit,
   checkRateLimit,
@@ -338,7 +339,7 @@ export function createAuthRouter() {
         businessName: String(body.businessName).trim(),
         phone: String(body.phone).trim(),
         country: String(body.country).trim(),
-        avatarUrl: `https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=${encodeURIComponent(email)}`,
+        avatarUrl: defaultAvatarUrlForEmail(email),
         plan: "Free Plan",
         isVerified: false,
         emailVerified: false,
@@ -1060,10 +1061,7 @@ export function createAuthRouter() {
         return;
       }
       const name = String(req.body?.name || "Google User");
-      const avatarUrl = String(
-        req.body?.avatarUrl ||
-          `https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=${encodeURIComponent(email)}`
-      );
+      const avatarUrl = String(req.body?.avatarUrl || defaultAvatarUrlForEmail(email));
       await completeOAuthLogin(
         req,
         res,
@@ -1167,10 +1165,7 @@ export function createAuthRouter() {
         return;
       }
       const name = String(req.body?.name || "GitHub User");
-      const avatarUrl = String(
-        req.body?.avatarUrl ||
-          `https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=${encodeURIComponent(email)}`
-      );
+      const avatarUrl = String(req.body?.avatarUrl || defaultAvatarUrlForEmail(email));
       await completeOAuthLogin(
         req,
         res,

@@ -2,17 +2,21 @@ import React, { useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { screenToPath } from "../navigation";
-import { BioPage, BioPageDraft, BioPageTemplate, BioEditorState, BioEditorBlock, ScreenId } from "../types";
+import { BioPage, BioPageDraft, BioPageTemplate, BioEditorState, BioEditorBlock, BioPagePreviewTheme, ScreenId } from "../types";
 import {
   buildEditorState,
   cloneBlocks,
   DEFAULT_COVER,
+  defaultHandleFromTitle,
+  formatDisplayHandle,
+  normalizeHandleInput,
   deleteDraftByPageId,
   upsertDraft,
   persistDrafts,
   upsertTemplate,
   syncTemplateToServer,
-  persistPagePreviewStorage
+  persistPagePreviewStorage,
+  readStoredPageTheme
 } from "../storage/bioBuilderStorage";
 import { CreateNotificationInput } from "../storage/notificationStorage";
 import { PRIMARY_DOMAIN } from "../storage/publishStorage";
@@ -174,7 +178,7 @@ interface BioPagesScreenProps {
   pages: BioPage[];
   onAddPage: (title: string, slug: string) => BioPage;
   onDeletePage: (id: string) => void;
-  onUpdatePage: (id: string, title: string, bio?: string, coverPhoto?: string) => void;
+  onUpdatePage: (id: string, title: string, bio?: string, coverPhoto?: string, handle?: string) => void;
   onDuplicatePage: (id: string) => void;
   onRefreshPages: () => Promise<void>;
   analyticsEvents: Array<{ pageId?: string; eventType?: string; eventLabel?: string; timestamp?: string }>;
@@ -267,8 +271,10 @@ export default function BioPagesScreen({
 
   // Editor states
   const [editorTitle, setEditorTitle] = useState<string>("");
+  const [editorHandle, setEditorHandle] = useState<string>("");
   const [editorBio, setEditorBio] = useState<string>("Write a short bio...");
   const [editorCoverPhoto, setEditorCoverPhoto] = useState<string>("https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800");
+  const [editorPageTheme, setEditorPageTheme] = useState<BioPagePreviewTheme>("dark");
   const [editorTab, setEditorTab] = useState<"Edit" | "Settings">("Edit");
   const [editorViewPanel, setEditorViewPanel] = useState<"blocks" | "edit" | "preview">("edit");
   const [linkedTemplateId, setLinkedTemplateId] = useState<string | null>(null);
@@ -324,12 +330,15 @@ export default function BioPagesScreen({
   const [editingBlockValue, setEditingBlockValue] = useState<string>("");
 
   const [expandedBlockId, setExpandedBlockId] = useState<string | null>(null);
+  const [showCoverUrlModal, setShowCoverUrlModal] = useState(false);
+  const [coverUrlDraft, setCoverUrlDraft] = useState(DEFAULT_COVER);
 
   // Reordering blocks state (PAGE BLOCKS accordion only)
   const [draggedBlockIndex, setDraggedBlockIndex] = useState<number | null>(null);
   const [isAccordionReorderDrag, setIsAccordionReorderDrag] = useState(false);
   const [dropTarget, setDropTarget] = useState<{ index: number; position: "before" | "after" } | null>(null);
   const accordionListRef = useRef<HTMLDivElement>(null);
+  const editorTitleInputRef = useRef<HTMLInputElement>(null);
 
   const getAccordionDropPosition = (e: React.DragEvent): "before" | "after" => {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -493,78 +502,6 @@ export default function BioPagesScreen({
 
   const dragCounterManager = useRef(0);
   const dragCounterPreview = useRef(0);
-
-  // Mouse & Touch Drag-to-Scroll for the Live Preview Simulator
-  const previewScrollRef = useRef<HTMLDivElement>(null);
-  const isDown = useRef(false);
-  const startY = useRef(0);
-  const scrollTop = useRef(0);
-
-  const handleMouseDownScroll = (e: React.MouseEvent) => {
-    // If clicking on an input or button or link spin, don't drag-scroll to let user click them
-    if (
-      e.target instanceof HTMLInputElement || 
-      e.target instanceof HTMLButtonElement || 
-      e.target instanceof HTMLTextAreaElement ||
-      (e.target as HTMLElement).closest('button') ||
-      (e.target as HTMLElement).closest('input')
-    ) {
-      return;
-    }
-    isDown.current = true;
-    if (previewScrollRef.current) {
-      previewScrollRef.current.style.cursor = 'grabbing';
-      startY.current = e.pageY - previewScrollRef.current.offsetTop;
-      scrollTop.current = previewScrollRef.current.scrollTop;
-    }
-  };
-
-  const handleMouseLeaveScroll = () => {
-    isDown.current = false;
-    if (previewScrollRef.current) {
-      previewScrollRef.current.style.cursor = 'grab';
-    }
-  };
-
-  const handleMouseUpScroll = () => {
-    isDown.current = false;
-    if (previewScrollRef.current) {
-      previewScrollRef.current.style.cursor = 'grab';
-    }
-  };
-
-  const handleMouseMoveScroll = (e: React.MouseEvent) => {
-    if (!isDown.current || !previewScrollRef.current) return;
-    e.preventDefault();
-    const y = e.pageY - previewScrollRef.current.offsetTop;
-    const walk = (y - startY.current) * 1.5; // Scroll speed multiplier
-    previewScrollRef.current.scrollTop = scrollTop.current - walk;
-  };
-
-  // Touch handlers for mobile/trackpad swiping inside iframe
-  const handleTouchStartScroll = (e: React.TouchEvent) => {
-    if (
-      e.target instanceof HTMLInputElement || 
-      e.target instanceof HTMLButtonElement || 
-      (e.target as HTMLElement).closest('button') ||
-      (e.target as HTMLElement).closest('input')
-    ) {
-      return;
-    }
-    isDown.current = true;
-    if (previewScrollRef.current) {
-      startY.current = e.touches[0].pageY - previewScrollRef.current.offsetTop;
-      scrollTop.current = previewScrollRef.current.scrollTop;
-    }
-  };
-
-  const handleTouchMoveScroll = (e: React.TouchEvent) => {
-    if (!isDown.current || !previewScrollRef.current) return;
-    const y = e.touches[0].pageY - previewScrollRef.current.offsetTop;
-    const walk = (y - startY.current) * 1.5;
-    previewScrollRef.current.scrollTop = scrollTop.current - walk;
-  };
-
 
   const handleDragStartBlockType = (e: React.DragEvent, type: string) => {
     e.dataTransfer.setData("text/plain", type);
@@ -733,13 +670,40 @@ export default function BioPagesScreen({
       editorBio,
       editorCoverPhoto,
       editorBlocks as BioEditorBlock[],
-      selectedEditPage?.slug
+      selectedEditPage?.slug,
+      editorHandle,
+      editorPageTheme
     );
+
+  const buildCurrentPreviewDetails = (theme: BioPagePreviewTheme = editorPageTheme) => ({
+    title: editorTitle,
+    bio: editorBio,
+    coverPhoto: editorCoverPhoto,
+    handle: normalizeHandleInput(editorHandle) || defaultHandleFromTitle(editorTitle),
+    pageTheme: theme
+  });
+
+  const syncPreviewStorage = (theme: BioPagePreviewTheme = editorPageTheme) => {
+    if (!selectedEditPage) return;
+    persistPagePreviewStorage(
+      selectedEditPage.id,
+      selectedEditPage.slug,
+      editorBlocks,
+      buildCurrentPreviewDetails(theme)
+    );
+  };
+
+  const handlePreviewThemeChange = (theme: BioPagePreviewTheme) => {
+    setEditorPageTheme(theme);
+    syncPreviewStorage(theme);
+  };
 
   const hydrateEditorFromState = (state: BioEditorState) => {
     setEditorTitle(state.pageMeta.title);
+    setEditorHandle(state.pageMeta.handle || defaultHandleFromTitle(state.pageMeta.title));
     setEditorBio(state.pageMeta.shortBio);
     setEditorCoverPhoto(state.pageMeta.coverImage);
+    setEditorPageTheme(state.pageMeta.pageTheme === "light" ? "light" : "dark");
     setEditorBlocks(cloneBlocks(state.blocks));
   };
 
@@ -798,7 +762,7 @@ export default function BioPagesScreen({
         triggerToast(`💾 Draft for "${editorTitle}" saved successfully!`);
       }
 
-      onUpdatePage(selectedEditPage.id, editorTitle, editorBio, editorCoverPhoto);
+      onUpdatePage(selectedEditPage.id, editorTitle, editorBio, editorCoverPhoto, editorHandle);
 
       setPageBlocksMap((prev) => ({
         ...prev,
@@ -1074,8 +1038,10 @@ export default function BioPagesScreen({
         triggerToast(`📂 Restored draft for "${pageDraft.data.pageMeta.title}"`);
       } else {
         setEditorTitle(page.title);
+        setEditorHandle(page.handle || defaultHandleFromTitle(page.title));
         setEditorBio(page.bio || "Write a short bio...");
         setEditorCoverPhoto(page.coverPhoto || DEFAULT_COVER);
+        setEditorPageTheme(readStoredPageTheme(page.id, page.slug));
         setEditorBlocks(resolvePageBlocks(page));
       }
     }
@@ -1101,7 +1067,7 @@ export default function BioPagesScreen({
         return;
       }
       setIsPublishing(true);
-      onUpdatePage(selectedEditPage.id, editorTitle, editorBio, editorCoverPhoto);
+      onUpdatePage(selectedEditPage.id, editorTitle, editorBio, editorCoverPhoto, editorHandle);
       
       // Persist blocks in memory map
       setPageBlocksMap(prev => ({
@@ -1110,7 +1076,7 @@ export default function BioPagesScreen({
         [selectedEditPage.slug]: [...editorBlocks]
       }));
 
-      const details = { title: editorTitle, bio: editorBio, coverPhoto: editorCoverPhoto };
+      const details = buildCurrentPreviewDetails();
 
       // Persist preview data locally when browser storage is available.
       persistPagePreviewStorage(selectedEditPage.id, selectedEditPage.slug, editorBlocks, details);
@@ -1280,57 +1246,42 @@ export default function BioPagesScreen({
                 <label className="block text-xs font-bold text-slate-700">
                   Choose a starting design
                 </label>
-                <div className="grid grid-cols-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedTemplateId("generic");
+                <select
+                  value={selectedTemplateId}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setSelectedTemplateId(id);
+                    if (id === "generic") {
                       setNextInitialBlocks(genericInitialBlocks);
                       triggerToast("✏️ Applied Generic Template!");
-                    }}
-                    className={`p-2.5 rounded-xl border text-[11px] font-bold text-center transition-all ${
-                      selectedTemplateId === "generic"
-                        ? "border-[#6366f1] bg-indigo-500/10/40 text-[#6366f1]"
-                        : "border-slate-200 hover:bg-slate-50 text-slate-600 bg-white"
-                    }`}
-                  >
-                    📝 Generic BioLink
-                  </button>
-                </div>
+                      return;
+                    }
+                    const tpl = savedTemplates.find((item) => item.id === id);
+                    if (!tpl) return;
+                    setNextInitialBlocks(tpl.data.blocks);
+                    setNewTitle(`${getTemplateDisplayName(tpl)} Copy`);
+                    setNewSlug(
+                      `${getTemplateDisplayName(tpl)} Copy`
+                        .toLowerCase()
+                        .replace(/[^a-z0-9\s-]/g, "")
+                        .replace(/\s+/g, "-")
+                    );
+                    triggerToast(`✨ Applied Saved Template "${getTemplateDisplayName(tpl)}"!`);
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] rounded-xl py-2.5 px-3.5 text-sm text-gray-900 focus:outline-none focus:ring-4 focus:ring-indigo-500/20 transition-all"
+                >
+                  <option value="generic">📝 Generic BioLink</option>
+                  {savedTemplates.map((tpl) => (
+                    <option key={tpl.id} value={tpl.id}>
+                      💎 {getTemplateDisplayName(tpl)}
+                    </option>
+                  ))}
+                </select>
 
                 {savedTemplates.length > 0 && (
-                  <div className="space-y-1.5 pt-1">
-                    <span className="block text-[10px] font-bold text-slate-500">
-                      Or pick a saved design
-                    </span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {savedTemplates.map((tpl) => (
-                        <button
-                          key={tpl.id}
-                          type="button"
-                          onClick={() => {
-                            setSelectedTemplateId(tpl.id);
-                            setNextInitialBlocks(tpl.data.blocks);
-                            setNewTitle(getTemplateDisplayName(tpl) + " Copy");
-                            setNewSlug(
-                              (getTemplateDisplayName(tpl) + " Copy")
-                                .toLowerCase()
-                                .replace(/[^a-z0-9\s-]/g, "")
-                                .replace(/\s+/g, "-")
-                            );
-                            triggerToast(`✨ Applied Saved Template "${getTemplateDisplayName(tpl)}"!`);
-                          }}
-                          className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-bold transition-all ${
-                            selectedTemplateId === tpl.id
-                              ? "border-[#6366f1] bg-indigo-500/10/40 text-[#6366f1]"
-                              : "border-slate-200 hover:bg-slate-50 text-slate-600 bg-white"
-                          }`}
-                        >
-                          💎 {getTemplateDisplayName(tpl)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  <p className="text-[11px] text-slate-500 leading-normal">
+                    Or pick a saved design from the dropdown above.
+                  </p>
                 )}
               </div>
 
@@ -1688,13 +1639,25 @@ export default function BioPagesScreen({
                 <span className="acn-editor-header__domain shrink-0">acnlink</span>
                 <span className="acn-editor-header__slash shrink-0">/</span>
                 <input
+                  ref={editorTitleInputRef}
                   type="text"
                   value={editorTitle}
                   onChange={(e) => setEditorTitle(e.target.value)}
                   className="acn-editor-header__title-input min-w-0"
                   aria-label="Page title"
                 />
-                <Edit3 className="h-3.5 w-3.5 acn-editor-header__edit-icon shrink-0" aria-hidden />
+                <button
+                  type="button"
+                  onClick={() => {
+                    editorTitleInputRef.current?.focus();
+                    editorTitleInputRef.current?.select();
+                  }}
+                  className="acn-editor-header__edit-btn shrink-0"
+                  aria-label="Edit page title"
+                  title="Edit page title"
+                >
+                  <Edit3 className="h-3.5 w-3.5 acn-editor-header__edit-icon" aria-hidden />
+                </button>
               </div>
             </div>
 
@@ -1905,8 +1868,8 @@ export default function BioPagesScreen({
                     </div>
                     <div className="acn-editor-zone__body acn-workspace--stack no-scrollbar">
                     <div className="acn-editor-blocks-palette">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-3">
-                        CORE BLOCKS
+                      <span className="acn-editor-section-label mb-3">
+                        Core Blocks
                       </span>
                       <div className="grid grid-cols-2 gap-2.5">
                         <button
@@ -2280,18 +2243,34 @@ export default function BioPagesScreen({
                     </div>
                     <div className="acn-editor-zone__body acn-workspace--stack no-scrollbar">
                     {/* COVER IMAGE & BIO CARD */}
-                    <div className="acn-editor-panel p-5 shadow-sm space-y-6">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
-                          COVER IMAGE & HEADER
+                    <div className="acn-editor-panel acn-editor-cover-panel p-5 shadow-sm space-y-6">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="acn-editor-section-label">
+                          Cover Image & Header
                         </span>
-                        <span className="text-[9px] font-bold text-[#6366f1] bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20">
-                          Live Editing
-                        </span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCoverUrlDraft(
+                                editorCoverPhoto.startsWith("data:") ? DEFAULT_COVER : editorCoverPhoto
+                              );
+                              setShowCoverUrlModal(true);
+                            }}
+                            className="acn-cover-url-edit-btn"
+                            aria-label="Edit custom cover photo URL"
+                          >
+                            <Edit3 className="h-3.5 w-3.5" aria-hidden />
+                            <span className="acn-cover-url-edit-btn__tooltip">Custom cover photo URL</span>
+                          </button>
+                          <span className="acn-editor-section-badge">
+                            Live Editing
+                          </span>
+                        </div>
                       </div>
 
                       {/* Dropzone/Preview Frame */}
-                      <div className="relative h-40 bg-slate-100 rounded-2xl overflow-hidden border border-slate-200 group">
+                      <div className="relative h-40 bg-slate-100 acn-editor-cover-panel__frame group">
                         <img
                           src={editorCoverPhoto || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800"}
                           alt="Cover Banner"
@@ -2319,37 +2298,10 @@ export default function BioPagesScreen({
                         </label>
                       </div>
 
-                      {/* Inputs area */}
-                      <div className="space-y-3.5 pt-1">
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Cover Photo URL (Alternative)</label>
-                          <div className="relative">
-                            <input
-                              type="text"
-                              value={editorCoverPhoto.startsWith("data:") ? "Uploaded Image (Data URI)" : editorCoverPhoto}
-                              onChange={(e) => {
-                                if (!e.target.value.startsWith("Uploaded")) {
-                                  setEditorCoverPhoto(e.target.value);
-                                }
-                              }}
-                              disabled={editorCoverPhoto.startsWith("data:")}
-                              className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800 disabled:opacity-75 disabled:cursor-not-allowed font-mono"
-                              placeholder="Paste any Unsplash or web image URL..."
-                            />
-                            {editorCoverPhoto.startsWith("data:") && (
-                              <button
-                                onClick={() => setEditorCoverPhoto("https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800")}
-                                className="absolute right-2.5 top-1.5 text-[10px] font-bold text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 py-1 px-2 rounded-lg transition-all"
-                              >
-                                Reset to Default
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 gap-3.5 pt-1 border-t border-slate-100">
+                      {/* Title, handle & bio */}
+                      <div className="grid grid-cols-1 gap-3.5 acn-editor-cover-panel__fields">
                           <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Biolink Title</label>
+                            <label className="acn-editor-form-label">Biolink Title</label>
                             <input
                               type="text"
                               value={editorTitle}
@@ -2360,7 +2312,28 @@ export default function BioPagesScreen({
                           </div>
 
                           <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Short Bio</label>
+                            <label className="acn-editor-form-label">
+                              Page Handle (@watermark)
+                            </label>
+                            <div className="relative">
+                              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400 pointer-events-none">
+                                @
+                              </span>
+                              <input
+                                type="text"
+                                value={editorHandle}
+                                onChange={(e) => setEditorHandle(normalizeHandleInput(e.target.value))}
+                                className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2.5 pl-8 pr-3.5 text-sm font-semibold text-slate-800 font-mono"
+                                placeholder="hollywood"
+                              />
+                            </div>
+                            <p className="acn-editor-form-hint">
+                              Live preview shows {formatDisplayHandle(editorHandle, editorTitle)}
+                            </p>
+                          </div>
+
+                          <div>
+                            <label className="acn-editor-form-label">Short Bio</label>
                             <textarea
                               value={editorBio}
                               onChange={(e) => setEditorBio(e.target.value)}
@@ -2370,24 +2343,23 @@ export default function BioPagesScreen({
                             />
                           </div>
                         </div>
-                      </div>
                     </div>
 
                     {/* ACCORDION BLOCKS LIST */}
-                    <div className="space-y-3.5">
+                    <div className="space-y-3.5 acn-editor-blocks-section">
                       <div className="flex items-center justify-between gap-3">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
-                          PAGE BLOCKS (ACCORDIONS)
+                        <span className="acn-editor-section-label">
+                          Page Blocks (Accordions)
                         </span>
                         <div className="flex items-center gap-2 shrink-0">
                           {isAccordionReorderDrag && draggedBlockIndex !== null && (
-                            <span className="text-[9px] font-bold text-[#6366f1] bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20 animate-pulse">
+                            <span className="acn-editor-section-badge animate-pulse">
                               {dropTarget
                                 ? `Drop at #${getDropDisplayPosition(dropTarget, editorBlocks.length)}`
                                 : "Drag ⋮⋮ up/down to reorder"}
                             </span>
                           )}
-                          <span className="text-[9px] font-semibold text-slate-400">
+                          <span className="acn-editor-blocks-section__meta">
                             {editorBlocks.length} widget{editorBlocks.length !== 1 ? "s" : ""}
                           </span>
                         </div>
@@ -2399,7 +2371,7 @@ export default function BioPagesScreen({
                         onDragEnter={handleDragEnterManager}
                         onDragLeave={handleDragLeaveManager}
                         onDrop={handleDropOnManager}
-                        className={`acn-editor-accordions space-y-3 p-4 rounded-3xl border transition-all max-h-[50vh] lg:max-h-[580px] overflow-y-auto shadow-inner ${
+                        className={`acn-editor-accordions no-scrollbar space-y-3 p-4 rounded-3xl border transition-all max-h-[50vh] lg:max-h-[580px] overflow-y-auto overflow-x-hidden shadow-inner ${
                           isDraggingOverManager
                             ? "ring-2 ring-indigo-400 ring-opacity-50 border-indigo-400"
                             : isAccordionReorderDrag
@@ -2965,9 +2937,29 @@ export default function BioPagesScreen({
                 editorViewPanel === "preview" ? "flex" : "hidden"
               } lg:flex`}
             >
-              <div className="acn-editor-zone__head">
-                <Smartphone className="h-3.5 w-3.5" />
-                Live Preview
+              <div className="acn-editor-zone__head acn-editor-zone__head--with-actions">
+                <div className="acn-editor-zone__head-main">
+                  <Smartphone className="h-3.5 w-3.5" />
+                  Live Preview
+                </div>
+                <div className="acn-editor-preview-theme-toggle" role="group" aria-label="Preview page theme">
+                  <button
+                    type="button"
+                    className="acn-editor-preview-theme-toggle__btn"
+                    aria-pressed={editorPageTheme === "dark"}
+                    onClick={() => handlePreviewThemeChange("dark")}
+                  >
+                    Dark
+                  </button>
+                  <button
+                    type="button"
+                    className="acn-editor-preview-theme-toggle__btn"
+                    aria-pressed={editorPageTheme === "light"}
+                    onClick={() => handlePreviewThemeChange("light")}
+                  >
+                    Light
+                  </button>
+                </div>
               </div>
 
               <div className="acn-editor-preview-rail__stage">
@@ -2993,38 +2985,33 @@ export default function BioPagesScreen({
                       </div>
 
                       <div
-                        ref={previewScrollRef}
-                        onMouseDown={handleMouseDownScroll}
-                        onMouseLeave={handleMouseLeaveScroll}
-                        onMouseUp={handleMouseUpScroll}
-                        onMouseMove={handleMouseMoveScroll}
                         onDragOver={handleDragOverTarget}
                         onDragEnter={handleDragEnterPreview}
                         onDragLeave={handleDragLeavePreview}
                         onDrop={handleDropOnPreview}
-                        style={{ cursor: "grab" }}
-                        className={`acn-preview-isolate acn-phone-preview__screen no-scrollbar transition-all duration-200 ${
+                        className={`acn-preview-isolate acn-phone-preview__screen acn-bio-page-theme-${editorPageTheme} no-scrollbar transition-all duration-200 ${
                           isDraggingOverPreview ? "acn-phone-preview__screen--drop-target" : ""
                         }`}
                       >
-                        <div className="acn-phone-preview__cover">
+                        <div className="acn-phone-preview__cover acn-public-bio-page__cover">
                           <img
                             src={editorCoverPhoto || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800"}
                             alt="Hero Cover"
                             referrerPolicy="no-referrer"
                           />
                           <div className="acn-phone-preview__cover-fade" />
-                          <div className="acn-phone-preview__hero-meta">
-                            <h3 className="acn-phone-preview__title font-display">
-                              {editorTitle || "Marvel Products"}
-                            </h3>
-                            <p className="acn-phone-preview__handle">
-                              @{editorTitle.toLowerCase().replace(/\s+/g, "") || "marvel"}
-                            </p>
-                          </div>
                         </div>
 
-                        <div className="acn-phone-preview__body">
+                        <div className="acn-phone-preview__body acn-public-bio-page__body">
+                          <div className="acn-public-bio-page__profile">
+                            <h3 className="acn-public-bio-page__title font-display">
+                              {editorTitle || "Marvel Products"}
+                            </h3>
+                            <p className="acn-public-bio-page__handle">
+                              {formatDisplayHandle(editorHandle, editorTitle)}
+                            </p>
+                          </div>
+
                           {editorBio && (
                             <p className="acn-phone-preview__bio-text">{editorBio}</p>
                           )}
@@ -3051,7 +3038,7 @@ export default function BioPagesScreen({
                               <button
                                 onClick={() => triggerSimulatorToast(`🔗 Simulated redirection to: ${block.value || "https://acn.link"}`)}
                                 style={getLinkButtonStyle(block as any)}
-                                className={`w-full font-bold py-3 px-4 rounded-xl flex items-center justify-between transition-all text-sm active:scale-98 ${
+                                className={`w-full font-bold py-3 px-4 rounded-xl flex items-center justify-between transition-all active:scale-98 acn-bio-link-btn ${
                                   isDefaultBrightLink(block as any)
                                     ? "shadow-md shadow-violet-500/30 border-0"
                                     : "shadow-sm border border-slate-200/80"
@@ -3060,8 +3047,8 @@ export default function BioPagesScreen({
                                 <div className="flex items-center gap-1.5 truncate">
                                   {(block as any).iconEmoji && <span>{(block as any).iconEmoji}</span>}
                                   <div className="text-left">
-                                    <span className="block font-bold">{block.label}</span>
-                                    {(block as any).subtext && <span className="block text-[8px] font-medium opacity-70">{(block as any).subtext}</span>}
+                                    <span className="acn-bio-link-label block font-bold">{block.label}</span>
+                                    {(block as any).subtext && <span className="acn-bio-link-subtext block font-medium opacity-70">{(block as any).subtext}</span>}
                                   </div>
                                 </div>
                                 {(block as any).showArrow !== "No" && (
@@ -3391,8 +3378,8 @@ export default function BioPagesScreen({
                     })}
                   </div>
 
-                  <div className="text-center mt-8 pb-2 acn-phone-preview__footer">
-                    <span className="text-[10px] text-slate-500 font-medium tracking-wider">Powered by ACN Link</span>
+                  <div className="acn-bio-page-footer acn-phone-preview__footer">
+                    <span>Powered by ACN Link</span>
                   </div>
                         </div>
 
@@ -3510,6 +3497,79 @@ export default function BioPagesScreen({
               </div>
             </div>
           </div>
+
+          {showCoverUrlModal && (
+            <div
+              className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4"
+              onClick={() => setShowCoverUrlModal(false)}
+              role="presentation"
+            >
+              <div
+                className="bg-white rounded-3xl max-w-md w-full p-4 shadow-2xl border border-gray-50"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-display font-bold text-lg text-gray-950">Cover Photo URL</h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowCoverUrlModal(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+                  Paste an image URL to use as your page cover. Changes apply to the live preview instantly.
+                </p>
+                {editorCoverPhoto.startsWith("data:") && (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-3">
+                    You uploaded a file. Applying a URL will replace the uploaded cover.
+                  </p>
+                )}
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                  Cover Photo URL (Alternative)
+                </label>
+                <input
+                  type="url"
+                  value={coverUrlDraft}
+                  onChange={(e) => setCoverUrlDraft(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2.5 px-3 text-xs text-slate-800 font-mono mb-4"
+                  placeholder="https://images.unsplash.com/..."
+                  autoFocus
+                />
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCoverUrlDraft(DEFAULT_COVER);
+                      setEditorCoverPhoto(DEFAULT_COVER);
+                      setShowCoverUrlModal(false);
+                      triggerToast("Cover photo reset to default.");
+                    }}
+                    className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+                  >
+                    Reset Default
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const trimmed = coverUrlDraft.trim();
+                      if (!trimmed) {
+                        triggerToast("Enter a valid image URL.");
+                        return;
+                      }
+                      setEditorCoverPhoto(trimmed);
+                      setShowCoverUrlModal(false);
+                      triggerToast("Cover photo URL updated!");
+                    }}
+                    className="flex-1 rounded-xl bg-[#591bd9] hover:bg-[#4a16b8] px-3 py-2.5 text-xs font-bold text-white transition-colors"
+                  >
+                    Apply URL
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {showSaveTemplateModal && (
             <div

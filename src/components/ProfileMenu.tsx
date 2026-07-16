@@ -77,7 +77,7 @@ export default function ProfileMenu({
         aria-expanded={isOpen}
         aria-haspopup="menu"
       >
-        <div className="h-9 w-9 rounded-lg bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 font-sans font-semibold text-sm flex items-center justify-center overflow-hidden">
+        <div className="h-9 w-9 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 font-sans font-semibold text-sm flex items-center justify-center overflow-hidden">
           {hasProfilePhoto ? (
             <img
               src={user.avatarUrl}
@@ -119,7 +119,7 @@ export default function ProfileMenu({
             type="button"
             role="menuitem"
             onClick={handleLogout}
-            className="acn-profile-menu__item w-full flex items-center gap-3 px-4 py-3 text-sm text-left transition-colors"
+            className="acn-profile-menu__item acn-profile-menu__item--logout w-full flex items-center gap-3 px-4 py-3 text-sm text-left transition-colors"
           >
             <LogOut className="h-4 w-4 shrink-0" />
             <span>Log out</span>

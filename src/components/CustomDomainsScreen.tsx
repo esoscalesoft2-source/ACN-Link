@@ -28,7 +28,6 @@ interface CustomDomainsScreenProps {
   onConnectDomain: (domainName: string, pageId: string) => Promise<void>;
   onVerifyDomain: (id: string) => Promise<void>;
   onDeleteDomain: (id: string) => Promise<void>;
-  quickCreateRequest?: number;
 }
 
 function isDomainLive(domain: CustomDomain) {
@@ -60,8 +59,7 @@ export default function CustomDomainsScreen({
   onReload,
   onConnectDomain,
   onVerifyDomain,
-  onDeleteDomain,
-  quickCreateRequest = 0
+  onDeleteDomain
 }: CustomDomainsScreenProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [domainName, setDomainName] = useState("");
@@ -105,10 +103,6 @@ export default function CustomDomainsScreen({
     resetForm();
     setIsAdding(true);
   };
-
-  React.useEffect(() => {
-    if (quickCreateRequest > 0) openAdd();
-  }, [quickCreateRequest]);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();

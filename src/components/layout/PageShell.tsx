@@ -23,10 +23,10 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, subtitle, actions }: PageHeaderProps) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 sm:gap-6">
       <div className="min-w-0">
-        <h2 className="acn-page-title text-2xl sm:text-3xl">{title}</h2>
-        {subtitle && <p className="acn-page-subtitle text-sm mt-1.5">{subtitle}</p>}
+        <h2 className="acn-page-title text-2xl sm:text-3xl lg:text-[2rem]">{title}</h2>
+        {subtitle && <p className="acn-page-subtitle mt-2">{subtitle}</p>}
       </div>
       {actions && (
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">{actions}</div>
@@ -59,9 +59,9 @@ interface StatCardProps {
 export function StatCard({ label, value, sub }: StatCardProps) {
   return (
     <div className="acn-stat-card min-w-0">
-      <p className="acn-stat-label text-[10px] font-bold uppercase tracking-widest">{label}</p>
-      <h3 className="acn-stat-value font-display font-bold text-2xl sm:text-3xl mt-1">{value}</h3>
-      {sub && <span className="acn-stat-sub text-[11px] mt-0.5 block">{sub}</span>}
+      <p className="acn-stat-label">{label}</p>
+      <h3 className="acn-stat-value font-display font-bold text-2xl sm:text-3xl mt-2">{value}</h3>
+      {sub && <span className="acn-stat-sub mt-1 block">{sub}</span>}
     </div>
   );
 }

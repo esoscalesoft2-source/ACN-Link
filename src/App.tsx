@@ -537,7 +537,6 @@ export default function App() {
 
   const [initialActiveEditPageId, setInitialActiveEditPageId] = useState<string | null>(null);
   const [initialActiveTemplateId, setInitialActiveTemplateId] = useState<string | null>(null);
-  const [customDomainQuickCreateRequest, setCustomDomainQuickCreateRequest] = useState(0);
 
   React.useEffect(() => {
     if (editPageIdFromUrl) {
@@ -801,11 +800,17 @@ export default function App() {
     });
   };
 
-  const handleUpdatePage = (id: string, title: string, bio?: string, coverPhoto?: string) => {
+  const handleUpdatePage = (id: string, title: string, bio?: string, coverPhoto?: string, pageHandle?: string) => {
     setPages((currentPages) =>
       currentPages.map((page) =>
         page.id === id
-          ? { ...page, title, bio: bio !== undefined ? bio : page.bio, coverPhoto: coverPhoto !== undefined ? coverPhoto : page.coverPhoto }
+          ? {
+              ...page,
+              title,
+              bio: bio !== undefined ? bio : page.bio,
+              coverPhoto: coverPhoto !== undefined ? coverPhoto : page.coverPhoto,
+              handle: pageHandle !== undefined ? pageHandle : page.handle
+            }
           : page
       )
     );
@@ -1099,11 +1104,6 @@ export default function App() {
     setIsMobileNavOpen(false);
   };
 
-  // Quick Action trigger on headers
-  const handleQuickCreate = () => {
-    setCustomDomainQuickCreateRequest((request) => request + 1);
-  };
-
   const handleNotificationNavigate = (screen: ScreenId, pageId?: string) => {
     if (screen === ScreenId.BIO_PAGES && pageId) {
       setInitialActiveEditPageId(pageId);
@@ -1312,6 +1312,7 @@ export default function App() {
               const tplTitle = editorPayload.pageMeta.title;
               const tplBio = editorPayload.pageMeta.shortBio;
               const tplCoverPhoto = editorPayload.pageMeta.coverImage;
+              const tplHandle = editorPayload.pageMeta.handle;
               const blocksToLoad = cloneBlocks(editorPayload.blocks);
 
               const newId = "p_" + Date.now();
@@ -1327,7 +1328,8 @@ export default function App() {
                 views: 0,
                 createdAt: "7 Jul 2026",
                 bio: tplBio,
-                coverPhoto: tplCoverPhoto
+                coverPhoto: tplCoverPhoto,
+                handle: tplHandle
               };
 
               setPageBlocksMap((prev) => ({
@@ -1336,7 +1338,7 @@ export default function App() {
                 [newSlug]: blocksToLoad
               }));
 
-              const details = { title: tplTitle, bio: tplBio, coverPhoto: tplCoverPhoto };
+              const details = { title: tplTitle, bio: tplBio, coverPhoto: tplCoverPhoto, handle: tplHandle };
               persistPagePreviewStorage(newId, newSlug, blocksToLoad, details);
 
               setPages((prev) => [newPage, ...prev]);
@@ -1393,7 +1395,6 @@ export default function App() {
             onConnectDomain={handleConnectDomain}
             onVerifyDomain={handleVerifyDomain}
             onDeleteDomain={handleDeleteDomain}
-            quickCreateRequest={customDomainQuickCreateRequest}
           />
         );
       case ScreenId.HELP_CENTER:
@@ -1444,7 +1445,7 @@ export default function App() {
   return (
     <div
       className={`h-screen max-h-[100dvh] w-full overflow-hidden flex font-sans antialiased ${
-        isLoggedIn ? `acn-app-shell acn-theme-${uiTheme}` : ""
+        isLoggedIn ? `acn-app-shell acn-theme-${uiTheme}` : "bg-[#12151f]"
       }`}
     >
       {isLoggedIn && (
@@ -1471,7 +1472,6 @@ export default function App() {
             currentScreen={currentScreen}
             user={user}
             onScreenChange={handleScreenChange}
-            onQuickCreate={handleQuickCreate}
             onMenuToggle={() => setIsMobileNavOpen((open) => !open)}
             isMobileNavOpen={isMobileNavOpen}
             notifications={notifications}
@@ -1484,8 +1484,12 @@ export default function App() {
           />
         )}
 
-        <main className="acn-main-scroll min-w-0 no-scrollbar">
-          <div className="acn-main-scroll__content">
+        <main
+          className={`min-w-0 no-scrollbar ${
+            isLoggedIn ? "acn-main-scroll" : "flex-1 h-full min-h-0 overflow-hidden"
+          }`}
+        >
+          <div className={isLoggedIn ? "acn-main-scroll__content" : "h-full min-h-0"}>
             {!isLoggedIn ? (
               <Routes>
                 <Route
@@ -1515,7 +1519,7 @@ export default function App() {
           </div>
 
           {isLoggedIn && (
-            <footer className="acn-footer-bar text-slate-500 px-4 sm:px-6 py-3 flex items-center justify-between text-[10px] uppercase tracking-widest font-mono shrink-0 select-none relative z-[1] mt-8">
+            <footer className="acn-footer-bar px-4 sm:px-6 py-3.5 flex items-center justify-between font-mono shrink-0 select-none relative z-[1] mt-8">
               <div className="flex min-w-0">
                 <span className="flex items-center truncate" aria-live="polite">
                   <span

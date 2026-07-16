@@ -44,30 +44,22 @@ export function SidebarNav({
         to={screenToPath(item.id)}
         onClick={() => onNavigate?.()}
         className={({ isActive }) =>
-          `flex items-center w-full rounded-lg px-4 py-2 transition-all text-left duration-200 group relative ${
-            isActive
-              ? "acn-nav-active"
-              : "acn-sidebar-nav-idle text-slate-400 hover:text-slate-200"
+          `acn-sidebar-nav-item group relative ${
+            isActive ? "acn-nav-active" : "acn-sidebar-nav-idle"
           }`
         }
         title={isCollapsed ? item.label : undefined}
       >
         {({ isActive }) => (
           <>
-            <IconComponent
-              className={`h-4.5 w-4.5 shrink-0 ${
-                isActive ? "text-indigo-400" : "text-slate-500 group-hover:text-slate-300"
-              }`}
-            />
+            <IconComponent className="acn-sidebar-nav-item__icon" />
 
             {!isCollapsed && (
-              <span className="ml-3 text-sm truncate flex-1">{item.label}</span>
+              <span className="acn-sidebar-nav-item__label">{item.label}</span>
             )}
 
             {!isCollapsed && item.pro && (
-              <span className="ml-2 text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 uppercase tracking-wider scale-90">
-                PRO
-              </span>
+              <span className="acn-sidebar-pro-badge">PRO</span>
             )}
           </>
         )}
@@ -78,46 +70,38 @@ export function SidebarNav({
   return (
     <>
       {showBrand && (
-        <div className={`acn-sidebar-brand ${isCollapsed ? "justify-center !px-2" : ""}`}>
+        <div className={`acn-sidebar-brand ${isCollapsed ? "justify-center" : ""}`}>
           <AcnLogo3D size="sm" showLabel={!isCollapsed} />
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto no-scrollbar px-3 py-4 space-y-5 min-h-0">
+      <div className="acn-sidebar-nav__scroll">
         {NAV_CATEGORIES.map((category) => (
           <div key={category.title}>
             {!isCollapsed && (
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-4 mb-2">
-                {category.title}
-              </p>
+              <p className="acn-sidebar-category">{category.title}</p>
             )}
-            <div className="space-y-0.5">{category.items.map(renderItem)}</div>
+            <div className="acn-sidebar-nav-items">{category.items.map(renderItem)}</div>
           </div>
         ))}
       </div>
 
-      <div className="p-3 shrink-0">
+      <div className="acn-sidebar-footer">
         <NavLink
           to={screenToPath(ScreenId.ACCOUNT)}
           onClick={handleAccountClick}
           className={({ isActive }) =>
-            `flex items-center w-full rounded-lg px-4 py-2 transition-all text-left duration-200 group relative mb-1.5 ${
-              isActive
-                ? "acn-nav-active"
-                : "acn-sidebar-nav-idle text-slate-400 hover:text-slate-200"
+            `acn-sidebar-nav-item group relative ${
+              isActive ? "acn-nav-active" : "acn-sidebar-nav-idle"
             }`
           }
           title={isCollapsed ? "Account" : undefined}
         >
           {({ isActive }) => (
             <>
-              <User
-                className={`h-4.5 w-4.5 shrink-0 ${
-                  isActive ? "text-indigo-400" : "text-slate-500 group-hover:text-slate-300"
-                }`}
-              />
+              <User className="acn-sidebar-nav-item__icon" />
               {!isCollapsed && (
-                <span className="ml-3 text-sm truncate flex-1">Account</span>
+                <span className="acn-sidebar-nav-item__label">Account</span>
               )}
             </>
           )}
@@ -125,16 +109,17 @@ export function SidebarNav({
 
         {showCollapse && setIsCollapsed && (
           <button
+            type="button"
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="acn-sidebar-nav-idle flex items-center w-full rounded-lg px-4 py-2 transition-all text-left duration-200"
+            className="acn-sidebar-nav-item acn-sidebar-nav-idle"
           >
             {isCollapsed ? (
-              <ChevronRight className="h-4.5 w-4.5 text-slate-400" />
+              <ChevronRight className="acn-sidebar-nav-item__icon" />
             ) : (
-              <ChevronLeft className="h-4.5 w-4.5 text-slate-400" />
+              <ChevronLeft className="acn-sidebar-nav-item__icon" />
             )}
             {!isCollapsed && (
-              <span className="ml-3 text-sm text-slate-600 font-medium">Collapse</span>
+              <span className="acn-sidebar-nav-item__label">Collapse</span>
             )}
           </button>
         )}
@@ -152,7 +137,7 @@ export default function Sidebar({
   return (
     <aside
       className={`hidden lg:flex acn-glass-sidebar flex-col transition-all duration-300 shrink-0 h-full max-h-full overflow-hidden ${
-        isCollapsed ? "w-20" : "w-64"
+        isCollapsed ? "acn-sidebar--collapsed w-[5.5rem]" : "w-[18rem]"
       }`}
       aria-label="Main navigation"
     >

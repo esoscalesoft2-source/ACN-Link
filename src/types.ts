@@ -34,6 +34,7 @@ export interface BioPage {
   createdAt: string;
   bio?: string;
   coverPhoto?: string;
+  handle?: string;
 }
 
 export interface Contact {
@@ -180,6 +181,17 @@ export interface BioEditorBlock {
   [key: string]: unknown;
 }
 
+/** Published / preview page appearance */
+export type BioPagePreviewTheme = "dark" | "light";
+
+export interface BioPagePreviewDetails {
+  title: string;
+  bio: string;
+  coverPhoto: string;
+  handle?: string;
+  pageTheme?: BioPagePreviewTheme;
+}
+
 /** Full restorable editor state for drafts and templates */
 export interface BioEditorState {
   pageMeta: {
@@ -187,6 +199,8 @@ export interface BioEditorState {
     slug?: string;
     shortBio: string;
     coverImage: string;
+    handle?: string;
+    pageTheme?: BioPagePreviewTheme;
   };
   blocks: BioEditorBlock[];
 }

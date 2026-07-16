@@ -23,16 +23,7 @@ import {
 } from "lucide-react";
 import PageShell from "./layout/PageShell";
 import type { AppTheme } from "../lib/themeStorage";
-
-const CARTOON_AVATARS = [
-  "https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=Nova",
-  "https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=Kai",
-  "https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=Milo",
-  "https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=Zara",
-  "https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=Leo",
-  "https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=Ava",
-  "https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=Rex"
-];
+import { ACN_AVATAR_PRESETS } from "../lib/avatarPresets";
 
 interface AccountScreenProps {
   user: UserProfile;
@@ -439,7 +430,7 @@ export default function AccountScreen({
           </h3>
 
           <div className="flex flex-col sm:flex-row sm:items-center gap-4 rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
-            <div className="h-16 w-16 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 font-sans font-bold text-xl flex items-center justify-center shadow-inner shrink-0 overflow-hidden">
+            <div className="h-16 w-16 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 font-sans font-bold text-xl flex items-center justify-center shadow-inner shrink-0 overflow-hidden">
               {hasProfilePhoto ? (
                 <img src={avatarUrl} alt={`${name} profile`} className="h-full w-full object-cover" />
               ) : (
@@ -490,12 +481,12 @@ export default function AccountScreen({
           <div className="space-y-3">
             <div>
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                Choose cartoon avatar
+                Choose 3D avatar
               </p>
-              <p className="mt-1 text-xs text-slate-500">Select one, then save your profile changes.</p>
+              <p className="mt-1 text-xs text-slate-500">Round memoji-style picks. Select one, then save your profile.</p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {CARTOON_AVATARS.map((avatar, index) => {
+            <div className="flex flex-wrap gap-3">
+              {ACN_AVATAR_PRESETS.map((avatar, index) => {
                 const selected = avatarUrl === avatar;
                 return (
                   <button
@@ -505,15 +496,15 @@ export default function AccountScreen({
                       setAvatarUrl(avatar);
                       setAvatarError("");
                     }}
-                    className={`h-11 w-11 overflow-hidden rounded-xl border-2 bg-white transition-all ${
+                    className={`h-12 w-12 overflow-hidden rounded-full border-2 bg-slate-100 transition-all shadow-sm ${
                       selected
                         ? "border-indigo-600 ring-2 ring-indigo-100 scale-105"
-                        : "border-transparent hover:border-indigo-200 hover:scale-105"
+                        : "border-white/80 hover:border-indigo-200 hover:scale-105"
                     }`}
-                    aria-label={`Choose cartoon avatar ${index + 1}`}
+                    aria-label={`Choose 3D avatar ${index + 1}`}
                     aria-pressed={selected}
                   >
-                    <img src={avatar} alt="" className="h-full w-full object-cover" />
+                    <img src={avatar} alt="" className="h-full w-full object-cover" loading="lazy" />
                   </button>
                 );
               })}

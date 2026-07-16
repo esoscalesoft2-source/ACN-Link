@@ -554,7 +554,7 @@ export default function LoginScreen({
     ) : null;
 
   return (
-    <div className="acn-auth-canvas h-full min-h-0 overflow-hidden flex flex-col items-center justify-center p-4 sm:p-6">
+    <div className="acn-auth-canvas h-full min-h-[100dvh] w-full overflow-hidden flex flex-col items-center justify-center p-4 sm:p-6">
       <div className="acn-auth-orb acn-auth-orb--1" aria-hidden />
       <div className="acn-auth-orb acn-auth-orb--2" aria-hidden />
       <div className="acn-auth-orb acn-auth-orb--3" aria-hidden />

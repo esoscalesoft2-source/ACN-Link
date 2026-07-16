@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { ArrowRight, Copy, Check, MessageSquare, User, X, AlertCircle } from "lucide-react";
 import { apiUrl } from "../lib/apiBase";
 import { BIO_LINK, getLinkArrowColor, getLinkButtonStyle, isDefaultBrightLink } from "../lib/bioLinkColors";
+import { formatDisplayHandle } from "../storage/bioBuilderStorage";
+import type { BioPagePreviewDetails, BioPagePreviewTheme } from "../types";
 
 interface Block {
   id: string;
@@ -85,13 +87,91 @@ export default function PublicBioPageView({
   mode = "preview"
 }: PublicBioPageViewProps) {
   const [blocks, setBlocks] = useState<Block[]>([]);
-  const [customDetails, setCustomDetails] = useState<{ title: string; bio: string; coverPhoto: string } | null>(null);
+  const [customDetails, setCustomDetails] = useState<BioPagePreviewDetails | null>(null);
+  const [pageTheme, setPageTheme] = useState<BioPagePreviewTheme>("dark");
   const [pageLoadStatus, setPageLoadStatus] = useState<"loading" | "ready" | "not_found">("loading");
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [showNoticePanel, setShowNoticePanel] = useState(false);
+  const noticeRef = useRef<HTMLDivElement>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [leadEmail, setLeadEmail] = useState("");
   const [showSpinWheel, setShowSpinWheel] = useState(false);
   const [isSpinning, setIsSpinning] = useState(false);
   const [spinResult, setSpinResult] = useState<string | null>(null);
+
+  const applyStoredDetails = (parsed: BioPagePreviewDetails | null) => {
+    if (!parsed || typeof parsed !== "object") return;
+    setCustomDetails(parsed);
+    setPageTheme(parsed.pageTheme === "light" ? "light" : "dark");
+  };
+
+  const reloadStoredDetails = () => {
+    try {
+      const savedDetails =
+        localStorage.getItem(`biolink_details_${pageId}`) ||
+        localStorage.getItem(`biolink_details_${pageSlug}`);
+      if (!savedDetails) return;
+      applyStoredDetails(JSON.parse(savedDetails) as BioPagePreviewDetails);
+    } catch (e) {
+      console.error("Error loading custom details:", e);
+    }
+  };
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (
+        event.key === `biolink_details_${pageId}` ||
+        event.key === `biolink_details_${pageSlug}`
+      ) {
+        reloadStoredDetails();
+      }
+    };
+
+    const handlePreviewUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ pageId?: string; pageSlug?: string; details?: BioPagePreviewDetails }>).detail;
+      if (!detail) return;
+      if (detail.pageId !== pageId && detail.pageSlug !== pageSlug) return;
+      if (detail.details) {
+        applyStoredDetails(detail.details);
+      } else {
+        reloadStoredDetails();
+      }
+    };
+
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("acn-page-preview-updated", handlePreviewUpdated as EventListener);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("acn-page-preview-updated", handlePreviewUpdated as EventListener);
+    };
+  }, [pageId, pageSlug]);
+
+  useEffect(() => {
+    document.documentElement.classList.add("acn-public-scroll");
+    return () => {
+      document.documentElement.classList.remove("acn-public-scroll");
+    };
+  }, []);
+
+  useEffect(() => {
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShowNoticePanel(false);
+    };
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (noticeRef.current && !noticeRef.current.contains(event.target as Node)) {
+        setShowNoticePanel(false);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showNoticePanel]);
 
   const trackAction = (eventType: "visit" | "click" | "register", eventLabel: string, details?: any) => {
     fetch(apiUrl("/api/track"), {
@@ -182,6 +262,8 @@ export default function PublicBioPageView({
     let isMounted = true;
 
     async function loadPageData() {
+      setLoadError(null);
+
       // 1. Try fetching from server first (critical for multi-device/mobile preview)
       try {
         const res = await fetch(apiUrl(`/api/page/${pageId}`));
@@ -193,16 +275,25 @@ export default function PublicBioPageView({
               setPageLoadStatus("ready");
               if (data.details) {
                 setCustomDetails(data.details);
+                setPageTheme(data.details.pageTheme === "light" ? "light" : "dark");
               }
               return;
             }
             if (data.details) {
               setCustomDetails(data.details);
+              setPageTheme(data.details.pageTheme === "light" ? "light" : "dark");
             }
           }
+        } else if (res.status === 404) {
+          if (isMounted) setPageLoadStatus("not_found");
+        } else if (isMounted) {
+          setLoadError(`Server returned ${res.status}. Could not load this page.`);
         }
       } catch (err) {
         console.error("Failed to fetch page data from server:", err);
+        if (isMounted) {
+          setLoadError("Could not reach the server. Check your connection and try again.");
+        }
       }
 
       // 2. Fallback to localStorage (for offline/local-only compatibility)
@@ -232,15 +323,14 @@ export default function PublicBioPageView({
       const savedDetails = localStorage.getItem(`biolink_details_${pageId}`) || localStorage.getItem(`biolink_details_${pageSlug}`);
       if (savedDetails) {
         try {
-          const parsed = JSON.parse(savedDetails);
-          if (parsed && typeof parsed === "object") {
-            if (isMounted) setCustomDetails(parsed);
-          }
+          const parsed = JSON.parse(savedDetails) as BioPagePreviewDetails;
+          if (isMounted) applyStoredDetails(parsed);
         } catch (e) {
           console.error("Error loading custom details:", e);
         }
-      } else {
-        if (isMounted) setCustomDetails(null);
+      } else if (isMounted) {
+        setCustomDetails(null);
+        setPageTheme("dark");
       }
     }
 
@@ -251,6 +341,56 @@ export default function PublicBioPageView({
     };
   }, [pageId, pageSlug, pageTitle]);
 
+  const pageNotices = useMemo(() => {
+    const notices: Array<{ id: string; title: string; body: React.ReactNode; kind: "info" | "error" }> = [];
+
+    if (mode === "preview") {
+      notices.push({
+        id: "sandbox",
+        title: "Secure Sandboxed Preview Mode",
+        kind: "info",
+        body: (
+          <>
+            <p>You are viewing your live BioLink output safely hosted on our secure origin.</p>
+            <p className="mt-2">
+              <strong>Note on Privacy Error:</strong> Custom mock domains (like{" "}
+              <code className="bg-amber-100/20 px-1 rounded text-amber-100">acn.link</code>) require real DNS
+              records and SSL certificates to work globally. Our sandbox securely routes this preview for you to test
+              functionality instantly!
+            </p>
+          </>
+        )
+      });
+    }
+
+    if (pageLoadStatus === "not_found") {
+      notices.push({
+        id: "not-found",
+        title: "Page Not Available",
+        kind: "error",
+        body: (
+          <p>
+            This page is not available yet. Ask the owner to publish it and try again.
+          </p>
+        )
+      });
+    }
+
+    if (loadError) {
+      notices.push({
+        id: "load-error",
+        title: "Could Not Load Page",
+        kind: "error",
+        body: <p>{loadError}</p>
+      });
+    }
+
+    return notices;
+  }, [mode, pageLoadStatus, loadError]);
+
+  const hasPageNotices = pageNotices.length > 0;
+  const hasErrorNotice = pageNotices.some((notice) => notice.kind === "error");
+
   const triggerToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => {
@@ -258,78 +398,101 @@ export default function PublicBioPageView({
     }, 3000);
   };
 
+  const displayTitle = customDetails?.title || pageTitle;
+  const displayHandle = formatDisplayHandle(customDetails?.handle, displayTitle);
+  const displayBio = customDetails?.bio || pageBio;
+  const coverPhoto =
+    customDetails?.coverPhoto ||
+    pageCoverPhoto ||
+    "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800";
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-start py-8 px-4 font-sans text-slate-800">
-      {mode === "preview" && (
-        <div className="w-full max-w-md bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6 shadow-sm text-xs text-amber-900 leading-relaxed space-y-1">
-          <div className="flex items-center gap-1.5 font-bold text-amber-800">
-            <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
-            <span>Secure Sandboxed Preview Mode</span>
-          </div>
-          <p>
-            You are viewing your live BioLink output safely hosted on our secure origin.
-          </p>
-          <p className="text-amber-700/90 text-[11px] mt-1">
-            <strong>Note on Privacy Error:</strong> Custom mock domains (like <code className="bg-amber-100 px-1 rounded">acn.link</code>) require real DNS records and SSL certificates to work globally. Our sandbox securely routes this preview for you to test functionality instantly!
-          </p>
+    <div className={`acn-public-bio-page acn-bio-page-theme-${pageTheme} flex flex-col items-center justify-start font-sans`}>
+      {hasPageNotices && (
+        <div className="acn-public-notice" ref={noticeRef}>
+          <button
+            type="button"
+            className="acn-public-notice__trigger"
+            onClick={() => setShowNoticePanel((open) => !open)}
+            aria-label="View page notices"
+            aria-expanded={showNoticePanel}
+            aria-haspopup="dialog"
+          >
+            <AlertCircle className="acn-public-notice__icon" />
+            <span
+              className={`acn-public-notice__dot${hasErrorNotice ? " acn-public-notice__dot--error" : ""}`}
+              aria-hidden
+            />
+          </button>
+
+          {showNoticePanel && (
+            <div className="acn-public-notice__panel" role="dialog" aria-label="Page notices">
+              <div className="acn-public-notice__panel-head">
+                <span className="acn-public-notice__panel-title">Page notices</span>
+                <button
+                  type="button"
+                  className="acn-public-notice__close"
+                  onClick={() => setShowNoticePanel(false)}
+                  aria-label="Close notices"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="acn-public-notice__panel-body">
+                {pageNotices.map((notice) => (
+                  <article
+                    key={notice.id}
+                    className={`acn-public-notice__item${
+                      notice.kind === "error" ? " acn-public-notice__item--error" : " acn-public-notice__item--info"
+                    }`}
+                  >
+                    <h3 className="acn-public-notice__item-title">{notice.title}</h3>
+                    <div className="acn-public-notice__item-body">{notice.body}</div>
+                  </article>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Main Glassmorphic Mobile-Optimized Page Card */}
-      <div className="w-full max-w-md bg-white border border-slate-200/80 rounded-3xl shadow-xl overflow-hidden flex flex-col relative pb-8">
-        
-        {/* Cover Image */}
-        <div className="h-48 w-full relative overflow-hidden bg-cover bg-center bg-slate-100">
+      <div className={`acn-public-bio-page__card acn-preview-isolate acn-public-bio-page__screen acn-bio-page-theme-${pageTheme} w-full max-w-md`}>
+        <div className="acn-phone-preview__cover acn-public-bio-page__cover">
           <img
-            src={customDetails?.coverPhoto || pageCoverPhoto || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800"}
+            src={coverPhoto}
             alt="Hero Cover"
             className="w-full h-full object-cover"
             referrerPolicy="no-referrer"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-white to-transparent" />
+          <div className="acn-phone-preview__cover-fade" />
         </div>
 
-        {/* Profile Avatar */}
-        <div className="px-6 -mt-10 relative z-10 text-center">
-          <div className="w-20 h-20 mx-auto rounded-full border-4 border-white overflow-hidden shadow-md bg-white flex items-center justify-center">
-            <span className="text-4xl">👤</span>
+        <div className="acn-phone-preview__body acn-public-bio-page__body">
+          <div className="acn-public-bio-page__profile">
+            <h1 className="acn-public-bio-page__title font-display">{displayTitle}</h1>
+            <p className="acn-public-bio-page__handle">{displayHandle}</p>
           </div>
 
-          <h1 className="font-display font-black text-2xl text-slate-900 mt-3 leading-tight">
-            {customDetails?.title || pageTitle}
-          </h1>
-          <p className="text-xs text-slate-500 font-semibold mt-0.5 font-mono">
-            @{ (customDetails?.title || pageTitle).toLowerCase().replace(/\s+/g, "") || "profile" }
-          </p>
-          {(customDetails?.bio || pageBio) && (
-            <p className="text-xs text-slate-600 mt-2.5 leading-relaxed max-w-[280px] mx-auto bg-slate-50/70 border border-slate-100 p-3 rounded-2xl shadow-sm font-medium">{customDetails?.bio || pageBio}</p>
-          )}
-        </div>
+          {displayBio && <p className="acn-phone-preview__bio-text">{displayBio}</p>}
 
-        {/* Render Blocks Container */}
-        <div className="px-6 mt-6 space-y-4">
+          <div className="acn-phone-preview__blocks space-y-4">
           {pageLoadStatus === "loading" && (
-            <p className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-center text-xs text-slate-500">
+            <p className="acn-public-bio-page__loading rounded-2xl border p-4 text-center text-xs">
               Loading this page…
-            </p>
-          )}
-          {pageLoadStatus === "not_found" && (
-            <p className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-center text-xs leading-relaxed text-amber-800">
-              This page is not available yet. Ask the owner to publish it and try again.
             </p>
           )}
           {blocks.map((block) => {
             switch (block.type) {
               case "Header":
                 return (
-                  <h2 key={block.id} className="text-center font-display font-black text-base text-slate-900 pt-2 leading-snug">
+                  <h2 key={block.id} className="acn-phone-preview__block-heading font-display text-center pt-2 leading-snug">
                     {block.label}
                   </h2>
                 );
 
               case "Text":
                 return (
-                  <p key={block.id} className="text-center text-xs text-slate-600 bg-slate-50/50 border border-slate-100 p-3.5 rounded-2xl leading-relaxed shadow-sm">
+                  <p key={block.id} className="acn-phone-preview__block-text text-center p-3.5 rounded-2xl leading-relaxed">
                     {block.label}
                   </p>
                 );
@@ -344,17 +507,17 @@ export default function PublicBioPageView({
                       openExternalLink(block.value || "");
                     }}
                     style={getLinkButtonStyle(block as any)}
-                    className={`w-full font-bold py-3.5 px-4 rounded-2xl flex items-center justify-between transition-all text-xs active:scale-98 ${
+                    className={`w-full font-bold py-3.5 px-4 rounded-2xl flex items-center justify-between transition-all active:scale-98 acn-bio-link-btn ${
                       isDefaultBrightLink(block as any)
                         ? "shadow-md shadow-violet-500/30 border-0"
                         : "shadow-sm border border-slate-200/85"
                     }`}
                   >
                     <div className="flex items-center gap-2 truncate text-left">
-                      {(block as any).iconEmoji && <span className="text-sm">{(block as any).iconEmoji}</span>}
+                      {(block as any).iconEmoji && <span className="text-base">{(block as any).iconEmoji}</span>}
                       <div>
-                        <span className="block font-bold text-sm leading-tight">{block.label}</span>
-                        {(block as any).subtext && <span className="block text-[10px] font-medium opacity-70 mt-0.5">{(block as any).subtext}</span>}
+                        <span className="acn-bio-link-label block font-bold leading-tight">{block.label}</span>
+                        {(block as any).subtext && <span className="acn-bio-link-subtext block font-medium opacity-70 mt-0.5">{(block as any).subtext}</span>}
                       </div>
                     </div>
                     {(block as any).showArrow !== "No" && (
@@ -720,11 +883,11 @@ export default function PublicBioPageView({
                 );
             }
           })}
-        </div>
+          </div>
 
-        {/* Footer info */}
-        <div className="text-center mt-10">
-          <span className="text-[10px] text-slate-400 font-bold tracking-widest uppercase">Powered by ACN Link</span>
+          <div className="acn-bio-page-footer acn-phone-preview__footer">
+            <span>Powered by ACN Link</span>
+          </div>
         </div>
 
         {/* Interactive Simulator Toast Overlay */}

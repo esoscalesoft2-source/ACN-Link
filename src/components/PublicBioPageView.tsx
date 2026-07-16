@@ -533,7 +533,9 @@ export default function PublicBioPageView({
   };
 
   const displayTitle = customDetails?.title || pageTitle;
-  const displayHandle = formatDisplayHandle(customDetails?.handle, displayTitle);
+  const displayHandle = formatDisplayHandle(customDetails?.handle, displayTitle, {
+    fallbackToTitle: false
+  });
   const displayBio = customDetails?.bio || pageBio;
   const spinCouponCode =
     blocks.find((block) => block.type === "Coupon" && block.value)?.value ||
@@ -563,7 +565,9 @@ export default function PublicBioPageView({
         <div className="acn-phone-preview__body acn-public-bio-page__body">
           <div className="acn-public-bio-page__profile">
             <h1 className="acn-public-bio-page__title font-display">{displayTitle}</h1>
-            <p className="acn-public-bio-page__handle">{displayHandle}</p>
+            {displayHandle && (
+              <p className="acn-public-bio-page__handle">{displayHandle}</p>
+            )}
           </div>
 
           {displayBio && <p className="acn-phone-preview__bio-text">{displayBio}</p>}

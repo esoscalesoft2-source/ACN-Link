@@ -85,6 +85,7 @@ import {
   syncAllLocalPageDocumentsToServer,
   syncLocalPageDocumentToServer,
   deleteTemplateOnServer,
+  pruneLocalBioCache,
 } from "./storage/bioBuilderStorage";
 import {
   getAllNotifications,
@@ -105,6 +106,16 @@ function writeLocalStorage(key: string, value: unknown): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch (error) {
+    if (error instanceof DOMException && error.name === "QuotaExceededError") {
+      pruneLocalBioCache();
+      try {
+        localStorage.setItem(key, JSON.stringify(value));
+        return;
+      } catch {
+        console.warn(`Browser storage is full; skipped caching "${key}". Server remains the source of truth.`);
+        return;
+      }
+    }
     console.warn(`Unable to persist "${key}" in browser storage.`, error);
   }
 }
@@ -137,6 +148,11 @@ export default function App() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const isBrandedHost = !isPlatformHostname();
+
+  React.useEffect(() => {
+    pruneLocalBioCache();
+  }, []);
+
   const [brandedPageId, setBrandedPageId] = useState<string | null>(null);
   const [brandedResolveState, setBrandedResolveState] = useState<"pending" | "ready" | "missing">(
     isBrandedHost ? "pending" : "missing"

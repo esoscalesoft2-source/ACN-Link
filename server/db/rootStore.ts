@@ -141,6 +141,8 @@ export function getRootStore(): Record<string, unknown> {
 export function setRootStore(data: Record<string, unknown>): void {
   memory = data;
   if (backend === "supabase" && isSupabaseConfigured()) {
+    // Mirror to disk so saves survive Supabase timeouts / slow app_kv upserts.
+    writeFileRoot(memory);
     writeChain = writeChain
       .then(() => persistToSupabase(memory))
       .catch((err) => console.error("Queued Supabase write failed:", err));

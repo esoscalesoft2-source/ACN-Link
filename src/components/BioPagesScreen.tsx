@@ -7,8 +7,9 @@ import {
   buildEditorState,
   cloneBlocks,
   DEFAULT_COVER,
-  defaultHandleFromTitle,
   formatDisplayHandle,
+  suggestedHandlePlaceholder,
+  getStoredHandle,
   normalizeHandleInput,
   deleteDraftByPageId,
   upsertDraft,
@@ -18,13 +19,13 @@ import {
   persistAndSyncPagePreview,
   syncDraftToServer,
   syncAllDraftsToServer,
-  syncPageDocumentToServer,
+  describeServerSyncFailure,
+  syncPagesListToServer,
   readStoredPageTheme
 } from "../storage/bioBuilderStorage";
 import { CreateNotificationInput } from "../storage/notificationStorage";
 import { PRIMARY_DOMAIN } from "../storage/publishStorage";
 import { apiUrl } from "../lib/apiBase";
-import { getAccessToken } from "../lib/authApi";
 import {
   RefreshCw,
   Plus,
@@ -684,9 +685,12 @@ export default function BioPagesScreen({
     title: editorTitle,
     bio: editorBio,
     coverPhoto: editorCoverPhoto,
-    handle: normalizeHandleInput(editorHandle) || defaultHandleFromTitle(editorTitle),
+    handle: getStoredHandle(editorHandle),
     pageTheme: theme
   });
+
+  const previewHandle = formatDisplayHandle(editorHandle, editorTitle, { fallbackToTitle: false });
+  const handlePlaceholder = suggestedHandlePlaceholder(editorTitle);
 
   const syncPreviewStorage = (theme: BioPagePreviewTheme = editorPageTheme) => {
     if (!selectedEditPage) return;
@@ -694,7 +698,8 @@ export default function BioPagesScreen({
       selectedEditPage.id,
       selectedEditPage.slug,
       editorBlocks,
-      buildCurrentPreviewDetails(theme)
+      buildCurrentPreviewDetails(theme),
+      { pages }
     );
   };
 
@@ -742,7 +747,7 @@ export default function BioPagesScreen({
 
   const hydrateEditorFromState = (state: BioEditorState) => {
     setEditorTitle(state.pageMeta.title);
-    setEditorHandle(state.pageMeta.handle || defaultHandleFromTitle(state.pageMeta.title));
+    setEditorHandle(state.pageMeta.handle || "");
     setEditorBio(state.pageMeta.shortBio);
     setEditorCoverPhoto(state.pageMeta.coverImage);
     setEditorPageTheme(state.pageMeta.pageTheme === "light" ? "light" : "dark");
@@ -802,26 +807,34 @@ export default function BioPagesScreen({
       }));
 
       const details = buildCurrentPreviewDetails();
-      const [draftServerOk, previewResult] = await Promise.all([
+      const syncOptions = { pages };
+      await syncPagesListToServer(pages);
+      const [draftSync, previewResult] = await Promise.all([
         syncDraftToServer(draftRecord),
-        persistAndSyncPagePreview(selectedEditPage.id, selectedEditPage.slug, state.blocks, details)
+        persistAndSyncPagePreview(
+          selectedEditPage.id,
+          selectedEditPage.slug,
+          state.blocks,
+          details,
+          syncOptions
+        )
       ]);
       const pageServerOk = previewResult.serverOk;
+      const draftServerOk = draftSync.ok;
 
       if (draftServerOk || pageServerOk) {
         triggerToast(`💾 Draft for "${editorTitle}" saved to the cloud.`);
-      } else if (!getAccessToken()) {
-        triggerToast("💾 Draft saved locally. Sign in to sync to the cloud.");
       } else {
-        triggerToast("⚠️ Could not reach the server. Your draft is kept in this session.");
+        const reason = pageServerOk ? draftSync.reason : previewResult.sync.reason;
+        triggerToast(`💾 Draft saved in this session. ${describeServerSyncFailure(reason)}`);
       }
 
       onNotify({
         type: "draft_saved",
         title: "Draft saved",
         message: draftServerOk || pageServerOk
-          ? `Your edits to "${editorTitle}" were saved to Railway.`
-          : `Your edits to "${editorTitle}" were saved for this session.`,
+          ? `Your edits to "${editorTitle}" were saved to the server.`
+          : `Your edits to "${editorTitle}" were saved in this session.`,
         targetScreen: ScreenId.BIO_PAGES
       });
     } catch (err) {
@@ -1046,9 +1059,9 @@ export default function BioPagesScreen({
       title: newlyCreatedPage.title,
       bio: newlyCreatedPage.bio || "Write a short bio...",
       coverPhoto: newlyCreatedPage.coverPhoto || DEFAULT_COVER,
-      handle: newlyCreatedPage.handle || defaultHandleFromTitle(newlyCreatedPage.title),
+      handle: getStoredHandle(newlyCreatedPage.handle),
       pageTheme: "dark"
-    });
+    }, { pages: [...pages, newlyCreatedPage] });
 
     // Reset create modal states
     setNextInitialBlocks(genericInitialBlocks);
@@ -1093,7 +1106,7 @@ export default function BioPagesScreen({
         triggerToast(`📂 Restored draft for "${pageDraft.data.pageMeta.title}"`);
       } else {
         setEditorTitle(page.title);
-        setEditorHandle(page.handle || defaultHandleFromTitle(page.title));
+        setEditorHandle(page.handle ?? "");
         setEditorBio(page.bio || "Write a short bio...");
         setEditorCoverPhoto(page.coverPhoto || DEFAULT_COVER);
         setEditorPageTheme(readStoredPageTheme(page.id, page.slug));
@@ -1133,13 +1146,17 @@ export default function BioPagesScreen({
       const details = buildCurrentPreviewDetails();
 
       try {
-        const { serverOk } = await persistAndSyncPagePreview(
+        await syncPagesListToServer(pages);
+        const { serverOk, sync } = await persistAndSyncPagePreview(
           selectedEditPage.id,
           selectedEditPage.slug,
           editorBlocks,
-          details
+          details,
+          { pages }
         );
-        if (!serverOk) throw new Error("The server could not save this page.");
+        if (!serverOk) {
+          throw new Error(describeServerSyncFailure(sync.reason));
+        }
 
         const nextDrafts = deleteDraftByPageId(selectedEditPage.id, savedDrafts);
         setSavedDrafts(nextDrafts);
@@ -1154,8 +1171,9 @@ export default function BioPagesScreen({
         });
 
         setShowPublishSuccess(true);
-      } catch {
-        triggerToast("Could not publish to the server. Check your connection and try again.");
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Could not publish to the server.";
+        triggerToast(message);
       } finally {
         setIsPublishing(false);
       }
@@ -2366,20 +2384,23 @@ export default function BioPagesScreen({
                             <label className="acn-editor-form-label">
                               Page Handle (@watermark)
                             </label>
-                            <div className="relative">
-                              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400 pointer-events-none">
+                            <div className="acn-editor-handle-field flex items-center gap-2 bg-slate-50 border border-slate-200 focus-within:border-[#6366f1] rounded-xl px-3.5">
+                              <span className="text-sm font-bold text-slate-400 shrink-0 select-none" aria-hidden>
                                 @
                               </span>
                               <input
                                 type="text"
                                 value={editorHandle}
                                 onChange={(e) => setEditorHandle(normalizeHandleInput(e.target.value))}
-                                className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2.5 pl-8 pr-3.5 text-sm font-semibold text-slate-800 font-mono"
-                                placeholder="hollywood"
+                                className="acn-editor-handle-field__input flex-1 min-w-0 bg-transparent border-0 focus:outline-none focus:ring-0 py-2.5 text-sm font-semibold text-slate-800 font-mono placeholder:text-slate-400"
+                                placeholder={handlePlaceholder}
+                                aria-label="Page handle"
                               />
                             </div>
                             <p className="acn-editor-form-hint">
-                              Live preview shows {formatDisplayHandle(editorHandle, editorTitle)}
+                              {previewHandle
+                                ? `Live preview shows ${previewHandle}`
+                                : `Optional — e.g. @${handlePlaceholder} (leave empty to hide on your page)`}
                             </p>
                           </div>
 
@@ -3058,9 +3079,9 @@ export default function BioPagesScreen({
                             <h3 className="acn-public-bio-page__title font-display">
                               {editorTitle || "Marvel Products"}
                             </h3>
-                            <p className="acn-public-bio-page__handle">
-                              {formatDisplayHandle(editorHandle, editorTitle)}
-                            </p>
+                            {previewHandle && (
+                              <p className="acn-public-bio-page__handle">{previewHandle}</p>
+                            )}
                           </div>
 
                           {editorBio && (

@@ -1,6 +1,46 @@
-import { BioEditorBlock, BioEditorState, BioPageDraft, BioPagePreviewDetails, BioPagePreviewTheme, BioPageTemplate } from "../types";
+import {
+  BioEditorBlock,
+  BioEditorState,
+  BioPage,
+  BioPageDraft,
+  BioPagePreviewDetails,
+  BioPagePreviewTheme,
+  BioPageTemplate
+} from "../types";
 import { apiUrl } from "../lib/apiBase";
-import { getAccessToken } from "../lib/authApi";
+import { getAccessToken, isPreviewToken } from "../lib/authApi";
+
+export type ServerSyncReason =
+  | "ok"
+  | "no_token"
+  | "preview_session"
+  | "network_error"
+  | "unauthorized"
+  | "page_not_found"
+  | "server_error";
+
+export interface ServerSyncResult {
+  ok: boolean;
+  reason: ServerSyncReason;
+  status?: number;
+}
+
+export function describeServerSyncFailure(reason: ServerSyncReason): string {
+  switch (reason) {
+    case "preview_session":
+      return "Preview login only saves in this browser. Sign in with email & password to sync to the cloud.";
+    case "no_token":
+      return "Sign in to save drafts and publish to the cloud.";
+    case "unauthorized":
+      return "Your session expired. Please sign in again.";
+    case "page_not_found":
+      return "This page is not registered on the server yet. Try again in a moment.";
+    case "network_error":
+      return "Could not reach the server. Check your connection.";
+    default:
+      return "Could not save to the server right now.";
+  }
+}
 
 export const DRAFTS_STORAGE_KEY = "acnlink_bio_page_drafts";
 export const TEMPLATES_STORAGE_KEY = "acnlink_bio_page_templates";
@@ -20,10 +60,26 @@ export function normalizeHandleInput(value: string): string {
   return value.trim().replace(/^@+/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-export function formatDisplayHandle(raw?: string, fallbackTitle?: string): string {
+export function formatDisplayHandle(
+  raw?: string,
+  fallbackTitle?: string,
+  options?: { fallbackToTitle?: boolean }
+): string {
   const cleaned = normalizeHandleInput(raw || "");
-  const source = cleaned || (fallbackTitle ? defaultHandleFromTitle(fallbackTitle) : "profile");
+  if (cleaned) return `@${cleaned}`;
+  if (options?.fallbackToTitle === false) return "";
+  const source = fallbackTitle ? defaultHandleFromTitle(fallbackTitle) : "profile";
   return `@${source}`;
+}
+
+/** Placeholder derived from page title — e.g. "Marvel Toys" → "marveltoys" */
+export function suggestedHandlePlaceholder(title: string): string {
+  const fromTitle = defaultHandleFromTitle(title || "");
+  return fromTitle !== "profile" ? fromTitle : "yourbrand";
+}
+
+export function getStoredHandle(raw?: string): string {
+  return normalizeHandleInput(raw || "");
 }
 
 function safeParse<T>(raw: string | null, fallback: T): T {
@@ -74,37 +130,82 @@ function authJsonHeaders(): Record<string, string> {
   };
 }
 
-/** Free browser quota by removing duplicate slug keys and bulky legacy caches. */
-export function pruneLocalBioCache(): void {
+/** Free browser quota — drop slug duplicates, legacy keys, and old page caches. */
+export function pruneLocalBioCache(activePageId?: string): void {
   try {
     localStorage.removeItem(LEGACY_DRAFTS_KEY);
     localStorage.removeItem(LEGACY_TEMPLATES_KEY);
     localStorage.removeItem("pageBlocksMap");
 
-    const pageIds = new Set<string>();
-    for (let index = 0; index < localStorage.length; index += 1) {
-      const key = localStorage.key(index);
-      if (!key?.startsWith("biolink_blocks_")) continue;
-      const suffix = key.slice("biolink_blocks_".length);
-      if (suffix.startsWith("p_") || suffix.startsWith("page_")) {
-        pageIds.add(suffix);
-      }
-    }
-
+    const keysToRemove: string[] = [];
     for (let index = 0; index < localStorage.length; index += 1) {
       const key = localStorage.key(index);
       if (!key) continue;
-      if (key.startsWith("biolink_blocks_")) {
-        const suffix = key.slice("biolink_blocks_".length);
-        if (!pageIds.has(suffix)) {
-          localStorage.removeItem(key);
-          localStorage.removeItem(`biolink_details_${suffix}`);
-          localStorage.removeItem(`biolink_synced_at_${suffix}`);
+      if (
+        key.startsWith("biolink_blocks_") ||
+        key.startsWith("biolink_details_") ||
+        key.startsWith("biolink_synced_at_")
+      ) {
+        const suffix = key.replace(/^biolink_(blocks|details|synced_at)_/, "");
+        if (!suffix.startsWith("p_") && !suffix.startsWith("page_")) {
+          keysToRemove.push(key);
         }
       }
     }
+    keysToRemove.forEach((key) => localStorage.removeItem(key));
+
+    const syncedEntries: Array<{ pageId: string; at: number }> = [];
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (!key?.startsWith("biolink_synced_at_")) continue;
+      const pageId = key.slice("biolink_synced_at_".length);
+      if (!pageId.startsWith("p_") && !pageId.startsWith("page_")) continue;
+      const raw = localStorage.getItem(key);
+      const parsed = raw ? Date.parse(raw) : 0;
+      syncedEntries.push({ pageId, at: Number.isFinite(parsed) ? parsed : 0 });
+    }
+
+    syncedEntries.sort((a, b) => b.at - a.at);
+    const keepCount = activePageId ? 4 : 3;
+    const keepIds = new Set(syncedEntries.slice(0, keepCount).map((entry) => entry.pageId));
+    if (activePageId) keepIds.add(activePageId);
+
+    for (const entry of syncedEntries) {
+      if (keepIds.has(entry.pageId)) continue;
+      localStorage.removeItem(`biolink_blocks_${entry.pageId}`);
+      localStorage.removeItem(`biolink_details_${entry.pageId}`);
+      localStorage.removeItem(`biolink_synced_at_${entry.pageId}`);
+    }
   } catch {
     /* ignore */
+  }
+}
+
+function readLocalPagesList(): BioPage[] {
+  try {
+    const raw = localStorage.getItem("biolinks_pages_list");
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as BioPage[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function syncPagesListToServer(pages: BioPage[]): Promise<boolean> {
+  const token = getAccessToken();
+  if (!token || isPreviewToken(token)) return false;
+  try {
+    const response = await fetch(apiUrl("/api/pages"), {
+      method: "POST",
+      headers: authJsonHeaders(),
+      credentials: "include",
+      body: JSON.stringify({ pages })
+    });
+    return response.ok;
+  } catch (err) {
+    console.error("Failed to sync pages list to server:", err);
+    return false;
   }
 }
 
@@ -128,7 +229,7 @@ export function buildEditorState(
       slug,
       shortBio: shortBio || "Write a short bio...",
       coverImage: coverImage || DEFAULT_COVER,
-      handle: normalizeHandleInput(handle || "") || defaultHandleFromTitle(title || "Untitled Page"),
+      handle: normalizeHandleInput(handle || ""),
       pageTheme
     },
     blocks: cloneBlocks(blocks)
@@ -226,6 +327,7 @@ export function normalizeTemplate(record: Record<string, unknown>): BioPageTempl
 }
 
 export function migrateLegacyStorage(): void {
+  pruneLocalBioCache();
   const existingDrafts = readStorage<BioPageDraft[]>(DRAFTS_STORAGE_KEY, []);
   const existingTemplates = readStorage<BioPageTemplate[]>(TEMPLATES_STORAGE_KEY, []);
 
@@ -349,31 +451,49 @@ export function persistPagePreviewLocalCache(
   pageId: string,
   pageSlug: string,
   blocks: BioEditorBlock[],
-  details: BioPagePreviewDetails
+  details: BioPagePreviewDetails,
+  options?: { skipBlocks?: boolean }
 ): boolean {
   try {
     const updatedAt = new Date().toISOString();
-    const blocksJson = JSON.stringify(blocks);
     const detailsJson = JSON.stringify(details);
-    localStorage.setItem(`biolink_blocks_${pageId}`, blocksJson);
+
+    localStorage.removeItem(`biolink_blocks_${pageSlug}`);
+    localStorage.removeItem(`biolink_details_${pageSlug}`);
+    localStorage.removeItem(`biolink_synced_at_${pageSlug}`);
+
+    if (options?.skipBlocks) {
+      localStorage.removeItem(`biolink_blocks_${pageId}`);
+    } else {
+      localStorage.setItem(`biolink_blocks_${pageId}`, JSON.stringify(blocks));
+    }
+
     localStorage.setItem(`biolink_details_${pageId}`, detailsJson);
     localStorage.setItem(`biolink_synced_at_${pageId}`, updatedAt);
     window.dispatchEvent(
       new CustomEvent("acn-page-preview-updated", {
-        detail: { pageId, pageSlug, details, updatedAt }
+        detail: { pageId, pageSlug, details, updatedAt, blocks: options?.skipBlocks ? undefined : blocks }
       })
     );
     return true;
   } catch (err) {
     if (err instanceof DOMException && err.name === "QuotaExceededError") {
-      pruneLocalBioCache();
+      pruneLocalBioCache(pageId);
       try {
-        localStorage.setItem(`biolink_blocks_${pageId}`, JSON.stringify(blocks));
+        if (!options?.skipBlocks) {
+          localStorage.setItem(`biolink_blocks_${pageId}`, JSON.stringify(blocks));
+        }
         localStorage.setItem(`biolink_details_${pageId}`, JSON.stringify(details));
         localStorage.setItem(`biolink_synced_at_${pageId}`, new Date().toISOString());
         return true;
       } catch {
-        return false;
+        try {
+          localStorage.setItem(`biolink_details_${pageId}`, JSON.stringify(details));
+          localStorage.setItem(`biolink_synced_at_${pageId}`, new Date().toISOString());
+          return true;
+        } catch {
+          return false;
+        }
       }
     }
     console.error("Failed to persist page preview storage:", err);
@@ -434,29 +554,34 @@ export function readLocalPageDocument(
 /** Push the latest browser preview document to the server (custom domains read this). */
 export async function syncLocalPageDocumentToServer(
   pageId: string,
-  pageSlug?: string
+  pageSlug?: string,
+  pages?: BioPage[]
 ): Promise<boolean> {
   const local = readLocalPageDocument(pageId, pageSlug);
   if (!local) return false;
-  return syncPageDocumentToServer(
+  const pageList = pages?.length ? pages : readLocalPagesList();
+  const result = await syncPageDocumentToServer(
     pageId,
     local.blocks,
     local.details || {
       title: "",
       bio: "",
       coverPhoto: DEFAULT_COVER,
-      handle: "profile",
+      handle: "",
       pageTheme: "dark"
-    }
+    },
+    { pages: pageList }
   );
+  return result.ok;
 }
 
 export async function syncAllLocalPageDocumentsToServer(
   pages: Array<{ id: string; slug?: string }>
 ): Promise<number> {
   let synced = 0;
+  const pageList = readLocalPagesList();
   for (const page of pages) {
-    const ok = await syncLocalPageDocumentToServer(page.id, page.slug);
+    const ok = await syncLocalPageDocumentToServer(page.id, page.slug, pageList);
     if (ok) synced += 1;
   }
   return synced;
@@ -466,11 +591,15 @@ export async function syncAllLocalPageDocumentsToServer(
 export async function syncPageDocumentToServer(
   pageId: string,
   blocks: BioEditorBlock[],
-  details: BioPagePreviewDetails
-): Promise<boolean> {
-  try {
-    if (!getAccessToken()) return false;
-    const response = await fetch(apiUrl(`/api/page/${pageId}`), {
+  details: BioPagePreviewDetails,
+  options?: { pages?: BioPage[] }
+): Promise<ServerSyncResult> {
+  const token = getAccessToken();
+  if (!token) return { ok: false, reason: "no_token" };
+  if (isPreviewToken(token)) return { ok: false, reason: "preview_session" };
+
+  const postPage = async () =>
+    fetch(apiUrl(`/api/page/${pageId}`), {
       method: "POST",
       headers: authJsonHeaders(),
       credentials: "include",
@@ -480,10 +609,25 @@ export async function syncPageDocumentToServer(
         updatedAt: new Date().toISOString()
       })
     });
-    return response.ok;
+
+  try {
+    let response = await postPage();
+
+    if (response.status === 404) {
+      const pages = options?.pages?.length ? options.pages : readLocalPagesList();
+      if (pages.length > 0) {
+        await syncPagesListToServer(pages);
+        response = await postPage();
+      }
+    }
+
+    if (response.ok) return { ok: true, reason: "ok", status: response.status };
+    if (response.status === 401) return { ok: false, reason: "unauthorized", status: 401 };
+    if (response.status === 404) return { ok: false, reason: "page_not_found", status: 404 };
+    return { ok: false, reason: "server_error", status: response.status };
   } catch (err) {
     console.error("Failed to sync page document to server:", err);
-    return false;
+    return { ok: false, reason: "network_error" };
   }
 }
 
@@ -510,27 +654,38 @@ export async function persistAndSyncPagePreview(
   pageId: string,
   pageSlug: string,
   blocks: BioEditorBlock[],
-  details: BioPagePreviewDetails
-): Promise<{ serverOk: boolean; localOk: boolean }> {
-  const serverOk = await syncPageDocumentToServer(pageId, blocks, details);
-  const localOk = persistPagePreviewLocalCache(pageId, pageSlug, blocks, details);
-  return { serverOk, localOk };
+  details: BioPagePreviewDetails,
+  options?: { pages?: BioPage[] }
+): Promise<{ serverOk: boolean; localOk: boolean; sync: ServerSyncResult }> {
+  const sync = await syncPageDocumentToServer(pageId, blocks, details, options);
+  if (sync.ok) {
+    pruneLocalBioCache(pageId);
+  }
+  const localOk = persistPagePreviewLocalCache(pageId, pageSlug, blocks, details, {
+    skipBlocks: sync.ok
+  });
+  return { serverOk: sync.ok, localOk, sync };
 }
 
 /** Save one draft to Railway (primary store). */
-export async function syncDraftToServer(draft: BioPageDraft): Promise<boolean> {
+export async function syncDraftToServer(draft: BioPageDraft): Promise<ServerSyncResult> {
+  const token = getAccessToken();
+  if (!token) return { ok: false, reason: "no_token" };
+  if (isPreviewToken(token)) return { ok: false, reason: "preview_session" };
+
   try {
-    if (!getAccessToken()) return false;
     const response = await fetch(apiUrl("/api/drafts"), {
       method: "POST",
       headers: authJsonHeaders(),
       credentials: "include",
       body: JSON.stringify({ draft })
     });
-    return response.ok;
+    if (response.ok) return { ok: true, reason: "ok", status: response.status };
+    if (response.status === 401) return { ok: false, reason: "unauthorized", status: 401 };
+    return { ok: false, reason: "server_error", status: response.status };
   } catch (err) {
     console.error("Failed to sync draft to server:", err);
-    return false;
+    return { ok: false, reason: "network_error" };
   }
 }
 

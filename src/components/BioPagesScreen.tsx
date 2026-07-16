@@ -16,6 +16,8 @@ import {
   upsertTemplate,
   syncTemplateToServer,
   persistAndSyncPagePreview,
+  syncDraftToServer,
+  syncAllDraftsToServer,
   syncPageDocumentToServer,
   readStoredPageTheme
 } from "../storage/bioBuilderStorage";
@@ -612,7 +614,7 @@ export default function BioPagesScreen({
     setShowSaveTemplateModal(true);
   };
 
-  const confirmSaveAsTemplate = () => {
+  const confirmSaveAsTemplate = async () => {
     try {
       const name = templateNameInput.trim() || editorTitle || "Untitled Template";
       const state = buildCurrentEditorState();
@@ -645,13 +647,15 @@ export default function BioPagesScreen({
         setLinkedTemplateId(savedTemplate.id);
       }
 
-      syncTemplateToServer(savedTemplate);
+      const serverOk = await syncTemplateToServer(savedTemplate);
       setShowSaveTemplateModal(false);
 
       triggerToast(
-        linkedTemplateId
-          ? `✨ Template "${name}" updated successfully!`
-          : `✨ Template "${name}" saved successfully!`
+        serverOk
+          ? linkedTemplateId
+            ? `✨ Template "${name}" updated on the cloud.`
+            : `✨ Template "${name}" saved to the cloud.`
+          : `✨ Template "${name}" saved for this session.`
       );
       onNotify({
         type: "template_saved",
@@ -686,7 +690,7 @@ export default function BioPagesScreen({
 
   const syncPreviewStorage = (theme: BioPagePreviewTheme = editorPageTheme) => {
     if (!selectedEditPage) return;
-    persistAndSyncPagePreview(
+    void persistAndSyncPagePreview(
       selectedEditPage.id,
       selectedEditPage.slug,
       editorBlocks,
@@ -763,7 +767,7 @@ export default function BioPagesScreen({
     return cloneBlocks(genericInitialBlocks as BioEditorBlock[]);
   };
 
-  const handleSaveDraft = () => {
+  const handleSaveDraft = async () => {
     if (!selectedEditPage || !editorTitle.trim()) {
       triggerToast("⚠️ Add a page title before saving a draft.");
       return;
@@ -787,38 +791,37 @@ export default function BioPagesScreen({
         updatedAt: now
       };
 
-      let persisted = true;
-      setSavedDrafts((prev) => {
-        const next = upsertDraft(draftRecord, prev);
-        persisted = persistDrafts(next);
-        return next;
-      });
-
-      if (!persisted) {
-        triggerToast("⚠️ Draft saved for this session. Browser storage is full.");
-      } else {
-        triggerToast(`💾 Draft for "${editorTitle}" saved successfully!`);
-      }
+      const nextDrafts = upsertDraft(draftRecord, savedDrafts);
+      setSavedDrafts(nextDrafts);
 
       onUpdatePage(selectedEditPage.id, editorTitle, editorBio, editorCoverPhoto, editorHandle);
 
       setPageBlocksMap((prev) => ({
         ...prev,
-        [selectedEditPage.id]: cloneBlocks(state.blocks),
-        [selectedEditPage.slug]: cloneBlocks(state.blocks)
+        [selectedEditPage.id]: cloneBlocks(state.blocks)
       }));
 
-      persistAndSyncPagePreview(
-        selectedEditPage.id,
-        selectedEditPage.slug,
-        state.blocks,
-        buildCurrentPreviewDetails()
-      );
+      const details = buildCurrentPreviewDetails();
+      const [draftServerOk, previewResult] = await Promise.all([
+        syncDraftToServer(draftRecord),
+        persistAndSyncPagePreview(selectedEditPage.id, selectedEditPage.slug, state.blocks, details)
+      ]);
+      const pageServerOk = previewResult.serverOk;
+
+      if (draftServerOk || pageServerOk) {
+        triggerToast(`💾 Draft for "${editorTitle}" saved to the cloud.`);
+      } else if (!getAccessToken()) {
+        triggerToast("💾 Draft saved locally. Sign in to sync to the cloud.");
+      } else {
+        triggerToast("⚠️ Could not reach the server. Your draft is kept in this session.");
+      }
 
       onNotify({
         type: "draft_saved",
         title: "Draft saved",
-        message: `Your edits to "${editorTitle}" were saved and synced to your live domain.`,
+        message: draftServerOk || pageServerOk
+          ? `Your edits to "${editorTitle}" were saved to Railway.`
+          : `Your edits to "${editorTitle}" were saved for this session.`,
         targetScreen: ScreenId.BIO_PAGES
       });
     } catch (err) {
@@ -1036,11 +1039,10 @@ export default function BioPagesScreen({
     const selectedBlocks = nextInitialBlocks || genericInitialBlocks;
     setPageBlocksMap(prev => ({
       ...prev,
-      [newlyCreatedPage.id]: [...selectedBlocks],
-      [fullSlug]: [...selectedBlocks]
+      [newlyCreatedPage.id]: [...selectedBlocks]
     }));
 
-    persistAndSyncPagePreview(newlyCreatedPage.id, fullSlug, selectedBlocks as BioEditorBlock[], {
+    void persistAndSyncPagePreview(newlyCreatedPage.id, fullSlug, selectedBlocks as BioEditorBlock[], {
       title: newlyCreatedPage.title,
       bio: newlyCreatedPage.bio || "Write a short bio...",
       coverPhoto: newlyCreatedPage.coverPhoto || DEFAULT_COVER,
@@ -1125,30 +1127,35 @@ export default function BioPagesScreen({
       // Persist blocks in memory map
       setPageBlocksMap(prev => ({
         ...prev,
-        [selectedEditPage.id]: [...editorBlocks],
-        [selectedEditPage.slug]: [...editorBlocks]
+        [selectedEditPage.id]: [...editorBlocks]
       }));
 
       const details = buildCurrentPreviewDetails();
 
-      persistAndSyncPagePreview(selectedEditPage.id, selectedEditPage.slug, editorBlocks, details);
-
       try {
-        const synced = await syncPageDocumentToServer(selectedEditPage.id, editorBlocks, details);
-        if (!synced) throw new Error("The server could not save this page.");
+        const { serverOk } = await persistAndSyncPagePreview(
+          selectedEditPage.id,
+          selectedEditPage.slug,
+          editorBlocks,
+          details
+        );
+        if (!serverOk) throw new Error("The server could not save this page.");
 
-        setSavedDrafts((drafts) => deleteDraftByPageId(selectedEditPage.id, drafts));
+        const nextDrafts = deleteDraftByPageId(selectedEditPage.id, savedDrafts);
+        setSavedDrafts(nextDrafts);
+        void syncAllDraftsToServer(nextDrafts);
+
         onNotify({
           type: "page_published",
           title: "Page published",
-          message: `"${editorTitle}" is now live.`,
+          message: `"${editorTitle}" is now live on the cloud.`,
           targetScreen: ScreenId.BIO_PAGES,
           meta: { pageId: selectedEditPage.id }
         });
 
         setShowPublishSuccess(true);
       } catch {
-        triggerToast("Could not publish to the server. Your draft remains saved locally.");
+        triggerToast("Could not publish to the server. Check your connection and try again.");
       } finally {
         setIsPublishing(false);
       }

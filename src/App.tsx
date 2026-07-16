@@ -78,12 +78,13 @@ import {
   fetchWorkspaceExport,
   mergeDrafts,
   mergeTemplates,
-  syncAllDraftsToServer,
+  persistAndSyncDrafts,
+  persistAndSyncTemplates,
+  persistDraftsLocalCache,
+  persistTemplatesLocalCache,
   syncAllLocalPageDocumentsToServer,
   syncLocalPageDocumentToServer,
-  syncTemplateToServer,
   deleteTemplateOnServer,
-  syncAllTemplatesToServer
 } from "./storage/bioBuilderStorage";
 import {
   getAllNotifications,
@@ -571,19 +572,24 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isLoggedIn]);
 
-  // 2. Whenever pages list is updated, save to local storage AND sync to server
+  // Whenever pages list is updated, sync to Railway first, then optional local cache
   React.useEffect(() => {
-    writeLocalStorage("biolinks_pages_list", pages);
-    if (!isPagesSyncReady || !getAccessToken() || isPreviewToken(getAccessToken())) return;
+    if (!isPagesSyncReady || !getAccessToken() || isPreviewToken(getAccessToken())) {
+      writeLocalStorage("biolinks_pages_list", pages);
+      return;
+    }
 
-    // Sync to server
     fetch(apiUrl("/api/pages"), {
       method: "POST",
       headers: authenticatedHeaders(true),
       body: JSON.stringify({ pages })
-    }).catch(err => {
-      console.error("Failed to save pages list to server:", err);
-    });
+    })
+      .catch((err) => {
+        console.error("Failed to save pages list to server:", err);
+      })
+      .finally(() => {
+        writeLocalStorage("biolinks_pages_list", pages);
+      });
   }, [pages, isPagesSyncReady]);
 
   const [contacts, setContacts] = useState<Contact[]>(() => readLocalStorage("acnlink_contacts", initialContacts));
@@ -602,14 +608,7 @@ export default function App() {
 
   const [savedDrafts, setSavedDrafts] = useState<BioPageDraft[]>(() => getAllDrafts());
 
-  const [pageBlocksMap, setPageBlocksMap] = useState<Record<string, any[]>>(() => {
-    try {
-      const saved = localStorage.getItem("pageBlocksMap");
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
-  });
+  const [pageBlocksMap, setPageBlocksMap] = useState<Record<string, any[]>>({});
 
   const [initialActiveEditPageId, setInitialActiveEditPageId] = useState<string | null>(null);
   const [initialActiveTemplateId, setInitialActiveTemplateId] = useState<string | null>(null);
@@ -621,23 +620,20 @@ export default function App() {
   }, [editPageIdFromUrl]);
 
   React.useEffect(() => {
-    persistTemplates(savedTemplates);
-    if (savedTemplates.length > 0) {
-      syncAllTemplatesToServer(savedTemplates);
+    if (!isLoggedIn || isPreviewToken(getAccessToken())) {
+      persistTemplatesLocalCache(savedTemplates);
+      return;
     }
-  }, [savedTemplates]);
+    void persistAndSyncTemplates(savedTemplates);
+  }, [savedTemplates, isLoggedIn]);
 
   React.useEffect(() => {
-    persistDrafts(savedDrafts);
-    if (!isLoggedIn || isPreviewToken(getAccessToken()) || !workspaceHydrated) return;
-    if (savedDrafts.length > 0) {
-      void syncAllDraftsToServer(savedDrafts);
+    if (!isLoggedIn || isPreviewToken(getAccessToken()) || !workspaceHydrated) {
+      persistDraftsLocalCache(savedDrafts);
+      return;
     }
+    void persistAndSyncDrafts(savedDrafts);
   }, [savedDrafts, isLoggedIn, workspaceHydrated]);
-
-  React.useEffect(() => {
-    writeLocalStorage("pageBlocksMap", pageBlocksMap);
-  }, [pageBlocksMap]);
 
   React.useEffect(() => writeLocalStorage("acnlink_contacts", contacts), [contacts]);
   React.useEffect(() => writeLocalStorage("acnlink_whatsapp_campaigns", whatsAppCampaigns), [whatsAppCampaigns]);

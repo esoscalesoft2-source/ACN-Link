@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback, memo } from "react";
 import { ArrowRight, Copy, MessageSquare, User, X } from "lucide-react";
 import { apiUrl } from "../lib/apiBase";
 import { BIO_LINK, getLinkArrowColor, getLinkButtonStyle, isDefaultBrightLink } from "../lib/bioLinkColors";
@@ -198,19 +198,98 @@ function readLocalPageData(pageId: string, pageSlug: string) {
 }
 
 function getInitialPageState(pageId: string, pageSlug: string, mode: "preview" | "live") {
+  const { loadedBlocks, loadedDetails } = readLocalPageData(pageId, pageSlug);
+  if (loadedBlocks?.length) {
+    return {
+      blocks: loadedBlocks,
+      details: loadedDetails,
+      status: "ready" as const
+    };
+  }
   if (mode === "live") {
     return {
       blocks: [] as Block[],
-      details: null as BioPagePreviewDetails | null,
-      status: "loading" as const
+      details: loadedDetails,
+      status: (loadedDetails ? "ready" : "loading") as "loading" | "ready" | "not_found"
     };
   }
-  const { loadedBlocks, loadedDetails } = readLocalPageData(pageId, pageSlug);
   return {
-    blocks: loadedBlocks ?? [],
+    blocks: [] as Block[],
     details: loadedDetails,
-    status: (loadedBlocks?.length ? "ready" : "loading") as "loading" | "ready" | "not_found"
+    status: "loading" as const
   };
+}
+
+const CountdownBlock = memo(function CountdownBlock({ value }: { value?: string }) {
+  const seedDays = parseCountdownDays(value, 9);
+  const [countdown, setCountdown] = useState({
+    days: seedDays,
+    hrs: 19,
+    mins: 45,
+    secs: 30
+  });
+
+  useEffect(() => {
+    setCountdown({ days: parseCountdownDays(value, 9), hrs: 19, mins: 45, secs: 30 });
+  }, [value]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev.secs > 0) return { ...prev, secs: prev.secs - 1 };
+        if (prev.mins > 0) return { ...prev, mins: prev.mins - 1, secs: 59 };
+        if (prev.hrs > 0) return { ...prev, hrs: prev.hrs - 1, mins: 59, secs: 59 };
+        if (prev.days > 0) return { ...prev, days: prev.days - 1, hrs: 23, mins: 59, secs: 59 };
+        return prev;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <div className="bg-rose-50/70 border border-rose-100 p-3.5 rounded-2xl text-center space-y-2 shadow-sm">
+      <span className="text-[10px] font-bold text-rose-600 uppercase tracking-widest block font-mono">Limited Campaign Ends In</span>
+      <div className="flex items-center justify-center gap-1.5 text-rose-700">
+        <div className="bg-white border border-rose-100 p-1.5 rounded-xl min-w-[40px] text-center shadow-sm">
+          <span className="font-extrabold text-sm block leading-none text-rose-700">
+            {String(countdown.days).padStart(2, "0")}
+          </span>
+          <span className="text-[7px] text-rose-500 block tracking-wide uppercase mt-0.5">DAYS</span>
+        </div>
+        <span className="text-rose-400 font-bold">:</span>
+        <div className="bg-white border border-rose-100 p-1.5 rounded-xl min-w-[40px] text-center shadow-sm">
+          <span className="font-extrabold text-sm block leading-none text-rose-700">
+            {String(countdown.hrs).padStart(2, "0")}
+          </span>
+          <span className="text-[7px] text-rose-500 block tracking-wide uppercase mt-0.5">HRS</span>
+        </div>
+        <span className="text-rose-400 font-bold">:</span>
+        <div className="bg-white border border-rose-100 p-1.5 rounded-xl min-w-[40px] text-center shadow-sm">
+          <span className="font-extrabold text-sm block leading-none text-rose-700">
+            {String(countdown.mins).padStart(2, "0")}
+          </span>
+          <span className="text-[7px] text-rose-500 block tracking-wide uppercase mt-0.5">MIN</span>
+        </div>
+        <span className="text-rose-400 font-bold">:</span>
+        <div className="bg-white border border-rose-100 p-1.5 rounded-xl min-w-[40px] text-center shadow-sm">
+          <span className="font-extrabold text-sm block leading-none text-rose-700">
+            {String(countdown.secs).padStart(2, "0")}
+          </span>
+          <span className="text-[7px] text-rose-500 block tracking-wide uppercase mt-0.5">SEC</span>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+function BlockSkeleton() {
+  return (
+    <div className="acn-public-bio-page__skeleton space-y-3" aria-hidden>
+      {[0, 1, 2].map((key) => (
+        <div key={key} className="h-12 rounded-2xl bg-slate-500/15 animate-pulse" />
+      ))}
+    </div>
+  );
 }
 
 export default function PublicBioPageView({
@@ -235,6 +314,8 @@ export default function PublicBioPageView({
   const [activeSpinBlockId, setActiveSpinBlockId] = useState<string | null>(null);
   const [isSpinning, setIsSpinning] = useState(false);
   const [spinResult, setSpinResult] = useState<string | null>(null);
+  const pageEtagRef = useRef<string | null>(null);
+  const fetchAbortRef = useRef<AbortController | null>(null);
 
   const applyStoredDetails = (parsed: BioPagePreviewDetails | null) => {
     if (!parsed || typeof parsed !== "object") return;
@@ -292,7 +373,7 @@ export default function PublicBioPageView({
     };
   }, []);
 
-  const trackAction = (eventType: "visit" | "click" | "register", eventLabel: string, details?: any) => {
+  const trackAction = useCallback((eventType: "visit" | "click" | "register", eventLabel: string, details?: any) => {
     fetch(apiUrl("/api/track"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -305,7 +386,7 @@ export default function PublicBioPageView({
     }).catch(err => {
       console.error("Failed to track event:", err);
     });
-  };
+  }, [pageId]);
 
   const openWhatsAppLink = (value: string) => {
     if (!value) return;
@@ -366,22 +447,6 @@ export default function PublicBioPageView({
 
   const readLocalPageDataForPage = () => readLocalPageData(pageId, pageSlug);
 
-  const fetchServerPageDocument = async () => {
-    const res = await fetch(apiUrl(`/api/page/${pageId}`), {
-      cache: "no-store",
-      headers: {
-        Accept: "application/json",
-        Pragma: "no-cache"
-      }
-    });
-    if (!res.ok) return null;
-    return res.json() as Promise<{
-      blocks?: Block[];
-      details?: BioPagePreviewDetails;
-      updatedAt?: string;
-    } | null>;
-  };
-
   const applyServerDocument = (
     data: { blocks?: Block[]; details?: BioPagePreviewDetails; updatedAt?: string },
     localUpdatedAt: string | null
@@ -413,42 +478,36 @@ export default function PublicBioPageView({
   // Track initial visit on mount
   useEffect(() => {
     trackAction("visit", "BioLink Page Visited");
+  }, [trackAction]);
+
+  const fetchServerPageDocument = useCallback(async (signal?: AbortSignal) => {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (pageEtagRef.current) {
+      headers["If-None-Match"] = pageEtagRef.current;
+    }
+
+    const res = await fetch(apiUrl(`/api/page/${pageId}`), {
+      signal,
+      headers
+    });
+    if (res.status === 304) return { notModified: true as const };
+    if (!res.ok) return null;
+
+    const etag = res.headers.get("ETag");
+    if (etag) pageEtagRef.current = etag;
+
+    const data = (await res.json()) as {
+      blocks?: Block[];
+      details?: BioPagePreviewDetails;
+      updatedAt?: string;
+    };
+    return { ...data, notModified: false as const };
   }, [pageId]);
-
-  // Live countdown — only when page has a Countdown block
-  const countdownSeedDays = parseCountdownDays(
-    blocks.find((block) => block.type === "Countdown")?.value,
-    9
-  );
-  const [countdown, setCountdown] = useState({
-    days: countdownSeedDays,
-    hrs: 19,
-    mins: 45,
-    secs: 30
-  });
-
-  useEffect(() => {
-    const days = parseCountdownDays(blocks.find((block) => block.type === "Countdown")?.value, 9);
-    setCountdown({ days, hrs: 19, mins: 45, secs: 30 });
-  }, [blocks]);
-
-  useEffect(() => {
-    if (!blocks.some((block) => block.type === "Countdown")) return;
-    const timer = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev.secs > 0) return { ...prev, secs: prev.secs - 1 };
-        if (prev.mins > 0) return { ...prev, mins: prev.mins - 1, secs: 59 };
-        if (prev.hrs > 0) return { ...prev, hrs: prev.hrs - 1, mins: 59, secs: 59 };
-        if (prev.days > 0) return { ...prev, days: prev.days - 1, hrs: 23, mins: 59, secs: 59 };
-        return prev;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [blocks]);
-
-  // Load published blocks from server (custom domains always use server; preview uses local cache first)
   useEffect(() => {
     let isMounted = true;
+    pageEtagRef.current = null;
+    const controller = new AbortController();
+    fetchAbortRef.current = controller;
 
     async function loadPageData() {
       setLoadError(null);
@@ -456,23 +515,41 @@ export default function PublicBioPageView({
       const { loadedBlocks, loadedDetails } = readLocalPageDataForPage();
       const localUpdatedAt = readLocalPageUpdatedAt(pageId, pageSlug);
 
-      if (mode !== "live" && isMounted && loadedBlocks?.length) {
+      if (isMounted && loadedBlocks?.length) {
         applyLoadedPage(loadedBlocks, loadedDetails, "ready");
+      } else if (isMounted && loadedDetails) {
+        applyStoredDetails(loadedDetails);
       }
 
       try {
-        const data = await fetchServerPageDocument();
-        if (isMounted && data) {
-          const applied = applyServerDocument(data, localUpdatedAt);
-          if (applied) return;
-          if (mode !== "live" && loadedBlocks?.length) {
-            applyLoadedPage(loadedBlocks, loadedDetails ?? data.details ?? null, "ready");
-            return;
+        const data = await fetchServerPageDocument(controller.signal);
+        if (!isMounted) return;
+
+        if (!data) {
+          if (mode === "live" && !loadedBlocks?.length) {
+            setPageLoadStatus("not_found");
           }
-        } else if (isMounted && mode === "live") {
+          return;
+        }
+
+        if (data.notModified) {
+          if (loadedBlocks?.length) setPageLoadStatus("ready");
+          return;
+        }
+
+        const applied = applyServerDocument(data, localUpdatedAt);
+        if (applied) return;
+
+        if (mode !== "live" && loadedBlocks?.length) {
+          applyLoadedPage(loadedBlocks, loadedDetails ?? data.details ?? null, "ready");
+          return;
+        }
+
+        if (mode === "live" && !loadedBlocks?.length) {
           setPageLoadStatus("not_found");
         }
       } catch (err) {
+        if ((err as Error)?.name === "AbortError") return;
         console.error("Failed to fetch page data from server:", err);
         if (isMounted && (mode === "live" || !loadedBlocks?.length)) {
           setLoadError("Could not reach the server. Check your connection and try again.");
@@ -480,39 +557,38 @@ export default function PublicBioPageView({
       }
 
       if (isMounted) {
-        if (mode !== "live" && loadedBlocks?.length) {
+        if (loadedBlocks?.length) {
           applyLoadedPage(loadedBlocks, loadedDetails, "ready");
-        } else if (mode === "live") {
-          setPageLoadStatus((status) => (status === "loading" ? "not_found" : status));
+        } else if (mode !== "live") {
+          setPageLoadStatus("not_found");
+          if (!loadedDetails) {
+            setCustomDetails(null);
+            setPageTheme("dark");
+          }
         } else if (!loadedBlocks?.length) {
           setPageLoadStatus("not_found");
-        }
-        if (loadedDetails && mode !== "live") {
-          applyStoredDetails(loadedDetails);
-        } else if (!loadedBlocks?.length && mode !== "live") {
-          setCustomDetails(null);
-          setPageTheme("dark");
         }
       }
     }
 
-    loadPageData();
+    void loadPageData();
 
     return () => {
       isMounted = false;
+      fetchAbortRef.current?.abort();
     };
-  }, [pageId, pageSlug, pageTitle, mode]);
+  }, [pageId, pageSlug, pageTitle, mode, fetchServerPageDocument]);
 
-  // Custom domains poll the server so edits appear without manual refresh
+  // Live custom domains: background refresh when tab is visible (ETag avoids full payload)
   useEffect(() => {
     if (mode !== "live") return;
 
     const pollLatest = async () => {
+      if (document.visibilityState === "hidden") return;
       try {
         const data = await fetchServerPageDocument();
-        if (data) {
-          applyServerDocument(data, null);
-        }
+        if (!data || data.notModified) return;
+        applyServerDocument(data, null);
       } catch {
         /* ignore transient poll errors */
       }
@@ -520,10 +596,18 @@ export default function PublicBioPageView({
 
     const interval = window.setInterval(() => {
       void pollLatest();
-    }, 12000);
+    }, 45000);
 
-    return () => window.clearInterval(interval);
-  }, [mode, pageId]);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void pollLatest();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [mode, pageId, fetchServerPageDocument]);
 
   const triggerToast = (msg: string) => {
     setToast(msg);
@@ -573,9 +657,10 @@ export default function PublicBioPageView({
           {displayBio && <p className="acn-phone-preview__bio-text">{displayBio}</p>}
 
           <div className="acn-phone-preview__blocks space-y-4">
-          {pageLoadStatus === "loading" && (
+          {pageLoadStatus === "loading" && blocks.length === 0 && <BlockSkeleton />}
+          {loadError && blocks.length === 0 && (
             <p className="acn-public-bio-page__loading rounded-2xl border p-4 text-center text-xs">
-              Loading this page…
+              {loadError}
             </p>
           )}
           {blocks.map((block) => {
@@ -774,40 +859,7 @@ export default function PublicBioPageView({
                 );
 
               case "Countdown":
-                return (
-                  <div key={block.id} className="bg-rose-50/70 border border-rose-100 p-3.5 rounded-2xl text-center space-y-2 shadow-sm">
-                    <span className="text-[10px] font-bold text-rose-600 uppercase tracking-widest block font-mono">Limited Campaign Ends In</span>
-                    <div className="flex items-center justify-center gap-1.5 text-rose-700">
-                      <div className="bg-white border border-rose-100 p-1.5 rounded-xl min-w-[40px] text-center shadow-sm">
-                        <span className="font-extrabold text-sm block leading-none text-rose-700">
-                          {String(countdown.days).padStart(2, "0")}
-                        </span>
-                        <span className="text-[7px] text-rose-500 block tracking-wide uppercase mt-0.5">DAYS</span>
-                      </div>
-                      <span className="text-rose-400 font-bold">:</span>
-                      <div className="bg-white border border-rose-100 p-1.5 rounded-xl min-w-[40px] text-center shadow-sm">
-                        <span className="font-extrabold text-sm block leading-none text-rose-700">
-                          {String(countdown.hrs).padStart(2, "0")}
-                        </span>
-                        <span className="text-[7px] text-rose-500 block tracking-wide uppercase mt-0.5">HRS</span>
-                      </div>
-                      <span className="text-rose-400 font-bold">:</span>
-                      <div className="bg-white border border-rose-100 p-1.5 rounded-xl min-w-[40px] text-center shadow-sm">
-                        <span className="font-extrabold text-sm block leading-none text-rose-700">
-                          {String(countdown.mins).padStart(2, "0")}
-                        </span>
-                        <span className="text-[7px] text-rose-500 block tracking-wide uppercase mt-0.5">MIN</span>
-                      </div>
-                      <span className="text-rose-400 font-bold">:</span>
-                      <div className="bg-white border border-rose-100 p-1.5 rounded-xl min-w-[40px] text-center shadow-sm">
-                        <span className="font-extrabold text-sm block leading-none text-rose-700">
-                          {String(countdown.secs).padStart(2, "0")}
-                        </span>
-                        <span className="text-[7px] text-rose-500 block tracking-wide uppercase mt-0.5">SEC</span>
-                      </div>
-                    </div>
-                  </div>
-                );
+                return <CountdownBlock key={block.id} value={block.value} />;
 
               case "Link Spin":
                 return (

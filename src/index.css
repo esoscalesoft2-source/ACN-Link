@@ -1740,6 +1740,15 @@ html.acn-public-scroll #root {
   font-size: 0.875rem;
 }
 
+.acn-public-bio-page__screen .acn-phone-preview__blocks > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 3rem;
+}
+
+.acn-public-bio-page__skeleton {
+  width: 100%;
+}
+
 .acn-public-bio-page__screen .acn-phone-preview__bio-text {
   color: #cbd5e1 !important;
   background: rgba(30, 41, 59, 0.85) !important;

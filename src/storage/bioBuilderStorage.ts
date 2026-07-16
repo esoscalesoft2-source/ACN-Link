@@ -470,6 +470,7 @@ export function persistPagePreviewLocalCache(
 
     localStorage.setItem(`biolink_details_${pageId}`, detailsJson);
     localStorage.setItem(`biolink_synced_at_${pageId}`, updatedAt);
+    persistPageSessionCache(pageId, blocks, details);
     window.dispatchEvent(
       new CustomEvent("acn-page-preview-updated", {
         detail: { pageId, pageSlug, details, updatedAt, blocks: options?.skipBlocks ? undefined : blocks }
@@ -649,7 +650,34 @@ export async function fetchPageDocumentFromServer(pageId: string): Promise<{
   }
 }
 
-/** Server-first save for live pages — local cache is optional. */
+/** Fast sessionStorage mirror so visit/preview tabs paint blocks immediately. */
+export function persistPageSessionCache(
+  pageId: string,
+  blocks: BioEditorBlock[],
+  details: BioPagePreviewDetails
+): void {
+  try {
+    sessionStorage.setItem(
+      `acn_public_page_${pageId}`,
+      JSON.stringify({ blocks, details, cachedAt: Date.now() })
+    );
+  } catch {
+    /* ignore quota */
+  }
+}
+
+/** Local-only preview cache for editor keystrokes — never hits the server. */
+export function persistPagePreviewLocalOnly(
+  pageId: string,
+  pageSlug: string,
+  blocks: BioEditorBlock[],
+  details: BioPagePreviewDetails
+): boolean {
+  persistPageSessionCache(pageId, blocks, details);
+  return persistPagePreviewLocalCache(pageId, pageSlug, blocks, details);
+}
+
+/** Server-first save for live pages — always mirror blocks locally for fast revisit. */
 export async function persistAndSyncPagePreview(
   pageId: string,
   pageSlug: string,
@@ -657,13 +685,12 @@ export async function persistAndSyncPagePreview(
   details: BioPagePreviewDetails,
   options?: { pages?: BioPage[] }
 ): Promise<{ serverOk: boolean; localOk: boolean; sync: ServerSyncResult }> {
+  persistPageSessionCache(pageId, blocks, details);
   const sync = await syncPageDocumentToServer(pageId, blocks, details, options);
   if (sync.ok) {
     pruneLocalBioCache(pageId);
   }
-  const localOk = persistPagePreviewLocalCache(pageId, pageSlug, blocks, details, {
-    skipBlocks: sync.ok
-  });
+  const localOk = persistPagePreviewLocalCache(pageId, pageSlug, blocks, details);
   return { serverOk: sync.ok, localOk, sync };
 }
 

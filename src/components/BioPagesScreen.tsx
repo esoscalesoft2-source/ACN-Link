@@ -17,6 +17,7 @@ import {
   upsertTemplate,
   syncTemplateToServer,
   persistAndSyncPagePreview,
+  persistPagePreviewLocalOnly,
   syncDraftToServer,
   syncAllDraftsToServer,
   describeServerSyncFailure,
@@ -694,12 +695,11 @@ export default function BioPagesScreen({
 
   const syncPreviewStorage = (theme: BioPagePreviewTheme = editorPageTheme) => {
     if (!selectedEditPage) return;
-    void persistAndSyncPagePreview(
+    persistPagePreviewLocalOnly(
       selectedEditPage.id,
       selectedEditPage.slug,
       editorBlocks,
-      buildCurrentPreviewDetails(theme),
-      { pages }
+      buildCurrentPreviewDetails(theme)
     );
   };
 
@@ -731,14 +731,6 @@ export default function BioPagesScreen({
     selectedEditPage?.id,
     showPublishSuccess
   ]);
-
-  React.useEffect(() => {
-    if (!selectedEditPage || editorBlocks.length === 0) return;
-    const timer = window.setTimeout(() => {
-      syncPreviewStorage();
-    }, 400);
-    return () => window.clearTimeout(timer);
-  }, [selectedEditPage?.id]);
 
   const handlePreviewThemeChange = (theme: BioPagePreviewTheme) => {
     setEditorPageTheme(theme);
@@ -808,7 +800,6 @@ export default function BioPagesScreen({
 
       const details = buildCurrentPreviewDetails();
       const syncOptions = { pages };
-      await syncPagesListToServer(pages);
       const [draftSync, previewResult] = await Promise.all([
         syncDraftToServer(draftRecord),
         persistAndSyncPagePreview(
@@ -817,7 +808,8 @@ export default function BioPagesScreen({
           state.blocks,
           details,
           syncOptions
-        )
+        ),
+        syncPagesListToServer(pages)
       ]);
       const pageServerOk = previewResult.serverOk;
       const draftServerOk = draftSync.ok;
@@ -1146,14 +1138,17 @@ export default function BioPagesScreen({
       const details = buildCurrentPreviewDetails();
 
       try {
-        await syncPagesListToServer(pages);
-        const { serverOk, sync } = await persistAndSyncPagePreview(
-          selectedEditPage.id,
-          selectedEditPage.slug,
-          editorBlocks,
-          details,
-          { pages }
-        );
+        const [previewResult] = await Promise.all([
+          persistAndSyncPagePreview(
+            selectedEditPage.id,
+            selectedEditPage.slug,
+            editorBlocks,
+            details,
+            { pages }
+          ),
+          syncPagesListToServer(pages)
+        ]);
+        const { serverOk, sync } = previewResult;
         if (!serverOk) {
           throw new Error(describeServerSyncFailure(sync.reason));
         }

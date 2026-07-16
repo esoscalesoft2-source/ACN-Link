@@ -244,12 +244,21 @@ app.get("/api/page/:id", (req, res) => {
   const { id } = req.params;
   const store = readStore();
   const pageData = store[id];
-  res.set("Cache-Control", "no-store, no-cache, must-revalidate");
-  if (pageData) {
-    res.json(pageData);
-  } else {
+  if (!pageData) {
+    res.set("Cache-Control", "no-store");
     res.status(404).json({ error: "Page not found" });
+    return;
   }
+  const updatedAt =
+    typeof pageData.updatedAt === "string" ? pageData.updatedAt : "";
+  const etag = `"${id}-${updatedAt}"`;
+  res.set("ETag", etag);
+  res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=120");
+  if (req.headers["if-none-match"] === etag) {
+    res.status(304).end();
+    return;
+  }
+  res.json(pageData);
 });
 
 app.post("/api/page/:id", requireAuth, (req, res) => {

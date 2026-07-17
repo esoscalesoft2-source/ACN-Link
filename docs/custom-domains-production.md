@@ -20,17 +20,151 @@ certificate lifecycle. Railway remains the origin.
 ## Railway variables
 
 ```text
-API_URL=https://api.acnlink.mindflo.today
-CUSTOM_DOMAIN_CNAME_TARGET=domains.acnlink.mindflo.today
-CLOUDFLARE_ZONE_ID=<mindflo.today zone id>
-CLOUDFLARE_API_TOKEN=<scoped secret token>
+APP_URL=https://acnlink.mindflo.today
+API_URL=https://acnlink.mindflo.today
+CUSTOM_DOMAIN_CNAME_TARGET=acnlink.mindflo.today
+CORS_ORIGINS=https://acnlink.mindflo.today
+
+CLOUDFLARE_ZONE_ID=<paste from Cloudflare — see below>
+CLOUDFLARE_API_TOKEN=<paste from Cloudflare — see below>
 CLOUDFLARE_SSL_VALIDATION_METHOD=http
 ```
 
-Existing variables (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `AUTH_SECRET`,
-`APP_URL`, `CORS_ORIGINS`, `NODE_ENV`) remain required.
+> **Railway free plan (1 custom domain):** use `acnlink.mindflo.today` as
+> `CUSTOM_DOMAIN_CNAME_TARGET`. Do not add `domains.acnlink.mindflo.today` on
+> Railway — you will hit the custom-domain limit. Paid plans can use a separate
+> fallback hostname such as `domains.acnlink.mindflo.today`.
 
-## Customer flow
+Existing variables (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `AUTH_SECRET`,
+`NODE_ENV`) remain required.
+
+## Where to copy each Cloudflare value (step by step)
+
+### 1. `CLOUDFLARE_ZONE_ID`
+
+This is the ID of your **platform zone** (`mindflo.today`), not a customer domain.
+
+1. Open [Cloudflare Dashboard](https://dash.cloudflare.com).
+2. Click the **mindflo.today** site (not a customer’s domain).
+3. On **Overview**, scroll down the right-hand column.
+4. Under **API**, copy **Zone ID** (32-character hex string, e.g. `a1b2c3d4e5f6...`).
+5. Paste into Railway as:
+   ```text
+   CLOUDFLARE_ZONE_ID=a1b2c3d4e5f6789012345678901234ab
+   ```
+
+**Do not** copy Account ID — only **Zone ID** for `mindflo.today`.
+
+---
+
+### 2. `CLOUDFLARE_API_TOKEN`
+
+Create a **scoped token** (never use the Global API Key).
+
+1. Cloudflare Dashboard → click your **profile icon** (top right).
+2. **My Profile** → left menu **API Tokens**.
+3. Click **Create Token**.
+4. Choose **Create Custom Token** (recommended) or start from **Edit zone DNS** and customize.
+
+**Custom token settings:**
+
+| Field | Value |
+|--------|--------|
+| Token name | `ACN Link Custom Hostnames` |
+| Permissions | **Zone** → **SSL and Certificates** → **Edit** |
+| Zone Resources | **Include** → **Specific zone** → **mindflo.today** |
+
+> **Note:** Cloudflare’s token UI usually does **not** list a separate
+> **Custom Hostnames** permission. That is normal. Custom Hostnames API
+> (`/zones/.../custom_hostnames`) is covered by **SSL and Certificates → Edit**.
+> Do not add a second permission unless Cloudflare shows it on your account.
+
+5. Click **Continue to summary** → **Create Token**.
+6. **Copy the token immediately** (shown once only). It looks like a long random string.
+7. Paste into Railway as:
+   ```text
+   CLOUDFLARE_API_TOKEN=paste_the_full_token_here
+   ```
+
+Store it only in **Railway Variables** (or local `.env` for dev). Never commit to git or put in Vercel/browser code.
+
+**Test the token (optional):** after saving on Railway, redeploy and open (no login required):
+
+`https://acnlink.mindflo.today/api/domains/config`
+
+or
+
+`https://acnlink.mindflo.today/api/health` → check the `customDomains` object.
+
+You should see `"provider": "cloudflare"` and `"selfServeEnabled": true`.
+
+If you see `{"error":"Unauthorized","code":"NO_TOKEN"}`, the latest server code is not deployed yet — redeploy Railway from the latest git push.
+
+---
+
+### 3. `CLOUDFLARE_SSL_VALIDATION_METHOD=http`
+
+**You do not copy this from Cloudflare.** Type it yourself in Railway:
+
+```text
+CLOUDFLARE_SSL_VALIDATION_METHOD=http
+```
+
+| Value | Meaning |
+|--------|---------|
+| `http` | **Recommended.** Cloudflare proves domain control over HTTP when the customer CNAME points to your platform. |
+| `txt` | Uses TXT records for validation (more steps for customers). |
+| `cname` | CNAME-based DCV (less common for your setup). |
+
+Leave as **`http`** unless Cloudflare support tells you otherwise.
+
+---
+
+### 4. Enable Cloudflare for SaaS (before tokens work end-to-end)
+
+1. Cloudflare → **mindflo.today** zone.
+2. **SSL/TLS** → **Custom Hostnames** (may appear as **Cloudflare for SaaS**).
+3. If prompted, enable Cloudflare for SaaS on this zone.
+4. Set **Fallback Origin** to:
+   - **Free Railway:** `acnlink.mindflo.today`
+   - **Paid Railway (optional):** `domains.acnlink.mindflo.today`
+5. Save.
+
+Free / Pro / Business plans include **100 custom hostnames** at no extra charge; additional hostnames are billed per Cloudflare’s SaaS pricing.
+
+---
+
+### 5. Paste everything in Railway
+
+1. [Railway](https://railway.app) → project **ACN-Link** → your service.
+2. **Variables** tab.
+3. Add or update each variable (no quotes needed in Railway UI).
+4. **Deploy** / wait for redeploy.
+5. Confirm: `GET https://acnlink.mindflo.today/api/domains/config` → `selfServeEnabled: true`.
+
+
+## Customer flow (self-serve — no ACN admin per domain)
+
+When `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID` are set on Railway, **every user**
+connects their own domain without anyone logging into Cloudflare for each customer:
+
+1. User opens **Custom Domains** → **Connect Domain**, enters `links.customer.com`, and picks a published page.
+2. ACN Link registers the hostname with Cloudflare for SaaS automatically.
+3. UI shows one CNAME record: `links` → `acnlink.mindflo.today` (or your `CUSTOM_DOMAIN_CNAME_TARGET`).
+4. User adds that CNAME at GoDaddy, Namecheap, Cloudflare, or any DNS provider.
+5. User clicks **Check DNS and SSL**. Status progresses: Pending DNS → Provisioning SSL → **Verified**.
+6. `https://links.customer.com` serves the linked bio page with managed HTTPS.
+
+**No manual Cloudflare Worker** is required per customer in this mode.
+
+### Without Cloudflare for SaaS (dev / legacy)
+
+If Railway env vars are missing, the app runs in **manual** mode. DNS verification still works,
+but each customer domain may need a Cloudflare Worker on the customer's zone (see
+`docs/cloudflare-worker-free-custom-domain.md`). That path is for **one-off tests**, not production
+multi-tenant self-serve.
+
+## Customer flow (technical detail)
 
 1. User chooses a published website and enters `links.customer.com`.
 2. Backend stores the hostname under the authenticated user's ID and registers
@@ -38,7 +172,7 @@ Existing variables (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `AUTH_SECRET`,
 3. UI instructs the customer to create:
 
    ```text
-   CNAME links → domains.acnlink.mindflo.today
+   CNAME links → acnlink.mindflo.today
    ```
 
 4. Verify performs live DNS resolution and refreshes Cloudflare hostname/SSL

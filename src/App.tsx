@@ -1217,6 +1217,7 @@ export default function App() {
     await syncLocalPageDocumentToServer(pageId, page?.slug);
     const created = await connectDomain(domainName, pageId);
     setDomains((current) => [created, ...current.filter((domain) => domain.id !== created.id)]);
+    return created;
   };
 
   const handleVerifyDomain = async (id: string) => {
@@ -1227,6 +1228,7 @@ export default function App() {
     }
     const updated = await verifyDomain(id);
     setDomains((current) => current.map((domain) => (domain.id === updated.id ? updated : domain)));
+    return updated;
   };
 
   const handleDeleteDomain = async (id: string) => {

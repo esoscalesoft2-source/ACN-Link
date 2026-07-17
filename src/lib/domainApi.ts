@@ -1,4 +1,4 @@
-import type { CustomDomain } from "../types";
+import type { CustomDomain, CustomDomainPlatformConfig } from "../types";
 import { apiUrl } from "./apiBase";
 import {
   clearAuthSession,
@@ -62,6 +62,28 @@ async function domainFetch<T>(path: string, init: RequestInit = {}, retry = true
     );
   }
   return data as T;
+}
+
+export async function fetchCustomDomainPlatformConfig(): Promise<CustomDomainPlatformConfig> {
+  let response: Response;
+  try {
+    response = await fetch(apiUrl("/api/domains/config"), {
+      method: "GET",
+      headers: { Accept: "application/json" }
+    });
+  } catch {
+    throw new DomainApiError("Could not reach the domain service.", 0, "NETWORK_ERROR");
+  }
+
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new DomainApiError(
+      data?.error || "Could not load domain settings.",
+      response.status,
+      data?.code || "DOMAIN_CONFIG_FAILED"
+    );
+  }
+  return data as CustomDomainPlatformConfig;
 }
 
 export async function fetchDomains(): Promise<CustomDomain[]> {

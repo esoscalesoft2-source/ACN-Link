@@ -9,6 +9,7 @@ import {
   registerCustomHostname,
   type ProviderHostname
 } from "./cloudflare";
+import { getCustomDomainPlatformConfig } from "./platformConfig";
 import { verifyDomainDns, verifyHostnameReachability } from "./dns";
 import {
   createDomain,
@@ -60,12 +61,20 @@ function pageBelongsToUser(pageId: string, userId: string) {
 }
 
 function publicDomain(record: CustomDomainRecord) {
+  const saasConfigured = isCloudflareForSaasConfigured();
+  const dnsHostLabel = (() => {
+    const labels = record.domainName.split(".").filter(Boolean);
+    if (labels.length <= 2) return "@";
+    return labels[0];
+  })();
+
   return {
     id: record.id,
     pageId: record.pageId,
     domainName: record.domainName,
     type: "CNAME",
     dnsTarget: record.dnsTarget,
+    dnsHostLabel,
     status: record.status,
     dnsVerifiedAt: record.dnsVerifiedAt,
     provider: record.provider,
@@ -74,9 +83,37 @@ function publicDomain(record: CustomDomainRecord) {
     ownershipVerification: record.ownershipVerification,
     lastCheckedAt: record.lastCheckedAt,
     errorMessage: record.errorMessage,
+    setupHint: buildSetupHint(record, saasConfigured),
+    selfServeEnabled: saasConfigured,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt
   };
+}
+
+function buildSetupHint(record: CustomDomainRecord, saasConfigured: boolean): string | null {
+  if (record.status === "Verified") {
+    return "Your domain is live with HTTPS. Share this address with visitors.";
+  }
+  if (record.status === "Provisioning SSL") {
+    return saasConfigured
+      ? "DNS is correct. SSL certificate is being issued — this usually takes a few minutes."
+      : "DNS is correct. Waiting for SSL to finish provisioning.";
+  }
+  if (record.status === "DNS Verified") {
+    return saasConfigured
+      ? "DNS is verified. SSL should finish automatically — click Check DNS and SSL again in a minute."
+      : "DNS is verified. Your site can route traffic once platform SSL is enabled for your hostname.";
+  }
+  if (record.status === "Pending DNS") {
+    return `Add a CNAME record: Host ${dnsHostLabelFor(record.domainName)} → ${record.dnsTarget}, then click Check DNS and SSL.`;
+  }
+  return record.errorMessage;
+}
+
+function dnsHostLabelFor(domainName: string): string {
+  const labels = domainName.split(".").filter(Boolean);
+  if (labels.length <= 2) return "@";
+  return labels[0];
 }
 
 function providerPatch(provider: ProviderHostname) {
@@ -100,6 +137,10 @@ function finalStatus(dnsVerified: boolean, provider?: ProviderHostname): DomainS
 
 export function createDomainsRouter() {
   const router = Router();
+
+  router.get("/config", (_req, res: Response) => {
+    res.json(getCustomDomainPlatformConfig());
+  });
 
   router.use(requireAuth);
   // Domain mutations require an explicit bearer token. This prevents a
@@ -165,7 +206,7 @@ export function createDomainsRouter() {
 
     const provider = isCloudflareForSaasConfigured() ? "cloudflare" : "manual";
     const dnsTarget =
-      process.env.CUSTOM_DOMAIN_CNAME_TARGET?.trim() || "domains.acnlink.mindflo.today";
+      process.env.CUSTOM_DOMAIN_CNAME_TARGET?.trim() || "acnlink.mindflo.today";
 
     try {
       let record = await createDomain({
@@ -191,8 +232,7 @@ export function createDomainsRouter() {
       } else {
         record = await updateDomain(record.id, req.authUser!.id, {
           provider_status: "configuration_required",
-          error_message:
-            "Automatic SSL is not configured. After DNS verify, use a Cloudflare Worker on your domain (see docs/cloudflare-worker-free-custom-domain.md)."
+          error_message: null
         });
       }
 
@@ -265,9 +305,11 @@ export function createDomainsRouter() {
           ? dns.message
           : providerState
             ? null
-            : record.provider === "manual"
-              ? "DNS verified and routable. Add a Cloudflare Worker on your domain so traffic reaches Railway (see docs/cloudflare-worker-free-custom-domain.md)."
-              : "DNS is verified, but automatic SSL is not configured."
+            : record.provider === "manual" && record.status === "DNS Verified"
+              ? null
+              : record.provider === "manual"
+                ? null
+                : "DNS is verified, but automatic SSL is not configured."
       });
 
       res.status(200).json({

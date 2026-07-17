@@ -151,6 +151,7 @@ export interface CustomDomain {
   domainName: string;
   type: "CNAME";
   dnsTarget: string;
+  dnsHostLabel?: string;
   status: "Pending DNS" | "DNS Verified" | "Provisioning SSL" | "Verified" | "Error";
   dnsVerifiedAt: string | null;
   provider: "cloudflare" | "manual";
@@ -159,8 +160,19 @@ export interface CustomDomain {
   ownershipVerification: Record<string, unknown> | null;
   lastCheckedAt: string | null;
   errorMessage: string | null;
+  setupHint?: string | null;
+  selfServeEnabled?: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CustomDomainPlatformConfig {
+  provider: "cloudflare" | "manual";
+  cnameTarget: string;
+  selfServeEnabled: boolean;
+  sslAutomatic: boolean;
+  workerRequired: boolean;
+  steps: string[];
 }
 
 export interface HelpArticle {

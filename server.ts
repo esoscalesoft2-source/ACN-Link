@@ -13,7 +13,7 @@ import {
 } from "./server/db/syncNormalized";
 import { createDomainsRouter } from "./server/domains/routes";
 import { findRoutableDomainByHostname } from "./server/domains/repository";
-import { isCloudflareForSaasConfigured } from "./server/domains/cloudflare";
+import { getCustomDomainPlatformConfig } from "./server/domains/platformConfig";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -76,12 +76,13 @@ app.get("/api/health", (_req, res) => {
     status: "ok",
     timestamp: new Date().toISOString(),
     database: storeStatus,
-    customDomains: {
-      provider: isCloudflareForSaasConfigured() ? "cloudflare" : "manual",
-      cnameTarget:
-        process.env.CUSTOM_DOMAIN_CNAME_TARGET || "domains.acnlink.mindflo.today"
-    }
+    customDomains: getCustomDomainPlatformConfig()
   });
+});
+
+/** Public — no login required. Used by Custom Domains UI and setup checks. */
+app.get("/api/domains/config", (_req, res) => {
+  res.json(getCustomDomainPlatformConfig());
 });
 
 /** Public lookup used by the customer Cloudflare Worker to map hostnames → pages. */

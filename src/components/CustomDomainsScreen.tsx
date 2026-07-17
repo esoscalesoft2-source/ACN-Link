@@ -21,9 +21,11 @@ import {
   X,
   ChevronDown
 } from "lucide-react";
-import type { BioPage, CustomDomain } from "../types";
+import type { BioPage, CustomDomain, CustomDomainPlatformConfig } from "../types";
 import { isValidHostname, normaliseHostname } from "../storage/publishStorage";
 import { syncLocalPageDocumentToServer } from "../storage/bioBuilderStorage";
+import { fetchCustomDomainPlatformConfig } from "../lib/domainApi";
+import { buildDnsInstructions } from "../lib/customDomainDns";
 import PageShell, { PageHeader, SectionCard, Workspace } from "./layout/PageShell";
 
 interface CustomDomainsScreenProps {
@@ -32,8 +34,8 @@ interface CustomDomainsScreenProps {
   isLoading: boolean;
   loadError: string | null;
   onReload: () => Promise<void>;
-  onConnectDomain: (domainName: string, pageId: string) => Promise<void>;
-  onVerifyDomain: (id: string) => Promise<void>;
+  onConnectDomain: (domainName: string, pageId: string) => Promise<CustomDomain>;
+  onVerifyDomain: (id: string) => Promise<CustomDomain>;
   onDeleteDomain: (id: string) => Promise<void>;
   onEditPage: (pageId: string, options?: { fromCustomDomain?: boolean }) => void;
 }
@@ -205,18 +207,26 @@ function SearchablePagePicker({
   );
 }
 
+function isDomainFullyVerified(domain: CustomDomain) {
+  return domain.status === "Verified";
+}
+
 function statusBadge(domain: CustomDomain) {
   const live = isDomainLive(domain);
+  const verified = isDomainFullyVerified(domain);
   const failed = domain.status === "Error" || domain.providerStatus === "error";
-  const Icon = live ? CheckCircle : failed ? AlertCircle : Clock;
-  const colors = live
+  const provisioning = domain.status === "Provisioning SSL";
+  const Icon = verified ? CheckCircle : failed ? AlertCircle : provisioning ? Loader2 : Clock;
+  const colors = verified
     ? "bg-emerald-50 text-emerald-700"
-    : failed
-      ? "bg-rose-50 text-rose-700"
-      : "bg-amber-50 text-amber-700";
+    : live
+      ? "bg-sky-50 text-sky-700"
+      : failed
+        ? "bg-rose-50 text-rose-700"
+        : "bg-amber-50 text-amber-700";
   return (
     <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${colors}`}>
-      <Icon className="h-3.5 w-3.5" />
+      <Icon className={`h-3.5 w-3.5 ${provisioning ? "animate-spin" : ""}`} />
       {domain.status}
     </span>
   );
@@ -245,6 +255,13 @@ export default function CustomDomainsScreen({
   const [searchQuery, setSearchQuery] = useState("");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [platformConfig, setPlatformConfig] = useState<CustomDomainPlatformConfig | null>(null);
+
+  useEffect(() => {
+    fetchCustomDomainPlatformConfig()
+      .then(setPlatformConfig)
+      .catch(() => setPlatformConfig(null));
+  }, []);
 
   const filteredDomains = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -317,10 +334,11 @@ export default function CustomDomainsScreen({
     setFormError("");
     setIsSubmitting(true);
     try {
-      await onConnectDomain(hostname, pageId);
+      const created = await onConnectDomain(hostname, pageId);
       setIsAdding(false);
       resetForm();
-      triggerToast(`"${hostname}" was added. Open DNS setup and add the record, then verify.`);
+      setDnsHelpDomain(created);
+      triggerToast(`"${hostname}" connected. Add the DNS record below, then verify.`);
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "Unable to connect domain.");
     } finally {
@@ -379,12 +397,21 @@ export default function CustomDomainsScreen({
     try {
       const page = pages.find((item) => item.id === domain.pageId);
       await syncLocalPageDocumentToServer(domain.pageId, page?.slug);
-      await onVerifyDomain(domain.id);
-      triggerToast(
-        isDomainLive(domain)
-          ? "Domain refreshed and latest page content synced."
-          : "DNS checked and latest page content synced."
-      );
+      const updated = await onVerifyDomain(domain.id);
+      if (dnsHelpDomain?.id === updated.id) {
+        setDnsHelpDomain(updated);
+      }
+      if (updated.status === "Verified") {
+        triggerToast(`${updated.domainName} is live with HTTPS.`);
+      } else if (isDomainLive(updated)) {
+        triggerToast(
+          platformConfig?.selfServeEnabled
+            ? `${updated.domainName} DNS verified. SSL is provisioning — check again in a few minutes.`
+            : `${updated.domainName} DNS verified.`
+        );
+      } else {
+        triggerToast(updated.setupHint || updated.errorMessage || "DNS not detected yet. Check your CNAME record.");
+      }
     } catch (error) {
       triggerToast(error instanceof Error ? error.message : "DNS verification failed.");
     } finally {
@@ -412,12 +439,37 @@ export default function CustomDomainsScreen({
       />
 
       <div className="acn-banner-info">
-        <p className="font-bold">How it works</p>
-        <p className="mt-1 text-indigo-800">
-          Pick your published page → enter your own website address (e.g. links.yourbrand.com) → add one
-          DNS record at GoDaddy/Namecheap → click Verify. Your brand address goes live with HTTPS.
-          Bio Pages edits sync here when you save a draft or publish.
-        </p>
+        <p className="font-bold">How it works — self-serve for every user</p>
+        {platformConfig?.selfServeEnabled ? (
+          <ol className="mt-2 list-decimal space-y-1 pl-5 text-indigo-800">
+            <li>Click <strong>Connect Domain</strong> and enter your address (e.g. links.yourbrand.com).</li>
+            <li>
+              At GoDaddy, Namecheap, Cloudflare, or any DNS provider, add one CNAME pointing to{" "}
+              <code className="font-mono text-xs">{platformConfig.cnameTarget}</code>.
+            </li>
+            <li>Click <strong>Check DNS and SSL</strong>. HTTPS is issued automatically — no manual Cloudflare setup.</li>
+          </ol>
+        ) : (
+          <div className="mt-2 space-y-2 text-indigo-800">
+            <ol className="list-decimal space-y-1 pl-5">
+              <li>Click <strong>Connect Domain</strong> and pick your published page.</li>
+              <li>
+                Add a CNAME at your DNS provider →{" "}
+                <code className="font-mono text-xs">
+                  {platformConfig?.cnameTarget || "domains.acnlink.mindflo.today"}
+                </code>
+                .
+              </li>
+              <li>Click <strong>Check DNS and SSL</strong> after DNS propagates.</li>
+            </ol>
+            <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Platform automatic SSL is not enabled yet. Your administrator must set{" "}
+              <code className="font-mono">CLOUDFLARE_API_TOKEN</code> and{" "}
+              <code className="font-mono">CLOUDFLARE_ZONE_ID</code> on Railway so every customer can connect
+              without manual Cloudflare work per domain.
+            </p>
+          </div>
+        )}
       </div>
 
       {loadError && (
@@ -490,13 +542,15 @@ export default function CustomDomainsScreen({
                     <p className="mt-1 text-xs text-slate-500">
                       Opens: {pageName(domain.pageId)} · Page ID: {domain.pageId} · SSL: {domain.sslStatus}
                     </p>
-                    {domain.errorMessage && (
+                    {(domain.setupHint || domain.errorMessage) && (
                       <p
                         className={`mt-2 max-w-2xl text-xs ${
-                          isDomainLive(domain) ? "text-slate-600" : "text-rose-600"
+                          domain.errorMessage && !isDomainLive(domain)
+                            ? "text-rose-600"
+                            : "text-slate-600"
                         }`}
                       >
-                        {domain.errorMessage}
+                        {domain.setupHint || domain.errorMessage}
                       </p>
                     )}
                   </div>
@@ -625,8 +679,11 @@ export default function CustomDomainsScreen({
               </div>
 
               <div className="acn-workflow-modal__note">
-                Next step: we will show exactly what to add in your domain settings (DNS). Usually takes
-                5–10 minutes after you save the record.
+                Next step: add one CNAME at your DNS provider pointing to{" "}
+                <code className="font-mono text-xs">
+                  {platformConfig?.cnameTarget || "domains.acnlink.mindflo.today"}
+                </code>
+                . {platformConfig?.selfServeEnabled ? "HTTPS is automatic." : "Then verify here."}
               </div>
 
               {formError && <p className="acn-workflow-modal__error">{formError}</p>}
@@ -647,45 +704,65 @@ export default function CustomDomainsScreen({
         document.body
       )}
 
-      {dnsHelpDomain && (
+      {dnsHelpDomain && (() => {
+        const dns = buildDnsInstructions(dnsHelpDomain.domainName, dnsHelpDomain.dnsTarget);
+        return (
         <div className="acn-modal-backdrop">
           <div className="acn-modal-panel max-w-lg">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold">Add this record in your domain settings</h3>
+              <h3 className="text-lg font-bold">DNS setup for {dnsHelpDomain.domainName}</h3>
               <button type="button" onClick={() => setDnsHelpDomain(null)}>
                 <X className="h-5 w-5" />
               </button>
             </div>
             <p className="mt-2 text-sm text-slate-600">
-              Log in to where you bought <strong>{dnsHelpDomain.domainName}</strong> (GoDaddy, Namecheap,
-              etc.) and add this DNS record:
+              Log in to your DNS provider for{" "}
+              <strong>{dns.fullHostname.split(".").slice(1).join(".") || dns.fullHostname}</strong>{" "}
+              (GoDaddy, Namecheap, Cloudflare, etc.) and add this record:
             </p>
             <div className="mt-4 space-y-3 rounded-2xl acn-glass-card p-4 text-sm">
               <div className="flex justify-between gap-6">
                 <span className="text-slate-400">Record type</span><strong>CNAME</strong>
               </div>
-              <div className="flex justify-between gap-6">
+              <div className="flex items-center justify-between gap-6">
                 <span className="text-slate-400">Host / Name</span>
-                <code className="break-all text-right">{dnsHelpDomain.domainName}</code>
+                <button
+                  type="button"
+                  onClick={() => void copy("host", dns.hostLabel === "@" ? "@" : dns.hostLabel)}
+                  className="inline-flex items-center gap-1 break-all text-right font-mono text-xs"
+                >
+                  {dns.hostDisplay}
+                  {copiedKey === "host" ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                </button>
+              </div>
+              <div className="flex justify-between gap-6">
+                <span className="text-slate-400">Full hostname</span>
+                <code className="break-all text-right text-xs">{dns.fullHostname}</code>
               </div>
               <div className="flex items-center justify-between gap-6">
                 <span className="text-slate-400">Points to (Target)</span>
                 <button
                   type="button"
-                  onClick={() => void copy("target", dnsHelpDomain.dnsTarget)}
+                  onClick={() => void copy("target", dns.pointsTo)}
                   className="inline-flex items-center gap-1 break-all text-right font-mono text-xs"
                 >
-                  {dnsHelpDomain.dnsTarget}
+                  {dns.pointsTo}
                   {copiedKey === "target" ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 </button>
               </div>
             </div>
-            <p className="mt-4 acn-banner-info text-xs">
-              <span className="font-bold">Railway free plan (1 domain)?</span> After DNS shows
-              verified, add a free Cloudflare Worker on this hostname so traffic reaches ACN Link.
-              See <code className="font-mono">docs/cloudflare-worker-free-custom-domain.md</code> in
-              the project repo.
-            </p>
+            {platformConfig?.selfServeEnabled ? (
+              <p className="mt-4 acn-banner-info text-xs">
+                After saving DNS, click <strong>Check DNS and SSL now</strong>. ACN Link registers your hostname
+                and issues HTTPS automatically — you do not need to create anything manually in Cloudflare.
+              </p>
+            ) : (
+              <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                DNS verification works for all users. For fully automatic HTTPS on every customer domain, your
+                platform admin must enable Cloudflare for SaaS on Railway (see{" "}
+                <code className="font-mono">docs/custom-domains-production.md</code>).
+              </p>
+            )}
             {dnsHelpDomain.ownershipVerification && (
               <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
                 <p className="font-bold">Additional SSL ownership verification</p>
@@ -705,7 +782,8 @@ export default function CustomDomainsScreen({
             </button>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {toast && (
         <div className="acn-toast">

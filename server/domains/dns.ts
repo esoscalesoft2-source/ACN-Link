@@ -31,7 +31,7 @@ export type DnsVerification = {
 export async function verifyDomainDns(hostname: string): Promise<DnsVerification> {
   const host = normalizeHostname(hostname);
   const expectedTarget = normalizeHostname(
-    process.env.CUSTOM_DOMAIN_CNAME_TARGET || "domains.acnlink.mindflo.today"
+      process.env.CUSTOM_DOMAIN_CNAME_TARGET || "acnlink.mindflo.today"
   );
 
   const [cnamesRaw, hostV4, hostV6, targetV4, targetV6, txtRaw] = await Promise.all([

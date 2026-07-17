@@ -96,6 +96,20 @@ export async function findDomainById(
   return data ? mapRow(data as DomainRow) : null;
 }
 
+export async function findDomainByPageId(
+  pageId: string,
+  ownerUserId: string
+): Promise<CustomDomainRecord | null> {
+  const { data, error } = await db()
+    .from("custom_domains")
+    .select("*")
+    .eq("page_id", pageId)
+    .eq("owner_user_id", ownerUserId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? mapRow(data as DomainRow) : null;
+}
+
 /** Hostnames that may serve a published page (full SSL or DNS-only + customer proxy). */
 export const ROUTABLE_DOMAIN_STATUSES: DomainStatus[] = ["Verified", "DNS Verified"];
 

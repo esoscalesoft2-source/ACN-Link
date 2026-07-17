@@ -181,8 +181,45 @@ export interface BioEditorBlock {
   [key: string]: unknown;
 }
 
-/** Published / preview page appearance */
-export type BioPagePreviewTheme = "dark" | "light";
+/** Published / preview page appearance preset */
+export type BioPagePreviewTheme =
+  | "dark"
+  | "light"
+  | "midnight"
+  | "ocean"
+  | "rose"
+  | "forest"
+  | "sunset"
+  | "lavender"
+  | "slate"
+  | "gold"
+  | "coral"
+  | "arctic";
+
+export type CoverFitMode = "cover" | "contain" | "fill";
+export type CoverFocusPoint = "center" | "top" | "bottom" | "left" | "right";
+export type CoverBandHeight = "sm" | "md" | "lg";
+
+export interface BioCoverPhotoSettings {
+  fit: CoverFitMode;
+  zoom: number;
+  focus: CoverFocusPoint;
+  height: CoverBandHeight;
+  /** Optional px override for band height (overrides sm/md/lg preset). */
+  customHeight?: number;
+  /** Cover band width relative to page (60–100%). */
+  widthPercent: number;
+  /** Image width inside the band (50–150%). */
+  imageWidthPercent: number;
+  /** Image height inside the band (50–150%). */
+  imageHeightPercent: number;
+  /** Inner inset between band edge and image (0–40px). */
+  padding: number;
+  /** Horizontal outer spacing on the cover band (0–32px). */
+  marginX: number;
+  /** Vertical outer spacing on the cover band (0–24px). */
+  marginY: number;
+}
 
 export interface BioPagePreviewDetails {
   title: string;
@@ -190,6 +227,7 @@ export interface BioPagePreviewDetails {
   coverPhoto: string;
   handle?: string;
   pageTheme?: BioPagePreviewTheme;
+  coverSettings?: BioCoverPhotoSettings;
 }
 
 /** Full restorable editor state for drafts and templates */
@@ -201,6 +239,7 @@ export interface BioEditorState {
     coverImage: string;
     handle?: string;
     pageTheme?: BioPagePreviewTheme;
+    coverSettings?: BioCoverPhotoSettings;
   };
   blocks: BioEditorBlock[];
 }

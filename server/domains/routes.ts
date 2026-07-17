@@ -13,6 +13,7 @@ import { verifyDomainDns, verifyHostnameReachability } from "./dns";
 import {
   createDomain,
   findDomainById,
+  findDomainByPageId,
   listDomains,
   removeDomain,
   updateDomain,
@@ -133,6 +134,14 @@ export function createDomainsRouter() {
     }
     if (!pageId || !pageBelongsToUser(pageId, req.authUser!.id)) {
       res.status(400).json({ error: "Select a valid website page for this domain." });
+      return;
+    }
+
+    const existingForPage = await findDomainByPageId(pageId, req.authUser!.id);
+    if (existingForPage) {
+      res.status(409).json({
+        error: `This page is already connected to ${existingForPage.domainName}. Each page can only use one custom domain.`
+      });
       return;
     }
 

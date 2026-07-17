@@ -86,6 +86,7 @@ import {
   syncLocalPageDocumentToServer,
   deleteTemplateOnServer,
   pruneLocalBioCache,
+  createUniquePageId,
 } from "./storage/bioBuilderStorage";
 import {
   getAllNotifications,
@@ -188,6 +189,18 @@ export default function App() {
     [location.pathname]
   );
   const editPageIdFromUrl = searchParams.get("edit");
+  const mainScrollRef = React.useRef<HTMLElement>(null);
+
+  const resetMainScroll = React.useCallback(() => {
+    const el = mainScrollRef.current;
+    if (!el) return;
+    el.scrollTop = 0;
+    el.scrollLeft = 0;
+  }, []);
+
+  React.useEffect(() => {
+    resetMainScroll();
+  }, [location.pathname, resetMainScroll]);
 
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(() => Boolean(getAccessToken() && getStoredAuthUser()));
@@ -836,12 +849,12 @@ export default function App() {
     navigate(screenToPath(ScreenId.LOGIN), { replace: true });
   };
 
-  const handleAddPage = (title: string, slug: string) => {
+  const handleAddPage = (title: string, slug: string, pageId?: string) => {
     const newPage: BioPage = {
-      id: `p_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      id: pageId?.trim() || createUniquePageId(),
       title,
       slug,
-      status: "Live",
+      status: "Draft",
       views: 0,
       createdAt: "7 Jul 2026"
     };
@@ -867,36 +880,62 @@ export default function App() {
   };
 
   const handleDeletePage = (id: string) => {
-    const page = pages.find((item) => item.id === id);
-    setPages((currentPages) => currentPages.filter((item) => item.id !== id));
+    handleDeletePages([id]);
+  };
+
+  const handleDeletePages = (ids: string[]) => {
+    const uniqueIds = [...new Set(ids.filter(Boolean))];
+    if (uniqueIds.length === 0) return;
+
+    const idSet = new Set(uniqueIds);
+    const removedPages = pages.filter((item) => idSet.has(item.id));
+
+    setPages((currentPages) => currentPages.filter((item) => !idSet.has(item.id)));
     setPageBlocksMap((currentBlocks) => {
       const nextBlocks = { ...currentBlocks };
-      delete nextBlocks[id];
-      if (page?.slug) delete nextBlocks[page.slug];
+      for (const page of removedPages) {
+        delete nextBlocks[page.id];
+        if (page.slug) delete nextBlocks[page.slug];
+      }
       return nextBlocks;
     });
-    setSavedDrafts((drafts) => deleteDraftByPageId(id, drafts));
+    setSavedDrafts((drafts) => {
+      let nextDrafts = drafts;
+      for (const id of uniqueIds) {
+        nextDrafts = deleteDraftByPageId(id, nextDrafts);
+      }
+      return nextDrafts;
+    });
 
-    if (page) {
+    for (const page of removedPages) {
       try {
-        localStorage.removeItem(`biolink_blocks_${id}`);
+        localStorage.removeItem(`biolink_blocks_${page.id}`);
         localStorage.removeItem(`biolink_blocks_${page.slug}`);
-        localStorage.removeItem(`biolink_details_${id}`);
+        localStorage.removeItem(`biolink_details_${page.id}`);
         localStorage.removeItem(`biolink_details_${page.slug}`);
       } catch {
         // Browser storage may be unavailable; the page state was still removed.
       }
     }
 
-    fetch(apiUrl(`/api/page/${id}`), {
-      method: "DELETE",
-      headers: authenticatedHeaders()
-    }).catch((error) => {
-      console.error("Failed to remove the page from the server:", error);
-    });
+    for (const id of uniqueIds) {
+      fetch(apiUrl(`/api/page/${id}`), {
+        method: "DELETE",
+        headers: authenticatedHeaders()
+      }).catch((error) => {
+        console.error("Failed to remove the page from the server:", error);
+      });
+    }
   };
 
-  const handleUpdatePage = (id: string, title: string, bio?: string, coverPhoto?: string, pageHandle?: string) => {
+  const handleUpdatePage = (
+    id: string,
+    title: string,
+    bio?: string,
+    coverPhoto?: string,
+    pageHandle?: string,
+    status?: BioPage["status"]
+  ) => {
     setPages((currentPages) =>
       currentPages.map((page) =>
         page.id === id
@@ -905,7 +944,8 @@ export default function App() {
               title,
               bio: bio !== undefined ? bio : page.bio,
               coverPhoto: coverPhoto !== undefined ? coverPhoto : page.coverPhoto,
-              handle: pageHandle !== undefined ? pageHandle : page.handle
+              handle: pageHandle !== undefined ? pageHandle : page.handle,
+              status: status !== undefined ? status : page.status
             }
           : page
       )
@@ -1203,8 +1243,12 @@ export default function App() {
   };
 
   const handleScreenChange = (screen: ScreenId) => {
-    navigate(screenToPath(screen));
+    const path = screenToPath(screen);
+    navigate(path);
     setIsMobileNavOpen(false);
+    if (location.pathname === path) {
+      resetMainScroll();
+    }
   };
 
   const handleNotificationNavigate = (screen: ScreenId, pageId?: string) => {
@@ -1216,9 +1260,13 @@ export default function App() {
     navigate(screenToPath(screen));
   };
 
-  const handleOpenDashboardPage = (pageId: string) => {
+  const handleOpenDashboardPage = (pageId: string, options?: { fromCustomDomain?: boolean }) => {
     setInitialActiveEditPageId(pageId);
-    navigate(`${screenToPath(ScreenId.BIO_PAGES)}?edit=${encodeURIComponent(pageId)}`);
+    const params = new URLSearchParams({ edit: pageId });
+    if (options?.fromCustomDomain) {
+      params.set("source", "domain");
+    }
+    navigate(`${screenToPath(ScreenId.BIO_PAGES)}?${params.toString()}`);
   };
 
   // Helper object to serve metrics inside dashboard with server-side tracking support
@@ -1331,8 +1379,10 @@ export default function App() {
         return (
           <BioPagesScreen
             pages={pages}
+            domains={domains}
             onAddPage={handleAddPage}
             onDeletePage={handleDeletePage}
+            onDeletePages={handleDeletePages}
             onUpdatePage={handleUpdatePage}
             onDuplicatePage={handleDuplicatePage}
             onRefreshPages={handleRefreshPages}
@@ -1498,6 +1548,7 @@ export default function App() {
             onConnectDomain={handleConnectDomain}
             onVerifyDomain={handleVerifyDomain}
             onDeleteDomain={handleDeleteDomain}
+            onEditPage={(pageId, options) => handleOpenDashboardPage(pageId, options)}
           />
         );
       case ScreenId.HELP_CENTER:
@@ -1588,6 +1639,7 @@ export default function App() {
         )}
 
         <main
+          ref={mainScrollRef}
           className={`min-w-0 no-scrollbar ${
             isLoggedIn ? "acn-main-scroll" : "flex-1 h-full min-h-0 overflow-hidden"
           }`}

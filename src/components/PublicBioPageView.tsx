@@ -1,7 +1,18 @@
-import React, { useState, useEffect, useRef, useCallback, memo } from "react";
-import { ArrowRight, Copy, MessageSquare, User, X } from "lucide-react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { X } from "lucide-react";
+import { normalizePageTheme, getBioPageThemeClass, getBioPageThemeStyle } from "../lib/bioPageThemes";
+import {
+  BlockRecord,
+  destinationEmailFromBlock,
+  downloadVCard,
+  getLinkSpinCouponCode,
+  getLinkSpinPrizes,
+  normalizeExternalUrl
+} from "../lib/bioBlocks";
 import { apiUrl } from "../lib/apiBase";
-import { BIO_LINK, getLinkArrowColor, getLinkButtonStyle, isDefaultBrightLink } from "../lib/bioLinkColors";
+import BlockRenderer, { type BlockRendererHandlers } from "./bio/BlockRenderer";
+import CoverPhotoView from "./bio/CoverPhotoView";
+import { normalizeCoverSettings } from "../lib/bioCoverPhoto";
 import { formatDisplayHandle, readLocalPageUpdatedAt } from "../storage/bioBuilderStorage";
 import type { BioPagePreviewDetails, BioPagePreviewTheme } from "../types";
 
@@ -45,94 +56,6 @@ const genericFallbackBlocks = [
   { id: "g4", type: "WhatsApp", label: "Chat with me on WhatsApp", value: "https://wa.me/1234567890" }
 ];
 
-const defaultProductsList = [
-  {
-    id: "p1",
-    name: "Iron man",
-    url: "https://www.amazon.in/Toys-Action-Figure-Collectibles-Interchangeable/dp/BOFKTLP65H?source=ps-sl-sl",
-    image: "https://images.unsplash.com/photo-1626278664285-f7c05fd17571?auto=format&fit=crop&q=80&w=300",
-    price: "3999"
-  },
-  {
-    id: "p2",
-    name: "spiderman",
-    url: "https://www.amazon.in/Toys-Action-Figure-Collectibles-Interchangeable/dp/BOFKTLP65H?source=ps-sl-sl",
-    image: "https://images.unsplash.com/photo-1604200213928-ba3cf4fc8436?auto=format&fit=crop&q=80&w=300",
-    price: "2999"
-  },
-  {
-    id: "p3",
-    name: "halk",
-    url: "https://www.amazon.in/Toys-Action-Figure-Collectibles-Interchangeable/dp/BOFKTLP65H?source=ps-sl-sl",
-    image: "https://images.unsplash.com/photo-1594787318286-3d835c1d207f?auto=format&fit=crop&q=80&w=300",
-    price: "1899"
-  }
-];
-
-const getCurrencySymbol = (currency: string = "₹ INR") => {
-  if (currency.startsWith("₹")) return "₹";
-  if (currency.startsWith("$")) return "$";
-  if (currency.startsWith("€")) return "€";
-  if (currency.startsWith("£")) return "£";
-  if (currency.startsWith("¥")) return "¥";
-  return currency.split(" ")[0] || "₹";
-};
-
-type BlockRecord = Block & Record<string, unknown>;
-
-function normalizeExternalUrl(value: string): string {
-  const target = value.trim();
-  if (!target) return "";
-  if (/^(https?:\/\/|mailto:|tel:|whatsapp:)/i.test(target)) return target;
-  if (/^[\w.-]+@[\w.-]+\.\w+$/.test(target)) return `mailto:${target}`;
-  if (/^\+?[\d\s()-]{7,}$/.test(target)) return `tel:${target.replace(/\s/g, "")}`;
-  return `https://${target}`;
-}
-
-function getGalleryImages(block: BlockRecord): string[] {
-  return [block.img1, block.img2, block.img3]
-    .filter((url): url is string => typeof url === "string" && url.trim().length > 0);
-}
-
-function getVideoThumbnail(block: BlockRecord): string {
-  const customThumb = typeof block.thumbUrl === "string" ? block.thumbUrl : "";
-  if (customThumb) return customThumb;
-  const url = block.value || "";
-  const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]{6,})/i);
-  if (ytMatch?.[1]) return `https://img.youtube.com/vi/${ytMatch[1]}/hqdefault.jpg`;
-  return "https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&q=80&w=800";
-}
-
-function downloadVCard(options: { name: string; phone?: string; email?: string; handle?: string }) {
-  const phone = options.phone?.replace(/[^\d+]/g, "") || "";
-  const email = options.email?.includes("@") ? options.email : "";
-  const vcard = [
-    "BEGIN:VCARD",
-    "VERSION:3.0",
-    `FN:${options.name}`,
-    options.handle ? `NICKNAME:${options.handle.replace(/^@/, "")}` : "",
-    phone ? `TEL;TYPE=CELL:${phone}` : "",
-    email ? `EMAIL:${email}` : "",
-    "END:VCARD"
-  ]
-    .filter(Boolean)
-    .join("\r\n");
-  const blob = new Blob([vcard], { type: "text/vcard;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `${options.name.replace(/[^\w.-]+/g, "_") || "contact"}.vcf`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
-}
-
-function parseCountdownDays(value: string | undefined, fallback = 9): number {
-  const parsed = Number.parseInt(String(value || "").replace(/\D/g, ""), 10);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
-}
-
 function readCachedPage(pageId: string): { blocks?: Block[]; details?: BioPagePreviewDetails } | null {
   try {
     const raw = sessionStorage.getItem(`acn_public_page_${pageId}`);
@@ -152,11 +75,6 @@ function writeCachedPage(pageId: string, blocks: Block[], details: BioPagePrevie
   } catch {
     /* ignore quota errors */
   }
-}
-
-function destinationEmailFromBlock(block: BlockRecord): string | undefined {
-  const raw = typeof block.email === "string" ? block.email : block.value;
-  return typeof raw === "string" && raw.includes("@") ? raw : undefined;
 }
 
 function readLocalPageData(pageId: string, pageSlug: string) {
@@ -220,68 +138,6 @@ function getInitialPageState(pageId: string, pageSlug: string, mode: "preview" |
   };
 }
 
-const CountdownBlock = memo(function CountdownBlock({ value }: { value?: string }) {
-  const seedDays = parseCountdownDays(value, 9);
-  const [countdown, setCountdown] = useState({
-    days: seedDays,
-    hrs: 19,
-    mins: 45,
-    secs: 30
-  });
-
-  useEffect(() => {
-    setCountdown({ days: parseCountdownDays(value, 9), hrs: 19, mins: 45, secs: 30 });
-  }, [value]);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev.secs > 0) return { ...prev, secs: prev.secs - 1 };
-        if (prev.mins > 0) return { ...prev, mins: prev.mins - 1, secs: 59 };
-        if (prev.hrs > 0) return { ...prev, hrs: prev.hrs - 1, mins: 59, secs: 59 };
-        if (prev.days > 0) return { ...prev, days: prev.days - 1, hrs: 23, mins: 59, secs: 59 };
-        return prev;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  return (
-    <div className="bg-rose-50/70 border border-rose-100 p-3.5 rounded-2xl text-center space-y-2 shadow-sm">
-      <span className="text-[10px] font-bold text-rose-600 uppercase tracking-widest block font-mono">Limited Campaign Ends In</span>
-      <div className="flex items-center justify-center gap-1.5 text-rose-700">
-        <div className="bg-white border border-rose-100 p-1.5 rounded-xl min-w-[40px] text-center shadow-sm">
-          <span className="font-extrabold text-sm block leading-none text-rose-700">
-            {String(countdown.days).padStart(2, "0")}
-          </span>
-          <span className="text-[7px] text-rose-500 block tracking-wide uppercase mt-0.5">DAYS</span>
-        </div>
-        <span className="text-rose-400 font-bold">:</span>
-        <div className="bg-white border border-rose-100 p-1.5 rounded-xl min-w-[40px] text-center shadow-sm">
-          <span className="font-extrabold text-sm block leading-none text-rose-700">
-            {String(countdown.hrs).padStart(2, "0")}
-          </span>
-          <span className="text-[7px] text-rose-500 block tracking-wide uppercase mt-0.5">HRS</span>
-        </div>
-        <span className="text-rose-400 font-bold">:</span>
-        <div className="bg-white border border-rose-100 p-1.5 rounded-xl min-w-[40px] text-center shadow-sm">
-          <span className="font-extrabold text-sm block leading-none text-rose-700">
-            {String(countdown.mins).padStart(2, "0")}
-          </span>
-          <span className="text-[7px] text-rose-500 block tracking-wide uppercase mt-0.5">MIN</span>
-        </div>
-        <span className="text-rose-400 font-bold">:</span>
-        <div className="bg-white border border-rose-100 p-1.5 rounded-xl min-w-[40px] text-center shadow-sm">
-          <span className="font-extrabold text-sm block leading-none text-rose-700">
-            {String(countdown.secs).padStart(2, "0")}
-          </span>
-          <span className="text-[7px] text-rose-500 block tracking-wide uppercase mt-0.5">SEC</span>
-        </div>
-      </div>
-    </div>
-  );
-});
-
 function BlockSkeleton() {
   return (
     <div className="acn-public-bio-page__skeleton space-y-3" aria-hidden>
@@ -304,7 +160,7 @@ export default function PublicBioPageView({
   const [blocks, setBlocks] = useState<Block[]>(initialPage.blocks);
   const [customDetails, setCustomDetails] = useState<BioPagePreviewDetails | null>(initialPage.details);
   const [pageTheme, setPageTheme] = useState<BioPagePreviewTheme>(
-    initialPage.details?.pageTheme === "light" ? "light" : "dark"
+    normalizePageTheme(initialPage.details?.pageTheme)
   );
   const [pageLoadStatus, setPageLoadStatus] = useState<"loading" | "ready" | "not_found">(initialPage.status);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -320,7 +176,7 @@ export default function PublicBioPageView({
   const applyStoredDetails = (parsed: BioPagePreviewDetails | null) => {
     if (!parsed || typeof parsed !== "object") return;
     setCustomDetails(parsed);
-    setPageTheme(parsed.pageTheme === "light" ? "light" : "dark");
+    setPageTheme(normalizePageTheme(parsed.pageTheme));
   };
 
   const reloadStoredDetails = () => {
@@ -438,7 +294,7 @@ export default function PublicBioPageView({
     setPageLoadStatus(status);
     if (details) {
       setCustomDetails(details);
-      setPageTheme(details.pageTheme === "light" ? "light" : "dark");
+      setPageTheme(normalizePageTheme(details.pageTheme));
     }
     if (nextBlocks.length > 0) {
       writeCachedPage(pageId, nextBlocks, details);
@@ -468,7 +324,7 @@ export default function PublicBioPageView({
     }
     if (serverDetails) {
       setCustomDetails(serverDetails);
-      setPageTheme(serverDetails.pageTheme === "light" ? "light" : "dark");
+      setPageTheme(normalizePageTheme(serverDetails.pageTheme));
       setPageLoadStatus("ready");
       return true;
     }
@@ -621,30 +477,80 @@ export default function PublicBioPageView({
     fallbackToTitle: false
   });
   const displayBio = customDetails?.bio || pageBio;
-  const spinCouponCode =
-    blocks.find((block) => block.type === "Coupon" && block.value)?.value ||
-    blocks.find((block) => block.id === activeSpinBlockId)?.value ||
-    "SAVE20";
+  const activeSpinBlock = activeSpinBlockId
+    ? blocks.find((block) => block.id === activeSpinBlockId)
+    : blocks.find((block) => block.type === "Link Spin");
+  const spinCouponCode = activeSpinBlock
+    ? getLinkSpinCouponCode(activeSpinBlock as BlockRecord)
+    : blocks.find((block) => block.type === "Coupon" && block.value)?.value || "SAVE20";
+  const spinPrizes = activeSpinBlock
+    ? getLinkSpinPrizes(activeSpinBlock as BlockRecord)
+    : getLinkSpinPrizes({ id: "", type: "Link Spin", label: "", value: "" });
   const coverPhoto =
     customDetails?.coverPhoto ||
     pageCoverPhoto ||
     "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800";
+  const coverSettings = normalizeCoverSettings(customDetails?.coverSettings);
+
+  const liveBlockHandlers: BlockRendererHandlers = {
+    onToast: triggerToast,
+    onExternalLink: (url, label) => {
+      if (label) trackAction("click", label);
+      openExternalLink(url);
+    },
+    onWhatsApp: openWhatsAppLink,
+    onSpinOpen: (blockId) => {
+      setActiveSpinBlockId(blockId);
+      setSpinResult(null);
+      setIsSpinning(false);
+      setShowSpinWheel(true);
+    },
+    onLeadSubmit: (blockId, email, destinationEmail) => {
+      const blockLabel = blocks.find((entry) => entry.id === blockId)?.label || blockId;
+      trackAction("register", `Smart Form Lead: ${blockLabel}`, { email });
+      if (destinationEmail) {
+        const mailUrl = `mailto:${destinationEmail}?subject=${encodeURIComponent(`Lead from ${displayTitle}`)}&body=${encodeURIComponent(email)}`;
+        window.location.href = mailUrl;
+      }
+      triggerToast("Thanks! Your email was sent to the page owner.");
+      setLeadEmails((prev) => ({ ...prev, [blockId]: "" }));
+    },
+    onVCardDownload: (block) => {
+      const contactName =
+        (typeof block.contactName === "string" && block.contactName.trim()) ||
+        displayTitle ||
+        block.label;
+      const phone =
+        (typeof block.phone === "string" && block.phone.trim()) ||
+        (block.value?.includes("@") ? "" : block.value);
+      const email =
+        (typeof block.email === "string" && block.email.trim()) ||
+        (block.value?.includes("@") ? block.value : destinationEmailFromBlock(block));
+      downloadVCard({ name: contactName, phone, email, handle: displayHandle });
+      trackAction("click", `vCard Contact: ${block.label}`);
+      triggerToast("Contact card downloaded to your device.");
+    },
+    onTrack: trackAction,
+    leadEmails,
+    onLeadEmailChange: (blockId, email) => setLeadEmails((prev) => ({ ...prev, [blockId]: email }))
+  };
 
   return (
-    <div className={`acn-public-bio-page acn-bio-page-theme-${pageTheme} flex flex-col items-center justify-start font-sans`}>
-      <div className={`acn-public-bio-page__card acn-preview-isolate acn-public-bio-page__screen acn-bio-page-theme-${pageTheme} w-full max-w-md`}>
-        <div className="acn-phone-preview__cover acn-public-bio-page__cover">
-          <img
-            src={coverPhoto}
-            alt="Hero Cover"
-            className="w-full h-full object-cover"
-            referrerPolicy="no-referrer"
-            loading="eager"
-            decoding="async"
-            fetchPriority="high"
-          />
-          <div className="acn-phone-preview__cover-fade" />
-        </div>
+    <div
+      className={`acn-public-bio-page ${getBioPageThemeClass(pageTheme)} flex flex-col items-center justify-start font-sans`}
+      style={getBioPageThemeStyle(pageTheme)}
+    >
+      <div
+        className={`acn-public-bio-page__card acn-preview-isolate acn-public-bio-page__screen ${getBioPageThemeClass(pageTheme)} w-full max-w-md`}
+        style={getBioPageThemeStyle(pageTheme)}
+      >
+        <CoverPhotoView
+          src={coverPhoto}
+          alt="Hero Cover"
+          settings={coverSettings}
+          variant="preview"
+          className="acn-phone-preview__cover acn-public-bio-page__cover"
+        />
 
         <div className="acn-phone-preview__body acn-public-bio-page__body">
           <div className="acn-public-bio-page__profile">
@@ -663,472 +569,15 @@ export default function PublicBioPageView({
               {loadError}
             </p>
           )}
-          {blocks.map((block) => {
-            switch (block.type) {
-              case "Header":
-                return (
-                  <h2 key={block.id} className="acn-phone-preview__block-heading font-display text-center pt-2 leading-snug">
-                    {block.label}
-                  </h2>
-                );
-
-              case "Text":
-                return (
-                  <p key={block.id} className="acn-phone-preview__block-text text-center p-3.5 rounded-2xl leading-relaxed">
-                    {block.label}
-                  </p>
-                );
-
-              case "Button":
-              case "Deep Link":
-                return (
-                  <button
-                    key={block.id}
-                    onClick={() => {
-                      trackAction("click", `Button: ${block.label}`);
-                      openExternalLink(block.value || "");
-                    }}
-                    style={getLinkButtonStyle(block as any)}
-                    className={`w-full font-bold py-3.5 px-4 rounded-2xl flex items-center justify-between transition-all active:scale-98 acn-bio-link-btn ${
-                      isDefaultBrightLink(block as any)
-                        ? "shadow-md shadow-violet-500/30 border-0"
-                        : "shadow-sm border border-slate-200/85"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 truncate text-left">
-                      {(block as any).iconEmoji && <span className="text-base">{(block as any).iconEmoji}</span>}
-                      <div>
-                        <span className="acn-bio-link-label block font-bold leading-tight">{block.label}</span>
-                        {(block as any).subtext && <span className="acn-bio-link-subtext block font-medium opacity-70 mt-0.5">{(block as any).subtext}</span>}
-                      </div>
-                    </div>
-                    {(block as any).showArrow !== "No" && (
-                      <ArrowRight className="h-4 w-4 shrink-0" style={{ color: getLinkArrowColor(block as any) }} />
-                    )}
-                  </button>
-                );
-
-              case "Socials": {
-                const socialBlock = block as BlockRecord;
-                const websiteUrl =
-                  (socialBlock.websiteUrl as string) ||
-                  blocks.find((b) => b.type === "Button" && b.value?.startsWith("http"))?.value ||
-                  "";
-                const whatsappVal =
-                  (socialBlock.whatsappUrl as string) ||
-                  blocks.find((b) => b.type === "WhatsApp" && b.value)?.value ||
-                  "";
-                const instagramUrl =
-                  (socialBlock.instagramUrl as string) ||
-                  blocks.find((b) => b.value?.includes("instagram.com"))?.value ||
-                  "";
-
-                return (
-                  <div key={block.id} className="flex items-center justify-center gap-4 py-2">
-                    {websiteUrl && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          trackAction("click", "Social Icon: Website");
-                          openExternalLink(websiteUrl);
-                        }}
-                        className="p-3 bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 rounded-full cursor-pointer transition-all shadow-sm active:scale-90"
-                        aria-label="Open website"
-                      >
-                        🌐
-                      </button>
-                    )}
-                    {whatsappVal && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          trackAction("click", "Social Icon: WhatsApp");
-                          openWhatsAppLink(whatsappVal);
-                        }}
-                        className="p-3 bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 rounded-full cursor-pointer transition-all shadow-sm active:scale-90"
-                        aria-label="Open WhatsApp"
-                      >
-                        💬
-                      </button>
-                    )}
-                    {instagramUrl && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          trackAction("click", "Social Icon: Instagram");
-                          openExternalLink(instagramUrl);
-                        }}
-                        className="p-3 bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 rounded-full cursor-pointer transition-all shadow-sm active:scale-90"
-                        aria-label="Open Instagram"
-                      >
-                        📸
-                      </button>
-                    )}
-                  </div>
-                );
-              }
-
-              case "Shop": {
-                const shopBlock = block as BlockRecord;
-                const shopProducts = Array.isArray(shopBlock.products) && shopBlock.products.length
-                  ? shopBlock.products
-                  : defaultProductsList;
-                const align = (block as any).alignment || "Centre";
-                const alignClass = align === "Left" ? "text-left" : align === "Right" ? "text-right" : "text-center";
-                const symbol = getCurrencySymbol((block as any).currency);
-                const cardBg = (block as any).bgColor || "#10B981";
-                const textCol = (block as any).textColor || "#FFFFFF";
-
-                return (
-                  <div key={block.id} className="space-y-3 text-left pt-2 w-full">
-                    <span className={`text-xs font-bold text-slate-500 block tracking-wider uppercase ${alignClass}`}>
-                      {block.label}
-                    </span>
-                    <div className="grid grid-cols-2 gap-3">
-                      {shopProducts.map((p: any, idx: number) => (
-                        <a
-                          key={p.id || idx}
-                          href={p.url || "#"}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={() => {
-                            trackAction("click", `Shop Product: ${p.name}`);
-                          }}
-                          className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition-all flex flex-col justify-between hover:border-slate-300"
-                        >
-                          <div className="h-32 bg-white flex items-center justify-center p-3">
-                            {p.image ? (
-                              <img
-                                src={p.image}
-                                alt={p.name}
-                                className="h-full object-contain max-h-full max-w-full"
-                                referrerPolicy="no-referrer"
-                                loading="lazy"
-                                decoding="async"
-                              />
-                            ) : (
-                              <div className="text-xs text-slate-400 font-bold">No Image</div>
-                            )}
-                          </div>
-                          <div className="p-3 text-center border-t border-slate-100 flex flex-col items-center justify-center min-h-[56px]" style={{ backgroundColor: cardBg, color: textCol }}>
-                            <p className="font-bold text-xs truncate max-w-full leading-tight">{p.name || "Product"}</p>
-                            <p className="font-extrabold text-xs mt-0.5 opacity-90">{symbol}{p.price || "0"}</p>
-                          </div>
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                );
-              }
-
-              case "Coupon":
-                return (
-                  <div
-                    key={block.id}
-                    style={{
-                      backgroundColor: (block as any).bgColor || "rgb(239 246 255)",
-                      color: (block as any).textColor || "#1e3a8a"
-                    }}
-                    className="border border-blue-100 p-4 rounded-2xl relative overflow-hidden space-y-2 text-left shadow-sm"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold uppercase tracking-wider font-mono opacity-80" style={{ color: (block as any).textColor || "#2563eb" }}>Special Offer Coupon</span>
-                      <span className="text-[8px] text-white px-2 py-0.5 rounded-full font-black uppercase" style={{ backgroundColor: (block as any).textColor || "#2563eb", color: (block as any).bgColor || "#FFFFFF" }}>
-                        {(block as any).discount || "COPYABLE"}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono font-extrabold text-sm tracking-widest bg-white/40 py-1 px-3 rounded-lg border border-dashed border-slate-300/60" style={{ color: (block as any).textColor || "#1d4ed8", borderColor: (block as any).textColor || "#bfdbfe" }}>
-                        {block.value || "MARVELTOYCODE007"}
-                      </span>
-                      <button
-                        onClick={() => {
-                          trackAction("click", `Copied Coupon: ${block.value || "MARVELTOYCODE007"}`);
-                          navigator.clipboard.writeText(block.value || "MARVELTOYCODE007");
-                          triggerToast("🎟️ Coupon copied to clipboard!");
-                        }}
-                        className="p-1.5 bg-white/50 hover:bg-white/80 rounded-lg transition-colors"
-                        style={{ color: (block as any).textColor || "#1d4ed8" }}
-                        title="Copy Coupon"
-                      >
-                        <Copy className="h-4 w-4" />
-                      </button>
-                    </div>
-                    <p className="text-[10px] opacity-90 leading-tight">{block.label}</p>
-                  </div>
-                );
-
-              case "Countdown":
-                return <CountdownBlock key={block.id} value={block.value} />;
-
-              case "Link Spin":
-                return (
-                  <button
-                    key={block.id}
-                    onClick={() => {
-                      trackAction("click", `Spin Wheel: ${block.label}`);
-                      setActiveSpinBlockId(block.id);
-                      setSpinResult(null);
-                      setIsSpinning(false);
-                      setShowSpinWheel(true);
-                    }}
-                    className="w-full bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 text-white font-extrabold py-3.5 px-4 rounded-2xl transition-all shadow-md text-sm flex items-center justify-center gap-2 active:scale-95"
-                  >
-                    <span>🎡</span>
-                    <span>{block.label}</span>
-                  </button>
-                );
-
-              case "WhatsApp":
-                return (
-                  <button
-                    key={block.id}
-                    onClick={() => {
-                      trackAction("click", `WhatsApp: ${block.label}`);
-                      if (!block.value?.trim()) {
-                        triggerToast("WhatsApp number is not configured yet.");
-                        return;
-                      }
-                      openWhatsAppLink(block.value);
-                    }}
-                    style={{
-                      backgroundColor: (block as any).bgColor || "#25D366",
-                      color: (block as any).textColor || "#FFFFFF",
-                    }}
-                    className="w-full font-bold py-3.5 px-4 rounded-2xl flex items-center justify-center gap-2 shadow-sm transition-all text-sm active:scale-95 border-0"
-                  >
-                    <MessageSquare className="h-4 w-4 shrink-0" />
-                    <span className="truncate">{block.label}</span>
-                  </button>
-                );
-
-              case "Smart Form": {
-                const leadEmail = leadEmails[block.id] || "";
-                const destinationEmail = block.value?.includes("@") ? block.value : "";
-                return (
-                  <div key={block.id} className="bg-white border border-slate-200 p-4.5 rounded-2xl space-y-2.5 text-left shadow-sm">
-                    <span className="font-bold text-[10px] block text-center text-slate-700 uppercase tracking-widest font-mono">{block.label}</span>
-                    <div className="space-y-2">
-                      <input
-                        type="email"
-                        required
-                        value={leadEmail}
-                        onChange={(e) =>
-                          setLeadEmails((prev) => ({ ...prev, [block.id]: e.target.value }))
-                        }
-                        placeholder="Enter your email"
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2 px-3 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-violet-500"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!leadEmail || !leadEmail.includes("@")) {
-                            triggerToast("Please enter a valid email address.");
-                            return;
-                          }
-                          trackAction("register", `Smart Form Lead: ${block.label}`, { email: leadEmail });
-                          if (destinationEmail) {
-                            const mailUrl = `mailto:${destinationEmail}?subject=${encodeURIComponent(`Lead from ${displayTitle}`)}&body=${encodeURIComponent(leadEmail)}`;
-                            window.location.href = mailUrl;
-                          }
-                          triggerToast("Thanks! Your email was sent to the page owner.");
-                          setLeadEmails((prev) => ({ ...prev, [block.id]: "" }));
-                        }}
-                        className="w-full bg-[#7c3aed] hover:bg-[#6d28d9] text-white font-bold py-2 rounded-xl text-xs transition-colors shadow-md shadow-violet-500/25"
-                      >
-                        Subscribe
-                      </button>
-                    </div>
-                  </div>
-                );
-              }
-
-              case "vCard":
-                return (
-                  <button
-                    key={block.id}
-                    type="button"
-                    onClick={() => {
-                      trackAction("click", `vCard Contact: ${block.label}`);
-                      const raw = block.value || "";
-                      const isEmail = raw.includes("@");
-                      downloadVCard({
-                        name: displayTitle,
-                        handle: displayHandle,
-                        phone: isEmail ? undefined : raw,
-                        email: isEmail ? raw : destinationEmailFromBlock(block as BlockRecord)
-                      });
-                      triggerToast("Contact card downloaded to your device.");
-                    }}
-                    className="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-3.5 px-4 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-sm text-sm active:scale-95 border-0"
-                  >
-                    <User className="h-4 w-4 text-slate-400" />
-                    <span className="truncate">{block.label}</span>
-                  </button>
-                );
-
-              case "Video": {
-                const videoBlock = block as BlockRecord;
-                const thumb = getVideoThumbnail(videoBlock);
-                return (
-                  <div key={block.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:border-slate-300 transition-colors">
-                    <button
-                      type="button"
-                      className="h-44 w-full bg-slate-950 flex items-center justify-center relative group cursor-pointer border-0 p-0"
-                      onClick={() => {
-                        trackAction("click", `Video: ${block.label}`);
-                        openExternalLink(block.value || "");
-                      }}
-                    >
-                      <div
-                        className="absolute inset-0 bg-cover bg-center opacity-70"
-                        style={{ backgroundImage: `url('${thumb}')` }}
-                      />
-                      <div className="absolute h-12 w-12 bg-red-600 rounded-full flex items-center justify-center text-white text-xl font-bold shadow-md transform group-hover:scale-110 transition-transform">
-                        ▶
-                      </div>
-                    </button>
-                    <div className="p-3 text-left">
-                      <span className="text-xs font-bold text-slate-800 block truncate">{block.label}</span>
-                    </div>
-                  </div>
-                );
-              }
-
-              case "Music":
-                return (
-                  <button
-                    key={block.id}
-                    type="button"
-                    className="w-full bg-gradient-to-r from-violet-500 to-indigo-600 p-4 rounded-2xl text-white shadow-sm flex items-center justify-between gap-3 cursor-pointer border-0"
-                    onClick={() => {
-                      trackAction("click", `Music Track: ${block.label}`);
-                      openExternalLink(block.value || "");
-                    }}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="text-2xl">🎵</span>
-                      <div className="min-w-0 text-left">
-                        <span className="font-bold text-xs block truncate">{block.label}</span>
-                        {(block as BlockRecord).subtext && (
-                          <span className="text-[10px] text-indigo-200 block">{(block as BlockRecord).subtext as string}</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="h-9 w-9 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white shrink-0">
-                      ▶
-                    </div>
-                  </button>
-                );
-
-              case "Gallery": {
-                const images = getGalleryImages(block as BlockRecord);
-                if (!images.length) return null;
-                return (
-                  <div key={block.id} className="space-y-2 text-left pt-2">
-                    <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider font-mono">{block.label}</span>
-                    <div className="grid grid-cols-3 gap-2">
-                      {images.map((src, index) => (
-                        <button
-                          key={`${block.id}-${index}`}
-                          type="button"
-                          onClick={() => {
-                            trackAction("click", `Gallery ${index + 1}: ${block.label}`);
-                            openExternalLink(src);
-                          }}
-                          className="h-20 w-full overflow-hidden rounded-xl border border-slate-100 p-0"
-                        >
-                          <img
-                            src={src}
-                            alt={`Gallery ${index + 1}`}
-                            className="h-full w-full object-cover hover:opacity-90 transition-opacity"
-                            loading="lazy"
-                            decoding="async"
-                            referrerPolicy="no-referrer"
-                          />
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              }
-
-              case "PDF": {
-                const pdfBlock = block as BlockRecord;
-                return (
-                  <button
-                    key={block.id}
-                    type="button"
-                    className="w-full bg-white border border-slate-200 p-4 rounded-2xl flex items-center justify-between gap-3 hover:border-slate-300 transition-colors cursor-pointer shadow-sm text-left"
-                    onClick={() => {
-                      trackAction("click", `PDF Download: ${block.label}`);
-                      openExternalLink(block.value || "");
-                    }}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <span className="text-2xl">📄</span>
-                      <div className="min-w-0">
-                        <span className="font-bold text-xs block text-slate-800 truncate">{block.label}</span>
-                        <span className="text-[10px] text-slate-400 block font-mono mt-0.5">
-                          PDF Document{(pdfBlock.fileSize as string) ? ` • ${pdfBlock.fileSize}` : ""}
-                        </span>
-                      </div>
-                    </div>
-                    <span className="text-xs bg-slate-100 text-slate-600 px-3 py-1.5 rounded-xl font-bold shrink-0">OPEN</span>
-                  </button>
-                );
-              }
-
-              case "Events": {
-                const eventBlock = block as BlockRecord;
-                const eventMonth = (eventBlock.eventMonth as string) || "JUL";
-                const eventDay = (eventBlock.eventDay as string) || "20";
-                const eventMeta = (eventBlock.subtext as string) || "Tap to RSVP";
-                return (
-                  <button
-                    key={block.id}
-                    type="button"
-                    className="w-full bg-white border border-slate-200 p-4 rounded-2xl flex items-center justify-between gap-3 hover:border-slate-300 transition-colors cursor-pointer shadow-sm text-left"
-                    onClick={() => {
-                      trackAction("click", `Event RSVP: ${block.label}`);
-                      openExternalLink(block.value || "");
-                    }}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="bg-violet-50 border border-violet-100 text-violet-600 rounded-xl p-1.5 text-center min-w-[42px] shrink-0 font-bold">
-                        <span className="text-[9px] block uppercase leading-none font-mono">{eventMonth}</span>
-                        <span className="text-sm block leading-none mt-1">{eventDay}</span>
-                      </div>
-                      <div className="min-w-0">
-                        <span className="font-bold text-xs block text-slate-800 truncate">{block.label}</span>
-                        <span className="text-[10px] text-slate-500 block mt-0.5">{eventMeta}</span>
-                      </div>
-                    </div>
-                    <span className="text-xs bg-[#7c3aed] hover:bg-[#6d28d9] text-white px-4 py-2 rounded-xl font-bold shadow-md shadow-violet-500/25 shrink-0">RSVP</span>
-                  </button>
-                );
-              }
-
-              default:
-                return (
-                  <button
-                    key={block.id}
-                    type="button"
-                    onClick={() => {
-                      trackAction("click", `Action Block: ${block.label}`);
-                      if (block.value && block.value !== block.label) {
-                        openExternalLink(block.value);
-                      } else {
-                        triggerToast(`${block.label} is not configured yet.`);
-                      }
-                    }}
-                    className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold py-3 px-4 rounded-2xl text-xs shadow-sm border border-slate-200 transition-colors"
-                  >
-                    {block.label}
-                  </button>
-                );
-            }
-          })}
+          {blocks.map((block) => (
+            <BlockRenderer
+              key={block.id}
+              block={block as BlockRecord}
+              mode="live"
+              context={{ displayTitle, displayHandle }}
+              handlers={liveBlockHandlers}
+            />
+          ))}
           </div>
 
           <div className="acn-bio-page-footer acn-phone-preview__footer">
@@ -1224,13 +673,7 @@ export default function PublicBioPageView({
                   setIsSpinning(true);
                   setTimeout(() => {
                     setIsSpinning(false);
-                    const prizes = [
-                      `You won! Use code ${spinCouponCode}`,
-                      "20% discount unlocked!",
-                      "Free gift with your next order!",
-                      "Free shipping on your order!"
-                    ];
-                    const won = prizes[Math.floor(Math.random() * prizes.length)];
+                    const won = spinPrizes[Math.floor(Math.random() * spinPrizes.length)];
                     setSpinResult(won);
                     trackAction("register", "Spin Wheel Prize Won", { prize: won, code: spinCouponCode });
                   }, 1800);

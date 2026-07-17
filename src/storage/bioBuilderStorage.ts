@@ -7,6 +7,7 @@ import {
   BioPagePreviewTheme,
   BioPageTemplate
 } from "../types";
+import { normalizePageTheme } from "../lib/bioPageThemes";
 import { apiUrl } from "../lib/apiBase";
 import { getAccessToken, isPreviewToken } from "../lib/authApi";
 
@@ -51,6 +52,10 @@ const DEFAULT_COVER =
   "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800";
 
 export { DEFAULT_COVER };
+
+export function createUniquePageId(): string {
+  return `p_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
 
 export function defaultHandleFromTitle(title: string): string {
   return title.toLowerCase().replace(/[^a-z0-9]/g, "").replace(/\s+/g, "") || "profile";
@@ -221,7 +226,8 @@ export function buildEditorState(
   blocks: BioEditorBlock[],
   slug?: string,
   handle?: string,
-  pageTheme: BioPagePreviewTheme = "dark"
+  pageTheme: BioPagePreviewTheme = "dark",
+  coverSettings?: BioPagePreviewDetails["coverSettings"]
 ): BioEditorState {
   return {
     pageMeta: {
@@ -230,7 +236,8 @@ export function buildEditorState(
       shortBio: shortBio || "Write a short bio...",
       coverImage: coverImage || DEFAULT_COVER,
       handle: normalizeHandleInput(handle || ""),
-      pageTheme
+      pageTheme,
+      ...(coverSettings ? { coverSettings } : {})
     },
     blocks: cloneBlocks(blocks)
   };
@@ -252,7 +259,7 @@ export function readStoredPageDetails(pageId: string, pageSlug: string): BioPage
 
 export function readStoredPageTheme(pageId: string, pageSlug: string): BioPagePreviewTheme {
   const details = readStoredPageDetails(pageId, pageSlug);
-  return details?.pageTheme === "light" ? "light" : "dark";
+  return normalizePageTheme(details?.pageTheme);
 }
 
 function isBioEditorState(value: unknown): value is BioEditorState {

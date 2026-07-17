@@ -1,8 +1,9 @@
 import React, { useState, useRef } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { screenToPath } from "../navigation";
-import { BioPage, BioPageDraft, BioPageTemplate, BioEditorState, BioEditorBlock, BioPagePreviewTheme, ScreenId } from "../types";
+import { ScreenId } from "../types";
+import type { BioPage, BioPageDraft, BioPageTemplate, BioEditorState, BioEditorBlock, BioPagePreviewTheme, BioCoverPhotoSettings, CustomDomain } from "../types";
 import {
   buildEditorState,
   cloneBlocks,
@@ -22,11 +23,39 @@ import {
   syncAllDraftsToServer,
   describeServerSyncFailure,
   syncPagesListToServer,
-  readStoredPageTheme
+  readStoredPageTheme,
+  readStoredPageDetails,
+  createUniquePageId
 } from "../storage/bioBuilderStorage";
 import { CreateNotificationInput } from "../storage/notificationStorage";
 import { PRIMARY_DOMAIN } from "../storage/publishStorage";
+import {
+  getShareableOrigin,
+  resolveBioPagePublicLink,
+  sortPagesByPublicLinkKind
+} from "../lib/bioPagePublicUrl";
 import { apiUrl } from "../lib/apiBase";
+import { normalizePageTheme, getBioPageThemeClass, getBioPageThemeStyle } from "../lib/bioPageThemes";
+import {
+  SOCIAL_PLATFORMS,
+  createDefaultSocialFields,
+  createDefaultLinkSpinFields,
+  createDefaultVCardFields,
+  createDefaultEventFields,
+  defaultCountdownEndAt,
+  fromDatetimeLocalValue,
+  getCurrencySymbol,
+  getLinkSpinCouponCode,
+  getLinkSpinPrizes,
+  DEFAULT_SHOP_PRODUCTS,
+  toDatetimeLocalValue,
+  type BlockRecord
+} from "../lib/bioBlocks";
+import BlockRenderer, { type BlockRendererHandlers } from "./bio/BlockRenderer";
+import BioPageThemePicker from "./bio/BioPageThemePicker";
+import CoverPhotoView from "./bio/CoverPhotoView";
+import CoverPhotoControls from "./bio/CoverPhotoControls";
+import { DEFAULT_COVER_SETTINGS, normalizeCoverSettings } from "../lib/bioCoverPhoto";
 import {
   RefreshCw,
   Plus,
@@ -67,18 +96,90 @@ import {
   Globe,
   Image as ImageIcon,
   LayoutGrid,
-  Eye
+  Eye,
+  Search,
+  MoreVertical
 } from "lucide-react";
 import PageShell, { PageHeader, Workspace } from "./layout/PageShell";
-import { BIO_LINK, getLinkArrowColor, getLinkButtonStyle, isDefaultBrightLink } from "../lib/bioLinkColors";
+import { BIO_LINK } from "../lib/bioLinkColors";
 import type { AppTheme } from "../lib/themeStorage";
 
-export function getShareableOrigin() {
-  let origin = window.location.origin;
-  if (origin.includes("ais-dev-")) {
-    origin = origin.replace("ais-dev-", "ais-pre-");
+export { getShareableOrigin } from "../lib/bioPagePublicUrl";
+
+function normalizePageMatchKey(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/** Pages to remove when cleaning duplicates — keeps highest views, then newest. */
+function getDuplicatePlatformPageIds(pages: BioPage[]): Set<string> {
+  const duplicateIds = new Set<string>();
+
+  const markDuplicateCopies = (groups: Map<string, BioPage[]>) => {
+    for (const group of groups.values()) {
+      if (group.length <= 1) continue;
+      const sorted = [...group].sort((a, b) => {
+        if (b.views !== a.views) return b.views - a.views;
+        return String(b.createdAt).localeCompare(String(a.createdAt));
+      });
+      for (let index = 1; index < sorted.length; index += 1) {
+        duplicateIds.add(sorted[index].id);
+      }
+    }
+  };
+
+  const byTitle = new Map<string, BioPage[]>();
+  const bySlug = new Map<string, BioPage[]>();
+  for (const page of pages) {
+    const titleKey = normalizePageMatchKey(page.title);
+    if (titleKey) {
+      const titleGroup = byTitle.get(titleKey) ?? [];
+      titleGroup.push(page);
+      byTitle.set(titleKey, titleGroup);
+    }
+    const slugKey = normalizePageMatchKey(page.slug || "");
+    if (slugKey) {
+      const slugGroup = bySlug.get(slugKey) ?? [];
+      slugGroup.push(page);
+      bySlug.set(slugKey, slugGroup);
+    }
   }
-  return origin;
+
+  markDuplicateCopies(byTitle);
+  markDuplicateCopies(bySlug);
+  return duplicateIds;
+}
+
+interface BioPageListRowOptions {
+  selection?: {
+    checked: boolean;
+    onToggle: (id: string) => void;
+  };
+  showDuplicateBadge?: boolean;
+}
+
+function matchesPlatformPageSearch(
+  page: BioPage,
+  query: string,
+  domains: CustomDomain[]
+): boolean {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return true;
+
+  const publicLink = resolveBioPagePublicLink(page, domains);
+  const haystack = [
+    page.title,
+    page.id,
+    page.slug,
+    page.handle || "",
+    page.status,
+    publicLink.displayLabel,
+    publicLink.shareUrl,
+    publicLink.openUrl
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return haystack.includes(normalized);
 }
 
 const marvelInitialBlocks = [
@@ -104,38 +205,7 @@ const genericInitialBlocks = [
   { id: "g4", type: "WhatsApp", label: "Chat with me on WhatsApp", value: "https://wa.me/1234567890" }
 ];
 
-const defaultProductsList = [
-  {
-    id: "p1",
-    name: "Iron man",
-    url: "https://www.amazon.in/Toys-Action-Figure-Collectibles-Interchangeable/dp/BOFKTLP65H?source=ps-sl-sl",
-    image: "https://images.unsplash.com/photo-1626278664285-f7c05fd17571?auto=format&fit=crop&q=80&w=300",
-    price: "3999"
-  },
-  {
-    id: "p2",
-    name: "spiderman",
-    url: "https://www.amazon.in/Toys-Action-Figure-Collectibles-Interchangeable/dp/BOFKTLP65H?source=ps-sl-sl",
-    image: "https://images.unsplash.com/photo-1604200213928-ba3cf4fc8436?auto=format&fit=crop&q=80&w=300",
-    price: "2999"
-  },
-  {
-    id: "p3",
-    name: "halk",
-    url: "https://www.amazon.in/Toys-Action-Figure-Collectibles-Interchangeable/dp/BOFKTLP65H?source=ps-sl-sl",
-    image: "https://images.unsplash.com/photo-1594787318286-3d835c1d207f?auto=format&fit=crop&q=80&w=300",
-    price: "1899"
-  }
-];
-
-const getCurrencySymbol = (currency: string = "₹ INR") => {
-  if (currency.startsWith("₹")) return "₹";
-  if (currency.startsWith("$")) return "$";
-  if (currency.startsWith("€")) return "€";
-  if (currency.startsWith("£")) return "£";
-  if (currency.startsWith("¥")) return "¥";
-  return currency.split(" ")[0] || "₹";
-};
+const defaultProductsList = DEFAULT_SHOP_PRODUCTS;
 
 const getBlockIcon = (type: string) => {
   const iconClass = "acn-editor-block-icon";
@@ -181,9 +251,18 @@ const getBlockIcon = (type: string) => {
 
 interface BioPagesScreenProps {
   pages: BioPage[];
-  onAddPage: (title: string, slug: string) => BioPage;
+  domains?: CustomDomain[];
+  onAddPage: (title: string, slug: string, pageId?: string) => BioPage;
   onDeletePage: (id: string) => void;
-  onUpdatePage: (id: string, title: string, bio?: string, coverPhoto?: string, handle?: string) => void;
+  onDeletePages?: (ids: string[]) => void;
+  onUpdatePage: (
+    id: string,
+    title: string,
+    bio?: string,
+    coverPhoto?: string,
+    handle?: string,
+    status?: BioPage["status"]
+  ) => void;
   onDuplicatePage: (id: string) => void;
   onRefreshPages: () => Promise<void>;
   analyticsEvents: Array<{ pageId?: string; eventType?: string; eventLabel?: string; timestamp?: string }>;
@@ -204,8 +283,10 @@ interface BioPagesScreenProps {
 
 export default function BioPagesScreen({
   pages,
+  domains = [],
   onAddPage,
   onDeletePage,
+  onDeletePages,
   onUpdatePage,
   onDuplicatePage,
   onRefreshPages,
@@ -224,8 +305,21 @@ export default function BioPagesScreen({
   theme = "dark"
 }: BioPagesScreenProps) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const editIdFromUrl = searchParams.get("edit");
+  const editFromDomain = searchParams.get("source") === "domain";
+  const sortedPages = React.useMemo(() => sortPagesByPublicLinkKind(pages, domains), [pages, domains]);
+  const customDomainPages = React.useMemo(
+    () => sortedPages.filter((page) => resolveBioPagePublicLink(page, domains).kind === "custom"),
+    [sortedPages, domains]
+  );
+  const platformPages = React.useMemo(
+    () => sortedPages.filter((page) => resolveBioPagePublicLink(page, domains).kind === "platform"),
+    [sortedPages, domains]
+  );
   const [isAdding, setIsAdding] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [newPageId, setNewPageId] = useState(() => createUniquePageId());
   const [newTitle, setNewTitle] = useState("");
   const [newSlug, setNewSlug] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -237,6 +331,166 @@ export default function BioPagesScreen({
   const [selectedEditPage, setSelectedEditPage] = useState<BioPage | null>(null);
   const [selectedQRPage, setSelectedQRPage] = useState<BioPage | null>(null);
 
+  const selectedEditPageLink = React.useMemo(
+    () => (selectedEditPage ? resolveBioPagePublicLink(selectedEditPage, domains) : null),
+    [selectedEditPage, domains]
+  );
+  const selectedQRPageLink = React.useMemo(
+    () => (selectedQRPage ? resolveBioPagePublicLink(selectedQRPage, domains) : null),
+    [selectedQRPage, domains]
+  );
+  const [customDomainSectionExpanded, setCustomDomainSectionExpanded] = useState(true);
+  const [platformSectionExpanded, setPlatformSectionExpanded] = useState(true);
+  const [platformSearchQuery, setPlatformSearchQuery] = useState("");
+  const [platformStatusFilter, setPlatformStatusFilter] = useState<"All" | BioPage["status"]>("All");
+  const [platformDuplicatesOnly, setPlatformDuplicatesOnly] = useState(false);
+  const [platformSelectionMode, setPlatformSelectionMode] = useState(false);
+  const [platformBulkMenuOpen, setPlatformBulkMenuOpen] = useState(false);
+  const [selectedPlatformIds, setSelectedPlatformIds] = useState<Set<string>>(() => new Set());
+  const platformBulkMenuRef = useRef<HTMLDivElement>(null);
+  const editorExitingRef = useRef(false);
+  const editorCloseConfirmOpenRef = useRef(false);
+
+  const platformDuplicateIds = React.useMemo(
+    () => getDuplicatePlatformPageIds(platformPages),
+    [platformPages]
+  );
+  const platformZeroViewIds = React.useMemo(
+    () => new Set(platformPages.filter((page) => page.views === 0).map((page) => page.id)),
+    [platformPages]
+  );
+  const filteredPlatformPages = React.useMemo(() => {
+    const query = platformSearchQuery.trim();
+    return platformPages.filter((page) => {
+      if (platformDuplicatesOnly && !platformDuplicateIds.has(page.id)) return false;
+      if (platformStatusFilter !== "All" && page.status !== platformStatusFilter) return false;
+      return matchesPlatformPageSearch(page, query, domains);
+    });
+  }, [
+    platformPages,
+    platformSearchQuery,
+    platformStatusFilter,
+    platformDuplicatesOnly,
+    platformDuplicateIds,
+    domains
+  ]);
+
+  const hasPlatformActiveFilters =
+    platformSearchQuery.trim().length > 0 ||
+    platformStatusFilter !== "All" ||
+    platformDuplicatesOnly;
+
+  const clearPlatformFilters = () => {
+    setPlatformSearchQuery("");
+    setPlatformStatusFilter("All");
+    setPlatformDuplicatesOnly(false);
+  };
+
+  const selectedPlatformCount = selectedPlatformIds.size;
+
+  React.useEffect(() => {
+    setSelectedPlatformIds((current) => {
+      const validIds = new Set(platformPages.map((page) => page.id));
+      const next = new Set([...current].filter((id) => validIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [platformPages]);
+
+  React.useEffect(() => {
+    if (!platformBulkMenuOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!platformBulkMenuRef.current?.contains(event.target as Node)) {
+        setPlatformBulkMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [platformBulkMenuOpen]);
+
+  const enterPlatformSelectionMode = () => {
+    setPlatformSelectionMode(true);
+  };
+
+  const exitPlatformSelectionMode = () => {
+    setPlatformSelectionMode(false);
+    setSelectedPlatformIds(new Set());
+    setPlatformBulkMenuOpen(false);
+  };
+
+  const togglePlatformSelection = (pageId: string) => {
+    setSelectedPlatformIds((current) => {
+      const next = new Set(current);
+      if (next.has(pageId)) next.delete(pageId);
+      else next.add(pageId);
+      return next;
+    });
+  };
+
+  const selectVisiblePlatformPages = (predicate: (page: BioPage) => boolean) => {
+    enterPlatformSelectionMode();
+    setSelectedPlatformIds(new Set(filteredPlatformPages.filter(predicate).map((page) => page.id)));
+  };
+
+  const handlePlatformMenuSelectAll = () => {
+    enterPlatformSelectionMode();
+    setSelectedPlatformIds(new Set(filteredPlatformPages.map((page) => page.id)));
+    setPlatformBulkMenuOpen(false);
+  };
+
+  const handlePlatformMenuClearSelection = () => {
+    setSelectedPlatformIds(new Set());
+    setPlatformBulkMenuOpen(false);
+  };
+
+  const handlePlatformMenuDeleteSelected = () => {
+    if (!platformSelectionMode) {
+      enterPlatformSelectionMode();
+      setPlatformBulkMenuOpen(false);
+      return;
+    }
+
+    if (selectedPlatformCount === 0) {
+      setPlatformBulkMenuOpen(false);
+      return;
+    }
+
+    deleteSelectedPlatformPages();
+    setPlatformBulkMenuOpen(false);
+  };
+
+  const deleteSelectedPlatformPages = () => {
+    const ids = [...selectedPlatformIds];
+    if (ids.length === 0) return;
+
+    const sampleTitles = ids
+      .slice(0, 3)
+      .map((id) => pages.find((page) => page.id === id)?.title)
+      .filter(Boolean);
+    const preview =
+      sampleTitles.length > 0
+        ? `\n\n${sampleTitles.join("\n")}${ids.length > 3 ? `\n…and ${ids.length - 3} more` : ""}`
+        : "";
+
+    if (
+      !window.confirm(
+        `Delete ${ids.length} selected platform link${ids.length === 1 ? "" : "s"}? This cannot be undone.${preview}`
+      )
+    ) {
+      return;
+    }
+
+    if (onDeletePages) {
+      onDeletePages(ids);
+    } else {
+      ids.forEach((id) => onDeletePage(id));
+    }
+    setSelectedPlatformIds(new Set());
+    setPlatformSelectionMode(false);
+    triggerToast(`Deleted ${ids.length} platform link${ids.length === 1 ? "" : "s"}.`);
+  };
+
   React.useEffect(() => {
     if (selectedEditPage) {
       document.body.classList.add("acn-editor-open");
@@ -245,6 +499,12 @@ export default function BioPagesScreen({
     }
     return () => document.body.classList.remove("acn-editor-open");
   }, [selectedEditPage]);
+
+  React.useEffect(() => {
+    if (!isAdding) return;
+    document.body.classList.add("acn-create-page-modal-open");
+    return () => document.body.classList.remove("acn-create-page-modal-open");
+  }, [isAdding]);
 
   // Analytics tab state
   const [analyticsTab, setAnalyticsTab] = useState<"7 Days" | "30 Days" | "All Time">("7 Days");
@@ -279,6 +539,9 @@ export default function BioPagesScreen({
   const [editorHandle, setEditorHandle] = useState<string>("");
   const [editorBio, setEditorBio] = useState<string>("Write a short bio...");
   const [editorCoverPhoto, setEditorCoverPhoto] = useState<string>("https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800");
+  const [editorCoverSettings, setEditorCoverSettings] = useState<BioCoverPhotoSettings>({
+    ...DEFAULT_COVER_SETTINGS
+  });
   const [editorPageTheme, setEditorPageTheme] = useState<BioPagePreviewTheme>("dark");
   const [editorTab, setEditorTab] = useState<"Edit" | "Settings">("Edit");
   const [editorViewPanel, setEditorViewPanel] = useState<"blocks" | "edit" | "preview">("edit");
@@ -289,7 +552,6 @@ export default function BioPagesScreen({
   const [isPublishing, setIsPublishing] = useState(false);
 
   // Widget states inside editor to allow live mockup interactivity!
-  const [countdownTime, setCountdownTime] = useState({ days: 9, hrs: 20, mins: 18, secs: 1 });
   const [couponCode, setCouponCode] = useState("MARVELTOYCODE007007");
   const [copiedCoupon, setCopiedCoupon] = useState(false);
 
@@ -297,27 +559,9 @@ export default function BioPagesScreen({
   const [simulatorToast, setSimulatorToast] = useState<string | null>(null);
   const [simulatorLeadEmail, setSimulatorLeadEmail] = useState("");
   const [showSpinWheel, setShowSpinWheel] = useState(false);
+  const [activeSpinBlockId, setActiveSpinBlockId] = useState<string | null>(null);
   const [isSpinning, setIsSpinning] = useState(false);
   const [spinResult, setSpinResult] = useState<string | null>(null);
-
-  // Ticking countdown timer effect
-  React.useEffect(() => {
-    const timer = setInterval(() => {
-      setCountdownTime(prev => {
-        if (prev.secs > 0) {
-          return { ...prev, secs: prev.secs - 1 };
-        } else if (prev.mins > 0) {
-          return { ...prev, mins: prev.mins - 1, secs: 59 };
-        } else if (prev.hrs > 0) {
-          return { ...prev, hrs: prev.hrs - 1, mins: 59, secs: 59 };
-        } else if (prev.days > 0) {
-          return { ...prev, days: prev.days - 1, hrs: 23, mins: 59, secs: 59 };
-        }
-        return prev;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   // Utility to show temporary toast in the simulator
   const triggerSimulatorToast = (msg: string) => {
@@ -344,6 +588,7 @@ export default function BioPagesScreen({
   const [dropTarget, setDropTarget] = useState<{ index: number; position: "before" | "after" } | null>(null);
   const accordionListRef = useRef<HTMLDivElement>(null);
   const editorTitleInputRef = useRef<HTMLInputElement>(null);
+  const blockDragMovedRef = useRef(false);
 
   const getAccordionDropPosition = (e: React.DragEvent): "before" | "after" => {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -384,6 +629,7 @@ export default function BioPagesScreen({
 
   const handleBlockDragStart = (e: React.DragEvent, index: number) => {
     e.stopPropagation();
+    blockDragMovedRef.current = true;
     e.dataTransfer.setData("text/block-index", String(index));
     e.dataTransfer.setData("text/block-reorder", "accordion");
     e.dataTransfer.effectAllowed = "move";
@@ -457,6 +703,18 @@ export default function BioPagesScreen({
 
   const handleBlockDragEnd = () => {
     resetAccordionDragState();
+    window.setTimeout(() => {
+      blockDragMovedRef.current = false;
+    }, 0);
+  };
+
+  const toggleAccordionBlock = (blockId: string, isExpanded: boolean) => {
+    setExpandedBlockId(isExpanded ? null : blockId);
+  };
+
+  const handleAccordionHeaderActivate = (blockId: string, isExpanded: boolean) => {
+    if (blockDragMovedRef.current) return;
+    toggleAccordionBlock(blockId, isExpanded);
   };
 
   const triggerToast = (msg: string) => {
@@ -679,7 +937,8 @@ export default function BioPagesScreen({
       editorBlocks as BioEditorBlock[],
       selectedEditPage?.slug,
       editorHandle,
-      editorPageTheme
+      editorPageTheme,
+      editorCoverSettings
     );
 
   const buildCurrentPreviewDetails = (theme: BioPagePreviewTheme = editorPageTheme) => ({
@@ -687,11 +946,36 @@ export default function BioPagesScreen({
     bio: editorBio,
     coverPhoto: editorCoverPhoto,
     handle: getStoredHandle(editorHandle),
-    pageTheme: theme
+    pageTheme: theme,
+    coverSettings: editorCoverSettings
   });
 
   const previewHandle = formatDisplayHandle(editorHandle, editorTitle, { fallbackToTitle: false });
   const handlePlaceholder = suggestedHandlePlaceholder(editorTitle);
+  const activeSpinBlock = activeSpinBlockId
+    ? editorBlocks.find((block) => block.id === activeSpinBlockId)
+    : editorBlocks.find((block) => block.type === "Link Spin");
+  const spinCouponCode = activeSpinBlock
+    ? getLinkSpinCouponCode(activeSpinBlock as BlockRecord)
+    : "LUCKYSPIN20";
+  const spinPrizes = activeSpinBlock
+    ? getLinkSpinPrizes(activeSpinBlock as BlockRecord)
+    : getLinkSpinPrizes({ id: "", type: "Link Spin", label: "", value: "" });
+
+  const previewBlockHandlers: BlockRendererHandlers = {
+    onToast: triggerSimulatorToast,
+    onWhatsApp: handleWhatsAppRedirect,
+    onSpinOpen: (blockId) => {
+      setActiveSpinBlockId(blockId);
+      setSpinResult(null);
+      setIsSpinning(false);
+      setShowSpinWheel(true);
+    },
+    leadEmails: Object.fromEntries(
+      editorBlocks.filter((block) => block.type === "Smart Form").map((block) => [block.id, simulatorLeadEmail])
+    ),
+    onLeadEmailChange: (_blockId, email) => setSimulatorLeadEmail(email)
+  };
 
   const syncPreviewStorage = (theme: BioPagePreviewTheme = editorPageTheme) => {
     if (!selectedEditPage) return;
@@ -726,6 +1010,7 @@ export default function BioPagesScreen({
     editorTitle,
     editorBio,
     editorCoverPhoto,
+    editorCoverSettings,
     editorHandle,
     editorPageTheme,
     selectedEditPage?.id,
@@ -742,8 +1027,14 @@ export default function BioPagesScreen({
     setEditorHandle(state.pageMeta.handle || "");
     setEditorBio(state.pageMeta.shortBio);
     setEditorCoverPhoto(state.pageMeta.coverImage);
-    setEditorPageTheme(state.pageMeta.pageTheme === "light" ? "light" : "dark");
+    setEditorCoverSettings(normalizeCoverSettings(state.pageMeta.coverSettings));
+    setEditorPageTheme(normalizePageTheme(state.pageMeta.pageTheme));
     setEditorBlocks(cloneBlocks(state.blocks));
+  };
+
+  const applyStoredCoverSettings = (pageId: string, pageSlug: string) => {
+    const storedDetails = readStoredPageDetails(pageId, pageSlug);
+    setEditorCoverSettings(normalizeCoverSettings(storedDetails?.coverSettings));
   };
 
   const getTemplateDisplayName = (tpl: BioPageTemplate) => tpl.name;
@@ -762,6 +1053,39 @@ export default function BioPagesScreen({
       return cloneBlocks(marvelInitialBlocks as BioEditorBlock[]);
     }
     return cloneBlocks(genericInitialBlocks as BioEditorBlock[]);
+  };
+
+  const applyEditingPageUpdate = (status?: BioPage["status"]) => {
+    if (!selectedEditPage) return pages;
+    const nextStatus = status ?? selectedEditPage.status;
+    onUpdatePage(
+      selectedEditPage.id,
+      editorTitle,
+      editorBio,
+      editorCoverPhoto,
+      editorHandle,
+      nextStatus
+    );
+    setSelectedEditPage({
+      ...selectedEditPage,
+      title: editorTitle,
+      bio: editorBio,
+      coverPhoto: editorCoverPhoto,
+      handle: editorHandle,
+      status: nextStatus
+    });
+    return pages.map((page) =>
+      page.id === selectedEditPage.id
+        ? {
+            ...page,
+            title: editorTitle,
+            bio: editorBio,
+            coverPhoto: editorCoverPhoto,
+            handle: editorHandle,
+            status: nextStatus
+          }
+        : page
+    );
   };
 
   const handleSaveDraft = async () => {
@@ -791,7 +1115,7 @@ export default function BioPagesScreen({
       const nextDrafts = upsertDraft(draftRecord, savedDrafts);
       setSavedDrafts(nextDrafts);
 
-      onUpdatePage(selectedEditPage.id, editorTitle, editorBio, editorCoverPhoto, editorHandle);
+      const pagesForSync = applyEditingPageUpdate("Draft");
 
       setPageBlocksMap((prev) => ({
         ...prev,
@@ -799,7 +1123,6 @@ export default function BioPagesScreen({
       }));
 
       const details = buildCurrentPreviewDetails();
-      const syncOptions = { pages };
       const [draftSync, previewResult] = await Promise.all([
         syncDraftToServer(draftRecord),
         persistAndSyncPagePreview(
@@ -807,9 +1130,9 @@ export default function BioPagesScreen({
           selectedEditPage.slug,
           state.blocks,
           details,
-          syncOptions
+          { pages: pagesForSync }
         ),
-        syncPagesListToServer(pages)
+        syncPagesListToServer(pagesForSync)
       ]);
       const pageServerOk = previewResult.serverOk;
       const draftServerOk = draftSync.ok;
@@ -876,6 +1199,7 @@ export default function BioPagesScreen({
       case "Socials":
         label = "Follow our Social handles";
         value = "Socials";
+        extraFields = createDefaultSocialFields();
         break;
       case "Shop":
         label = "My Shop";
@@ -893,17 +1217,28 @@ export default function BioPagesScreen({
         value = "MARVELTOYCODE007007";
         break;
       case "Countdown":
-        label = "Sale ends in (9 Days Timer)";
+        label = "Sale ends in";
         value = "9";
+        extraFields = {
+          endAt: defaultCountdownEndAt(9),
+          headline: "Limited offer ends in"
+        };
         break;
       case "Deep Link":
-        label = "Buy Now (Prize Wheel)";
-        value = "Buy Now";
-        extraFields = { bgColor: BIO_LINK.bg, textColor: BIO_LINK.text };
+        label = "Open in App";
+        value = "https://yourapp.example/open";
+        extraFields = {
+          bgColor: BIO_LINK.bg,
+          textColor: BIO_LINK.text,
+          iconEmoji: "📱",
+          subtext: "Tap to open the app",
+          showArrow: "Yes"
+        };
         break;
       case "Link Spin":
-        label = "Buy Now (Prize Wheel)";
-        value = "Buy Now";
+        label = "Spin to Win";
+        value = "Spin Now";
+        extraFields = createDefaultLinkSpinFields();
         break;
       case "WhatsApp":
         label = "Message Us on WhatsApp";
@@ -911,31 +1246,37 @@ export default function BioPagesScreen({
         break;
       case "Smart Form":
         label = "Get in Touch Leads Form";
-        value = "Get in Touch";
+        value = "leads@example.com";
         break;
       case "vCard":
         label = "Save Contact Card Info";
         value = "Save Contact";
+        extraFields = createDefaultVCardFields();
         break;
       case "Video":
         label = "Watch Video stream";
         value = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+        extraFields = { thumbUrl: "" };
         break;
       case "Music":
         label = "Listen to Sound track";
         value = "https://example.com/soundtrack.mp3";
+        extraFields = { subtext: "Tap to listen" };
         break;
       case "Gallery":
         label = "View Gallery Showcase";
         value = "Showcase Images";
+        extraFields = { img1: "", img2: "", img3: "" };
         break;
       case "PDF":
         label = "Download PDF Catalog";
         value = "https://example.com/catalog.pdf";
+        extraFields = { fileSize: "3.2 MB" };
         break;
       case "Events":
         label = "Join Upcoming Meetup & Event";
         value = "https://meetup.com/event-001";
+        extraFields = createDefaultEventFields();
         break;
       default:
         label = `New ${type} Block`;
@@ -996,7 +1337,203 @@ export default function BioPagesScreen({
     }
   };
 
+  const renderBioPagePublicLink = (page: BioPage) => {
+    const link = resolveBioPagePublicLink(page, domains);
+    return (
+      <div className="mt-1 flex flex-wrap items-center gap-2 min-w-0">
+        <a
+          href={link.openUrl}
+          target="_blank"
+          rel="noreferrer"
+          title={link.shareUrl}
+          className={`text-xs font-medium flex items-center gap-1 font-mono hover:underline min-w-0 max-w-full ${
+            link.kind === "custom"
+              ? "text-emerald-700 hover:text-emerald-800"
+              : "text-indigo-600 hover:text-indigo-700"
+          }`}
+        >
+          {link.kind === "custom" ? (
+            <Globe className="h-3 w-3 shrink-0" />
+          ) : (
+            <Link className="h-3 w-3 shrink-0" />
+          )}
+          <span className="truncate">{link.displayLabel}</span>
+        </a>
+        {link.kind === "custom" && (
+          <span className="acn-bio-page-link-badge shrink-0">Custom domain</span>
+        )}
+      </div>
+    );
+  };
+
+  const renderBioPageListRow = (page: BioPage, rowOptions?: BioPageListRowOptions) => {
+    const publicLink = resolveBioPagePublicLink(page, domains);
+    const isSelected = rowOptions?.selection?.checked ?? false;
+    const showSelection = Boolean(rowOptions?.selection);
+    return (
+      <div
+        key={page.id}
+        className={`acn-list-row min-w-0 ${publicLink.kind === "custom" ? "acn-list-row--custom-domain" : ""} ${
+          isSelected ? "acn-list-row--selected" : ""
+        } ${showSelection ? "acn-list-row--bulk-select" : ""}`}
+      >
+        {showSelection && (
+          <label className="acn-list-row__select shrink-0">
+            <input
+              type="checkbox"
+              checked={rowOptions!.selection!.checked}
+              onChange={() => rowOptions!.selection!.onToggle(page.id)}
+              aria-label={`Select ${page.title}`}
+              className="acn-list-row__select-input"
+            />
+          </label>
+        )}
+        <div className="acn-list-row__main min-w-0 flex-1">
+        <div className="flex items-start gap-3 sm:gap-4 min-w-0">
+          <div
+            className={`h-11 w-11 sm:h-12 sm:w-12 rounded-xl flex items-center justify-center shrink-0 ${
+              publicLink.kind === "custom"
+                ? "bg-emerald-500/10 text-emerald-600"
+                : "bg-indigo-500/10 text-indigo-400"
+            }`}
+          >
+            {publicLink.kind === "custom" ? (
+              <Globe className="h-5 w-5 sm:h-6 sm:w-6" />
+            ) : (
+              <Smartphone className="h-5 w-5 sm:h-6 sm:w-6" />
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            {editingId === page.id ? (
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  value={editTitleValue}
+                  onChange={(e) => setEditTitleValue(e.target.value)}
+                  className="bg-white border border-gray-200 rounded px-2 py-0.5 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500/100"
+                />
+                <button onClick={() => saveEdit(page.id)} className="text-green-600 hover:bg-green-50 p-1 rounded">
+                  <Check className="h-4.5 w-4.5" />
+                </button>
+                <button onClick={() => setEditingId(null)} className="text-gray-400 hover:bg-gray-50 p-1 rounded">
+                  <X className="h-4.5 w-4.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                <h4 className="font-display font-semibold text-gray-950 text-base truncate">{page.title}</h4>
+                {rowOptions?.showDuplicateBadge && (
+                  <span className="acn-bio-page-duplicate-badge shrink-0">Duplicate</span>
+                )}
+                <button onClick={() => startEditing(page)} className="text-gray-400 hover:text-gray-600">
+                  <Edit3 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+            {renderBioPagePublicLink(page)}
+          </div>
+        </div>
+
+        <div className={`flex flex-wrap items-center gap-4 sm:gap-6 lg:gap-6 w-full lg:w-auto lg:justify-end ${showSelection ? "" : "pl-14 lg:pl-0"}`}>
+          <span
+            className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
+              page.status === "Live"
+                ? "bg-emerald-50 text-emerald-600"
+                : page.status === "Paused"
+                  ? "bg-amber-50 text-amber-700"
+                  : "bg-slate-100 text-slate-600"
+            }`}
+          >
+            {page.status}
+          </span>
+
+          <div className="text-center">
+            <span className="font-display font-bold text-2xl text-gray-950 block leading-none">{page.views}</span>
+            <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mt-1">Views</span>
+          </div>
+
+          <div className="text-center hidden sm:block">
+            <span className="font-sans font-medium text-gray-500 text-xs font-mono block leading-none">{page.createdAt}</span>
+            <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mt-1">Created</span>
+          </div>
+
+          <div className="grid grid-cols-7 gap-0.5 bg-gray-50 p-1.5 rounded-xl border border-gray-100 shadow-sm w-full max-w-[320px] sm:max-w-none sm:w-auto sm:flex sm:flex-wrap sm:items-center sm:justify-center sm:gap-1 mx-auto sm:mx-0">
+            <button
+              type="button"
+              onClick={() => setSelectedAnalyticsPage(page)}
+              title={`Analytics — ${page.title}`}
+              className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#6366f1] transition-all flex items-center justify-center"
+            >
+              <BarChart2 className="h-4.5 w-4.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => openEditor(page)}
+              title="Edit"
+              className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#6366f1] transition-all flex items-center justify-center"
+            >
+              <Edit3 className="h-4.5 w-4.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onDuplicatePage(page.id)}
+              title="Duplicate"
+              className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#6366f1] transition-all flex items-center justify-center"
+            >
+              <Layers className="h-4.5 w-4.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedQRPage(page);
+                setQrColor("Default");
+                setQrForeground("#000000");
+                setQrBackground("#FFFFFF");
+                setQrDesign("Squares");
+                setHasLogo(false);
+              }}
+              title={`QR — ${page.title}`}
+              className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#6366f1] transition-all flex items-center justify-center"
+            >
+              <QrCode className="h-4.5 w-4.5" />
+            </button>
+            <a
+              href={publicLink.openUrl}
+              target="_blank"
+              rel="noreferrer"
+              title="Open (visit page)"
+              className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#6366f1] transition-all flex items-center justify-center"
+            >
+              <ExternalLink className="h-4.5 w-4.5" />
+            </a>
+            <button
+              type="button"
+              onClick={() => {
+                void copyText(publicLink.shareUrl, "🔗 Public shareable link copied!");
+              }}
+              title="Copy Public Share Link (WhatsApp & Mobile)"
+              className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-emerald-600 transition-all flex items-center justify-center"
+            >
+              <Copy className="h-4.5 w-4.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => confirmDeletePage(page)}
+              title="Delete"
+              className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-rose-600 transition-all flex items-center justify-center"
+            >
+              <Trash2 className="h-4.5 w-4.5" />
+            </button>
+          </div>
+        </div>
+        </div>
+      </div>
+    );
+  };
+
   const exitEditor = () => {
+    editorExitingRef.current = true;
+    editorCloseConfirmOpenRef.current = false;
     setSelectedEditPage(null);
     setShowPublishSuccess(false);
     setShowSaveTemplateModal(false);
@@ -1009,18 +1546,51 @@ export default function BioPagesScreen({
   };
 
   const closeEditor = () => {
-    if (
-      window.confirm(
-        "Close the editor? Changes that have not been saved as a draft or published will be lost."
-      )
-    ) {
+    if (editorExitingRef.current || editorCloseConfirmOpenRef.current) return;
+
+    editorCloseConfirmOpenRef.current = true;
+    const shouldClose = window.confirm(
+      "Close the editor? Changes that have not been saved as a draft or published will be lost."
+    );
+    editorCloseConfirmOpenRef.current = false;
+
+    if (shouldClose) {
       exitEditor();
     }
   };
 
+  const resolveCreateSlug = (cleanSuffix: string, pageId: string): string => {
+    const isTaken = (slug: string) =>
+      pages.some((page) => page.slug.toLowerCase() === slug.toLowerCase());
+
+    const base = `acn.link/page-${cleanSuffix}`;
+    if (!isTaken(base)) return base;
+
+    const shortId = pageId.split("_").pop() || pageId.slice(-6);
+    const withShort = `acn.link/page-${cleanSuffix}-${shortId}`;
+    if (!isTaken(withShort)) return withShort;
+
+    return `acn.link/page-${cleanSuffix}-${pageId.replace(/^p_/, "")}`;
+  };
+
+  const openCreatePageModal = () => {
+    setNewPageId(createUniquePageId());
+    setNewTitle("");
+    setNewSlug("");
+    setSelectedTemplateId("generic");
+    setNextInitialBlocks(genericInitialBlocks);
+    setIsAdding(true);
+  };
+
+  const closeCreatePageModal = () => {
+    setIsAdding(false);
+    setNewTitle("");
+    setNewSlug("");
+  };
+
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTitle.trim()) return;
+    if (!newTitle.trim() || !newPageId.trim()) return;
 
     // Use clean prefix-free suffix, fallback to slugified title
     const cleanSuffix = (newSlug.trim() || newTitle)
@@ -1032,13 +1602,9 @@ export default function BioPagesScreen({
       triggerToast("Enter a valid URL ending using letters, numbers, or hyphens.");
       return;
     }
-    const fullSlug = "acn.link/page-" + cleanSuffix;
-    if (pages.some((page) => page.slug.toLowerCase() === fullSlug.toLowerCase())) {
-      triggerToast("That URL ending is already in use. Please choose another.");
-      return;
-    }
+    const fullSlug = resolveCreateSlug(cleanSuffix, newPageId);
     setIsCreating(true);
-    const newlyCreatedPage = onAddPage(newTitle.trim(), fullSlug);
+    const newlyCreatedPage = onAddPage(newTitle.trim(), fullSlug, newPageId);
 
     // Save selected template initial blocks to the map for this new page
     const selectedBlocks = nextInitialBlocks || genericInitialBlocks;
@@ -1058,11 +1624,9 @@ export default function BioPagesScreen({
     // Reset create modal states
     setNextInitialBlocks(genericInitialBlocks);
     setSelectedTemplateId("generic");
-    setNewTitle("");
-    setNewSlug("");
-    setIsAdding(false);
+    closeCreatePageModal();
     setIsCreating(false);
-    triggerToast(`✨ BioLink Page "${newlyCreatedPage.title}" created successfully!`);
+    triggerToast(`✨ "${newlyCreatedPage.title}" created · Page ID: ${newlyCreatedPage.id}`);
 
     setTimeout(() => {
       openEditor(newlyCreatedPage);
@@ -1081,6 +1645,7 @@ export default function BioPagesScreen({
   };
 
   const openEditor = (page: BioPage, options?: { templateId?: string | null; preferPublished?: boolean }) => {
+    editorExitingRef.current = false;
     const isAlreadyEditing = selectedEditPage?.id === page.id;
 
     if (!isAlreadyEditing) {
@@ -1102,23 +1667,71 @@ export default function BioPagesScreen({
         setEditorBio(page.bio || "Write a short bio...");
         setEditorCoverPhoto(page.coverPhoto || DEFAULT_COVER);
         setEditorPageTheme(readStoredPageTheme(page.id, page.slug));
+        applyStoredCoverSettings(page.id, page.slug);
         setEditorBlocks(resolvePageBlocks(page));
       }
     }
 
-    navigate(`${screenToPath(ScreenId.BIO_PAGES)}?edit=${encodeURIComponent(page.id)}`, { replace: true });
+    const params = new URLSearchParams({ edit: page.id });
+    if (options?.preferPublished) {
+      params.set("source", "domain");
+    }
+    navigate(`${screenToPath(ScreenId.BIO_PAGES)}?${params.toString()}`, { replace: true });
   };
 
-  // Auto-load editor when arriving from Templates page or deep links
+  // Auto-load editor when arriving from deep links (Custom Domains, Dashboard, Templates)
   React.useEffect(() => {
-    if (!initialActiveEditPageId) return;
-    const pageToEdit = pages.find((p) => p.id === initialActiveEditPageId);
-    if (pageToEdit && selectedEditPage?.id !== pageToEdit.id) {
-      openEditor(pageToEdit, { templateId: initialActiveTemplateId });
+    if (editorExitingRef.current) {
+      if (!editIdFromUrl && !initialActiveEditPageId) {
+        editorExitingRef.current = false;
+      }
+      return;
     }
-    clearInitialActiveEditPageId();
-    clearInitialActiveTemplateId();
-  }, [initialActiveEditPageId, initialActiveTemplateId, pages]);
+
+    const targetId = (initialActiveEditPageId || editIdFromUrl)?.trim();
+    if (!targetId) return;
+
+    const pageToEdit = pages.find((p) => p.id === targetId);
+    if (!pageToEdit) {
+      return;
+    }
+
+    if (selectedEditPage?.id !== pageToEdit.id) {
+      setSelectedEditPage(pageToEdit);
+      setEditorTab("Edit");
+      setEditorViewPanel("edit");
+      setShowPublishSuccess(false);
+      setShowSaveTemplateModal(false);
+      setLinkedTemplateId(initialActiveTemplateId ?? null);
+
+      const pageDraft = savedDrafts.find((draft) => draft.pageId === pageToEdit.id);
+      if (pageDraft && !editFromDomain) {
+        hydrateEditorFromState(pageDraft.data);
+        triggerToast(`📂 Restored draft for "${pageDraft.data.pageMeta.title}"`);
+      } else {
+        setEditorTitle(pageToEdit.title);
+        setEditorHandle(pageToEdit.handle ?? "");
+        setEditorBio(pageToEdit.bio || "Write a short bio...");
+        setEditorCoverPhoto(pageToEdit.coverPhoto || DEFAULT_COVER);
+        setEditorPageTheme(readStoredPageTheme(pageToEdit.id, pageToEdit.slug));
+        applyStoredCoverSettings(pageToEdit.id, pageToEdit.slug);
+        setEditorBlocks(resolvePageBlocks(pageToEdit));
+      }
+    }
+
+    if (initialActiveEditPageId) {
+      clearInitialActiveEditPageId();
+      clearInitialActiveTemplateId();
+    }
+  }, [
+    initialActiveEditPageId,
+    initialActiveTemplateId,
+    pages,
+    savedDrafts,
+    editIdFromUrl,
+    editFromDomain,
+    selectedEditPage?.id
+  ]);
 
   const handlePublishEditor = async () => {
     if (selectedEditPage && !isPublishing) {
@@ -1127,8 +1740,8 @@ export default function BioPagesScreen({
         return;
       }
       setIsPublishing(true);
-      onUpdatePage(selectedEditPage.id, editorTitle, editorBio, editorCoverPhoto, editorHandle);
-      
+      const pagesForSync = applyEditingPageUpdate("Live");
+
       // Persist blocks in memory map
       setPageBlocksMap(prev => ({
         ...prev,
@@ -1144,9 +1757,9 @@ export default function BioPagesScreen({
             selectedEditPage.slug,
             editorBlocks,
             details,
-            { pages }
+            { pages: pagesForSync }
           ),
-          syncPagesListToServer(pages)
+          syncPagesListToServer(pagesForSync)
         ]);
         const { serverOk, sync } = previewResult;
         if (!serverOk) {
@@ -1222,7 +1835,7 @@ export default function BioPagesScreen({
               <span>Refresh</span>
             </button>
             <button
-              onClick={() => setIsAdding(true)}
+              onClick={openCreatePageModal}
               className="acn-btn-accent px-5 py-2.5"
             >
               <Plus className="h-4 w-4" />
@@ -1232,26 +1845,41 @@ export default function BioPagesScreen({
         }
       />
 
-      {/* Creation Modal/Dialog */}
-      {isAdding && (
-        <div className="acn-modal-backdrop">
-          <div className="acn-modal-panel max-w-md animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-display font-bold text-lg text-gray-950">Create Your Link Page</h3>
-              <button onClick={() => setIsAdding(false)} className="text-gray-400 hover:text-gray-600">
+      {/* Creation Modal/Dialog — portaled so backdrop covers navbar (PageShell z-index trap) */}
+      {isAdding &&
+        createPortal(
+        <div className="acn-modal-backdrop acn-workflow-modal-backdrop">
+          <div className="acn-modal-panel acn-workflow-modal animate-in fade-in zoom-in-95 duration-200">
+            <div className="acn-workflow-modal__accent" aria-hidden />
+            <header className="acn-workflow-modal__header">
+              <div className="acn-workflow-modal__brand">
+                <div className="acn-workflow-modal__icon">
+                  <Smartphone />
+                </div>
+                <div className="acn-workflow-modal__titles">
+                  <h3 className="acn-workflow-modal__title">Create Your Link Page</h3>
+                  <p className="acn-workflow-modal__subtitle">
+                    One page for all your social links, contact info, and business details.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeCreatePageModal}
+                className="acn-workflow-modal__close"
+                aria-label="Close"
+              >
                 <X className="h-5 w-5" />
               </button>
-            </div>
-            <p className="mb-5 text-sm text-slate-500 leading-relaxed">
-              One page for all your social links, contact info, and business details.
-            </p>
+            </header>
 
-            <form onSubmit={handleCreate} className="space-y-6">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+            <form onSubmit={handleCreate} className="acn-workflow-modal__form">
+              <div className="acn-workflow-modal__field">
+                <label className="acn-workflow-modal__label" htmlFor="create-page-title">
                   What should we call this page?
                 </label>
                 <input
+                  id="create-page-title"
                   type="text"
                   required
                   placeholder="e.g. My Business Links"
@@ -1259,32 +1887,36 @@ export default function BioPagesScreen({
                   onChange={(e) => {
                     const title = e.target.value;
                     setNewTitle(title);
-                    
-                    // Auto-generate clean, prefix-free relatedness slug suffix
-                    const clean = title.toLowerCase()
+
+                    const clean = title
+                      .toLowerCase()
                       .replace(/[^a-z0-9\s-]/g, "")
                       .trim()
                       .replace(/\s+/g, "-");
                     setNewSlug(clean);
                   }}
-                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] rounded-xl py-2.5 px-3.5 text-sm text-gray-900 focus:outline-none focus:ring-4 focus:ring-indigo-500/20 transition-all"
+                  className="acn-workflow-modal__input"
                 />
-                <p className="mt-1 text-[11px] text-slate-500 leading-normal">
+                <p className="acn-workflow-modal__hint">
                   Visitors will see this name. Use your name, shop name, or brand.
                 </p>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              <div className="acn-workflow-modal__field">
+                <label className="acn-workflow-modal__label" htmlFor="create-page-slug">
                   Your page link ending
                 </label>
                 <input
+                  id="create-page-slug"
                   type="text"
                   required
-                  placeholder={newTitle ? newTitle.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-") : "e.g. my-business"}
+                  placeholder={
+                    newTitle
+                      ? newTitle.toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-")
+                      : "e.g. my-business"
+                  }
                   value={newSlug}
                   onChange={(e) => {
-                    // Keep it prefix-free by stripping any pasted full URL prefix
                     let val = e.target.value;
                     if (val.includes("acn.link/page-")) {
                       val = val.replace("acn.link/page-", "");
@@ -1294,80 +1926,92 @@ export default function BioPagesScreen({
                     }
                     setNewSlug(val);
                   }}
-                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] rounded-xl py-2.5 px-3.5 text-sm text-gray-900 focus:outline-none focus:ring-4 focus:ring-indigo-500/20 transition-all"
+                  className="acn-workflow-modal__input"
                 />
-                <p className="mt-1 text-[11px] text-slate-500 leading-normal">
-                  Your page opens at:{" "}
-                  <span className="font-mono text-slate-600">
+                <p className="acn-workflow-modal__hint">
+                  Your page opens at{" "}
+                  <span className="acn-workflow-modal__mono">
                     {PRIMARY_DOMAIN}/{newSlug.trim() || "my-business"}
                   </span>
-                  {" "}— use only letters, numbers, and hyphens.
+                  . Use only letters, numbers, and hyphens.
                 </p>
               </div>
 
-              {/* Template Selection */}
-              <div className="space-y-3 pt-1">
-                <label className="block text-xs font-bold text-slate-700">
-                  Choose a starting design
-                </label>
-                <select
-                  value={selectedTemplateId}
-                  onChange={(e) => {
-                    const id = e.target.value;
-                    setSelectedTemplateId(id);
-                    if (id === "generic") {
-                      setNextInitialBlocks(genericInitialBlocks);
-                      triggerToast("✏️ Applied Generic Template!");
-                      return;
-                    }
-                    const tpl = savedTemplates.find((item) => item.id === id);
-                    if (!tpl) return;
-                    setNextInitialBlocks(tpl.data.blocks);
-                    setNewTitle(`${getTemplateDisplayName(tpl)} Copy`);
-                    setNewSlug(
-                      `${getTemplateDisplayName(tpl)} Copy`
-                        .toLowerCase()
-                        .replace(/[^a-z0-9\s-]/g, "")
-                        .replace(/\s+/g, "-")
-                    );
-                    triggerToast(`✨ Applied Saved Template "${getTemplateDisplayName(tpl)}"!`);
-                  }}
-                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] rounded-xl py-2.5 px-3.5 text-sm text-gray-900 focus:outline-none focus:ring-4 focus:ring-indigo-500/20 transition-all"
-                >
-                  <option value="generic">📝 Generic BioLink</option>
-                  {savedTemplates.map((tpl) => (
-                    <option key={tpl.id} value={tpl.id}>
-                      💎 {getTemplateDisplayName(tpl)}
-                    </option>
-                  ))}
-                </select>
-
-                {savedTemplates.length > 0 && (
-                  <p className="text-[11px] text-slate-500 leading-normal">
-                    Or pick a saved design from the dropdown above.
+              {savedTemplates.length > 0 && (
+                <div className="acn-workflow-modal__field">
+                  <label className="acn-workflow-modal__label" htmlFor="create-page-template">
+                    Start from saved template
+                  </label>
+                  <select
+                    id="create-page-template"
+                    value={selectedTemplateId}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setSelectedTemplateId(id);
+                      if (id === "generic") {
+                        setNextInitialBlocks(genericInitialBlocks);
+                        return;
+                      }
+                      const tpl = savedTemplates.find((item) => item.id === id);
+                      if (!tpl) return;
+                      setNextInitialBlocks(tpl.data.blocks);
+                      setNewTitle(`${getTemplateDisplayName(tpl)} Copy`);
+                      setNewSlug(
+                        `${getTemplateDisplayName(tpl)} Copy`
+                          .toLowerCase()
+                          .replace(/[^a-z0-9\s-]/g, "")
+                          .replace(/\s+/g, "-")
+                      );
+                      triggerToast(`✨ Applied "${getTemplateDisplayName(tpl)}"!`);
+                    }}
+                    className="acn-workflow-modal__input"
+                  >
+                    <option value="generic">Blank page</option>
+                    {savedTemplates.map((tpl) => (
+                      <option key={tpl.id} value={tpl.id}>
+                        {getTemplateDisplayName(tpl)}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="acn-workflow-modal__hint">
+                    Pick a design you saved from the bio page editor, or start blank.
                   </p>
-                )}
-              </div>
+                </div>
+              )}
 
-              <div className="flex items-center justify-end gap-2 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setIsAdding(false)}
-                  className="px-4 py-2 text-sm font-semibold text-gray-500 hover:bg-gray-50 rounded-xl"
-                >
-                  Cancel
-                </button>
+              <div className="acn-workflow-modal__actions">
                 <button
                   type="submit"
                   disabled={isCreating}
-                  className="acn-btn-accent disabled:cursor-not-allowed"
+                  className="acn-workflow-modal__submit acn-btn-accent disabled:cursor-not-allowed"
                 >
                   {isCreating ? "Creating…" : "Create My Page"}
                 </button>
               </div>
+
+              <footer className="acn-workflow-modal__meta">
+                <div className="acn-workflow-modal__meta-row">
+                  <span className="acn-workflow-modal__meta-label">Page ID</span>
+                  <button
+                    type="button"
+                    onClick={() => copyText(newPageId, "Page ID copied.")}
+                    className="acn-workflow-modal__meta-copy"
+                    title="Copy page ID"
+                    aria-label="Copy page ID"
+                  >
+                    <Copy className="h-3 w-3" />
+                    Copy
+                  </button>
+                </div>
+                <code className="acn-workflow-modal__meta-id">{newPageId}</code>
+                <p className="acn-workflow-modal__hint">
+                  Auto-generated — use in search if pages share the same name.
+                </p>
+              </footer>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Pages Container list */}
@@ -1382,7 +2026,7 @@ export default function BioPagesScreen({
               Click <strong>New Page</strong> to create your first shareable link page for Instagram, WhatsApp, and your business.
             </p>
             <button
-              onClick={() => setIsAdding(true)}
+              onClick={openCreatePageModal}
               className="mt-4 acn-btn-accent px-4 py-2"
             >
               Get Started
@@ -1390,173 +2034,273 @@ export default function BioPagesScreen({
           </div>
         ) : (
           <div className="space-y-4">
-            {pages.map((page) => (
-              <div
-                key={page.id}
-                className="acn-list-row min-w-0"
-              >
-                <div className="flex items-start gap-4 sm:gap-6 min-w-0">
-                  <div className="h-11 w-11 sm:h-12 sm:w-12 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center shrink-0">
-                    <Smartphone className="h-5 w-5 sm:h-6 sm:w-6" />
+            {customDomainPages.length > 0 && (
+              <div className="acn-bio-pages-section-accordion acn-bio-pages-section-accordion--custom">
+                <div className="acn-bio-pages-section-accordion__header">
+                  <div className="acn-bio-pages-section-head min-w-0">
+                    <p className="acn-bio-pages-section-label">Your own domain links</p>
+                    <p className="acn-bio-pages-section-subtitle">Your custom branded website URL</p>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    {editingId === page.id ? (
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="text"
-                          value={editTitleValue}
-                          onChange={(e) => setEditTitleValue(e.target.value)}
-                          className="bg-white border border-gray-200 rounded px-2 py-0.5 text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-indigo-500/100"
-                        />
-                        <button onClick={() => saveEdit(page.id)} className="text-green-600 hover:bg-green-50 p-1 rounded">
-                          <Check className="h-4.5 w-4.5" />
-                        </button>
-                        <button onClick={() => setEditingId(null)} className="text-gray-400 hover:bg-gray-50 p-1 rounded">
-                          <X className="h-4.5 w-4.5" />
-                        </button>
+                  <div className="acn-bio-pages-section-accordion__meta acn-bio-pages-section-accordion__meta--custom shrink-0">
+                    <span className="acn-bio-pages-section-count acn-bio-pages-section-count--custom">
+                      {customDomainPages.length}
+                    </span>
+                    <button
+                      type="button"
+                      className="acn-bio-pages-section-accordion__chevron acn-bio-pages-section-accordion__chevron--custom"
+                      onClick={() => setCustomDomainSectionExpanded((open) => !open)}
+                      aria-expanded={customDomainSectionExpanded}
+                      aria-controls="acn-custom-domain-pages-panel"
+                      aria-label={customDomainSectionExpanded ? "Collapse custom domain links" : "Expand custom domain links"}
+                    >
+                      {customDomainSectionExpanded ? (
+                        <ChevronUp className="h-4 w-4" aria-hidden />
+                      ) : (
+                        <ChevronDown className="h-4 w-4" aria-hidden />
+                      )}
+                    </button>
+                  </div>
+                </div>
+                {customDomainSectionExpanded && (
+                  <div
+                    id="acn-custom-domain-pages-panel"
+                    className="acn-bio-pages-section-accordion__body space-y-3"
+                  >
+                    {customDomainPages.map((page) => renderBioPageListRow(page))}
+                  </div>
+                )}
+              </div>
+            )}
+            {platformPages.length > 0 && (
+              <div className="acn-bio-pages-section-accordion acn-bio-pages-section-accordion--platform">
+                <div className="acn-bio-pages-section-accordion__header">
+                  <div className="acn-bio-pages-section-head min-w-0">
+                    <p className="acn-bio-pages-section-label">Free platform links</p>
+                    <p className="acn-bio-pages-section-subtitle">Hosted on ACN Link</p>
+                  </div>
+                  <div className="acn-bio-pages-section-accordion__meta acn-bio-pages-section-accordion__meta--platform shrink-0">
+                    <span className="acn-bio-pages-section-count acn-bio-pages-section-count--platform">
+                      {platformPages.length}
+                    </span>
+                    <button
+                      type="button"
+                      className="acn-bio-pages-section-accordion__chevron acn-bio-pages-section-accordion__chevron--platform"
+                      onClick={() => setPlatformSectionExpanded((open) => !open)}
+                      aria-expanded={platformSectionExpanded}
+                      aria-controls="acn-platform-pages-panel"
+                      aria-label={platformSectionExpanded ? "Collapse free platform links" : "Expand free platform links"}
+                    >
+                      {platformSectionExpanded ? (
+                        <ChevronUp className="h-4 w-4" aria-hidden />
+                      ) : (
+                        <ChevronDown className="h-4 w-4" aria-hidden />
+                      )}
+                    </button>
+                  </div>
+                </div>
+                {platformSectionExpanded && (
+                  <div id="acn-platform-pages-panel" className="acn-bio-pages-section-accordion__body space-y-3">
+                    <div className="acn-platform-bulk-toolbar">
+                      <div className="acn-platform-bulk-toolbar__filters">
+                        <div className="acn-platform-bulk-toolbar__search acn-icon-field">
+                          <span className="acn-icon-field__icon">
+                            <Search className="h-4 w-4" />
+                          </span>
+                          <input
+                            type="search"
+                            value={platformSearchQuery}
+                            onChange={(event) => setPlatformSearchQuery(event.target.value)}
+                            placeholder="Search page name, slug, page ID, or Live/Draft…"
+                            className="acn-input acn-icon-field__input w-full py-2.5"
+                            aria-label="Search free platform links"
+                          />
+                        </div>
+                        <select
+                          value={platformStatusFilter}
+                          onChange={(event) =>
+                            setPlatformStatusFilter(event.target.value as "All" | BioPage["status"])
+                          }
+                          className="acn-platform-bulk-status-filter"
+                          aria-label="Filter by page status"
+                        >
+                          <option value="All">All statuses</option>
+                          <option value="Live">Live</option>
+                          <option value="Paused">Paused</option>
+                          <option value="Draft">Draft</option>
+                        </select>
+                        {hasPlatformActiveFilters && (
+                          <button
+                            type="button"
+                            onClick={clearPlatformFilters}
+                            className="acn-platform-bulk-clear"
+                          >
+                            Clear
+                          </button>
+                        )}
+                        <div className="acn-platform-bulk-menu-wrap" ref={platformBulkMenuRef}>
+                          <button
+                            type="button"
+                            onClick={() => setPlatformBulkMenuOpen((open) => !open)}
+                            className="acn-platform-bulk-menu-trigger"
+                            aria-label="Bulk link actions"
+                            aria-expanded={platformBulkMenuOpen}
+                            aria-haspopup="menu"
+                          >
+                            <MoreVertical className="h-4 w-4" />
+                          </button>
+
+                          {platformBulkMenuOpen && (
+                            <div className="acn-platform-bulk-menu" role="menu">
+                              <button
+                                type="button"
+                                role="menuitem"
+                                className="acn-platform-bulk-menu__item"
+                                onClick={handlePlatformMenuSelectAll}
+                              >
+                                Select all
+                              </button>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                className="acn-platform-bulk-menu__item"
+                                disabled={platformDuplicateIds.size === 0}
+                                onClick={() => {
+                                  selectVisiblePlatformPages((page) => platformDuplicateIds.has(page.id));
+                                  setPlatformBulkMenuOpen(false);
+                                }}
+                              >
+                                Select duplicates
+                              </button>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                className="acn-platform-bulk-menu__item"
+                                disabled={platformZeroViewIds.size === 0}
+                                onClick={() => {
+                                  selectVisiblePlatformPages((page) => platformZeroViewIds.has(page.id));
+                                  setPlatformBulkMenuOpen(false);
+                                }}
+                              >
+                                Select unused
+                              </button>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                className="acn-platform-bulk-menu__item"
+                                onClick={() => {
+                                  setPlatformDuplicatesOnly((value) => !value);
+                                  setPlatformBulkMenuOpen(false);
+                                }}
+                              >
+                                {platformDuplicatesOnly ? "Show all links" : "Duplicates only"}
+                              </button>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                className="acn-platform-bulk-menu__item"
+                                disabled={!platformSelectionMode || selectedPlatformCount === 0}
+                                onClick={handlePlatformMenuClearSelection}
+                              >
+                                Clear selection
+                              </button>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                className="acn-platform-bulk-menu__item acn-platform-bulk-menu__item--danger"
+                                onClick={handlePlatformMenuDeleteSelected}
+                              >
+                                Delete selected
+                                {selectedPlatformCount > 0 ? ` (${selectedPlatformCount})` : ""}
+                              </button>
+                              {platformSelectionMode && (
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  className="acn-platform-bulk-menu__item"
+                                  onClick={exitPlatformSelectionMode}
+                                >
+                                  Done selecting
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="acn-platform-search-help">
+                        <p>
+                          <strong>How search works:</strong> Type a{" "}
+                          <span className="acn-platform-search-help__term">page name</span>,{" "}
+                          <span className="acn-platform-search-help__term">slug</span> (URL short name like{" "}
+                          <code>my-shop</code>),{" "}
+                          <span className="acn-platform-search-help__term">page ID</span> (from create page), or{" "}
+                          <span className="acn-platform-search-help__term">status</span> like{" "}
+                          <button
+                            type="button"
+                            className="acn-platform-search-help__chip"
+                            onClick={() => setPlatformSearchQuery("Live")}
+                          >
+                            Live
+                          </button>
+                          /
+                          <button
+                            type="button"
+                            className="acn-platform-search-help__chip"
+                            onClick={() => setPlatformSearchQuery("Draft")}
+                          >
+                            Draft
+                          </button>
+                          .
+                        </p>
+                      </div>
+
+                      <p className="acn-platform-bulk-toolbar__meta">
+                        Showing {filteredPlatformPages.length} of {platformPages.length} platform links
+                        {platformDuplicateIds.size > 0 && (
+                          <> · {platformDuplicateIds.size} duplicate cop{platformDuplicateIds.size === 1 ? "y" : "ies"} detected</>
+                        )}
+                        {platformSelectionMode && (
+                          <> · Selection mode · {selectedPlatformCount} selected</>
+                        )}
+                      </p>
+                    </div>
+
+                    {filteredPlatformPages.length === 0 ? (
+                      <div className="acn-platform-bulk-empty">
+                        <p className="text-sm font-semibold text-slate-700">No links match your search</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Try another title, slug, or turn off &quot;Duplicates only&quot;.
+                        </p>
+                        {(platformSearchQuery || platformDuplicatesOnly || platformStatusFilter !== "All") && (
+                          <button
+                            type="button"
+                            onClick={clearPlatformFilters}
+                            className="mt-3 acn-platform-bulk-action"
+                          >
+                            Reset filters
+                          </button>
+                        )}
                       </div>
                     ) : (
-                      <div className="flex items-center gap-2 min-w-0">
-                        <h4 className="font-display font-semibold text-gray-950 text-base truncate">{page.title}</h4>
-                        <button onClick={() => startEditing(page)} className="text-gray-400 hover:text-gray-600">
-                          <Edit3 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
+                      filteredPlatformPages.map((page) =>
+                        renderBioPageListRow(
+                          page,
+                          platformSelectionMode
+                            ? {
+                                selection: {
+                                  checked: selectedPlatformIds.has(page.id),
+                                  onToggle: togglePlatformSelection
+                                },
+                                showDuplicateBadge: platformDuplicateIds.has(page.id)
+                              }
+                            : undefined
+                        )
+                      )
                     )}
-                    <a
-                      href={`${window.location.origin}/?previewPageId=${page.id}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs text-indigo-500/100 hover:text-indigo-400 font-medium flex items-center gap-1 mt-1 font-mono hover:underline"
-                    >
-                      <Link className="h-3 w-3" />
-                      {page.slug}
-                    </a>
                   </div>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-4 sm:gap-6 lg:gap-6 w-full lg:w-auto lg:justify-end pl-14 lg:pl-0">
-                  {/* Status */}
-                  <span
-                    className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
-                      page.status === "Live"
-                        ? "bg-emerald-50 text-emerald-600"
-                        : page.status === "Paused"
-                          ? "bg-amber-50 text-amber-700"
-                          : "bg-slate-100 text-slate-600"
-                    }`}
-                  >
-                    {page.status}
-                  </span>
-
-                  {/* Views */}
-                  <div className="text-center">
-                    <span className="font-display font-bold text-2xl text-gray-950 block leading-none">
-                      {page.views}
-                    </span>
-                    <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mt-1">
-                      Views
-                    </span>
-                  </div>
-
-                  {/* Date */}
-                  <div className="text-center hidden sm:block">
-                    <span className="font-sans font-medium text-gray-500 text-xs font-mono block leading-none">
-                      {page.createdAt}
-                    </span>
-                    <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider block mt-1">
-                      Created
-                    </span>
-                  </div>
-
-                  {/* Toolbar Actions — 7 icons in one centered row on mobile */}
-                  <div className="grid grid-cols-7 gap-0.5 bg-gray-50 p-1.5 rounded-xl border border-gray-100 shadow-sm w-full max-w-[320px] sm:max-w-none sm:w-auto sm:flex sm:flex-wrap sm:items-center sm:justify-center sm:gap-1 mx-auto sm:mx-0">
-                    {/* 1st - Analytics */}
-                    <button
-                      type="button"
-                      onClick={() => setSelectedAnalyticsPage(page)}
-                      title={`Analytics — ${page.title}`}
-                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#6366f1] transition-all flex items-center justify-center"
-                    >
-                      <BarChart2 className="h-4.5 w-4.5" />
-                    </button>
-
-                    {/* 2nd - Edit */}
-                    <button
-                      type="button"
-                      onClick={() => openEditor(page)}
-                      title="Edit"
-                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#6366f1] transition-all flex items-center justify-center"
-                    >
-                      <Edit3 className="h-4.5 w-4.5" />
-                    </button>
-
-                    {/* 3rd - Duplicate */}
-                    <button
-                      type="button"
-                      onClick={() => onDuplicatePage(page.id)}
-                      title="Duplicate"
-                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#6366f1] transition-all flex items-center justify-center"
-                    >
-                      <Layers className="h-4.5 w-4.5" />
-                    </button>
-
-                    {/* 4th - QR Code */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedQRPage(page);
-                        setQrColor("Default");
-                        setQrForeground("#000000");
-                        setQrBackground("#FFFFFF");
-                        setQrDesign("Squares");
-                        setHasLogo(false);
-                      }}
-                      title={`QR — ${page.title}`}
-                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#6366f1] transition-all flex items-center justify-center"
-                    >
-                      <QrCode className="h-4.5 w-4.5" />
-                    </button>
-
-                    {/* 5th - Open */}
-                    <a
-                      href={`${window.location.origin}/?previewPageId=${page.id}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      title="Open (visit page)"
-                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#6366f1] transition-all flex items-center justify-center"
-                    >
-                      <ExternalLink className="h-4.5 w-4.5" />
-                    </a>
-
-                    {/* Copy Shareable Link (WhatsApp & Mobile) */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void copyText(
-                          `${getShareableOrigin()}/?previewPageId=${page.id}`,
-                          "🔗 Public shareable link copied!"
-                        );
-                      }}
-                      title="Copy Public Share Link (WhatsApp & Mobile)"
-                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-emerald-600 transition-all flex items-center justify-center"
-                    >
-                      <Copy className="h-4.5 w-4.5" />
-                    </button>
-
-                    {/* Delete */}
-                    <button
-                      type="button"
-                      onClick={() => confirmDeletePage(page)}
-                      title="Delete"
-                      className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-rose-600 transition-all flex items-center justify-center"
-                    >
-                      <Trash2 className="h-4.5 w-4.5" />
-                    </button>
-                  </div>
-                </div>
+                )}
               </div>
-            ))}
+            )}
           </div>
         )}
       </Workspace>
@@ -1828,22 +2572,26 @@ export default function BioPagesScreen({
                   <h4 className="font-bold text-base">BioLink Page Published Successfully!</h4>
                   <p className="text-xs text-emerald-600 mt-1">
                     Changes are live at:{" "}
-                    <a
-                      href={`${window.location.origin}/?previewPageId=${selectedEditPage.id}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="underline font-bold text-[#6366f1] hover:text-[#7c3aed] ml-1"
-                    >
-                      {`${getShareableOrigin()}/?previewPageId=${selectedEditPage.id}`}
-                    </a>
+                    {selectedEditPageLink && (
+                      <a
+                        href={selectedEditPageLink.openUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={`underline font-bold ml-1 ${
+                          selectedEditPageLink.kind === "custom"
+                            ? "text-emerald-700 hover:text-emerald-800"
+                            : "text-[#6366f1] hover:text-[#7c3aed]"
+                        }`}
+                      >
+                        {selectedEditPageLink.displayLabel}
+                      </a>
+                    )}
                   </p>
                   <div className="mt-4 flex flex-col items-center justify-center gap-2">
                     <button
                       onClick={() => {
-                        void copyText(
-                          `${getShareableOrigin()}/?previewPageId=${selectedEditPage.id}`,
-                          "🔗 Public shareable link copied!"
-                        );
+                        if (!selectedEditPageLink) return;
+                        void copyText(selectedEditPageLink.shareUrl, "🔗 Public shareable link copied!");
                       }}
                       className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1.5 px-4 rounded-xl text-xs transition-colors shadow-sm"
                     >
@@ -2313,6 +3061,10 @@ export default function BioPagesScreen({
                           Cover Image & Header
                         </span>
                         <div className="flex items-center gap-2 shrink-0">
+                          <CoverPhotoControls
+                            settings={editorCoverSettings}
+                            onChange={setEditorCoverSettings}
+                          />
                           <button
                             type="button"
                             onClick={() => {
@@ -2334,12 +3086,16 @@ export default function BioPagesScreen({
                       </div>
 
                       {/* Dropzone/Preview Frame */}
-                      <div className="relative h-40 bg-slate-100 acn-editor-cover-panel__frame group">
-                        <img
-                          src={editorCoverPhoto || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800"}
+                      <div className="relative acn-editor-cover-panel__frame-wrap group">
+                        <CoverPhotoView
+                          src={
+                            editorCoverPhoto ||
+                            "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800"
+                          }
                           alt="Cover Banner"
-                          className="w-full h-full object-cover"
-                          referrerPolicy="no-referrer"
+                          settings={editorCoverSettings}
+                          variant="editor"
+                          className="acn-editor-cover-panel__frame"
                         />
                         
                         {/* Hidden File Input */}
@@ -2423,7 +3179,7 @@ export default function BioPagesScreen({
                             <span className="acn-editor-section-badge animate-pulse">
                               {dropTarget
                                 ? `Drop at #${getDropDisplayPosition(dropTarget, editorBlocks.length)}`
-                                : "Drag ⋮⋮ up/down to reorder"}
+                                : "Drag block up/down to reorder"}
                             </span>
                           )}
                           <span className="acn-editor-blocks-section__meta">
@@ -2489,28 +3245,26 @@ export default function BioPagesScreen({
                                     </span>
                                   </div>
                                 )}
-                                {/* Accordion Header */}
-                                <div
-                                  onClick={() => setExpandedBlockId(isExpanded ? null : block.id)}
-                                  className="flex items-center justify-between p-3.5 cursor-pointer select-none acn-editor-accordion-header transition-colors"
-                                >
-                                  <div className="flex items-center gap-3 min-w-0">
-                                    <div
-                                      draggable
-                                      onDragStart={(e) => handleBlockDragStart(e, idx)}
-                                      onDragEnd={handleBlockDragEnd}
-                                      onMouseDown={(e) => e.stopPropagation()}
-                                      onClick={(e) => e.stopPropagation()}
-                                      className="text-slate-300 hover:text-[#6366f1] cursor-grab active:cursor-grabbing shrink-0 px-1 py-2 -my-1 touch-none rounded-lg hover:bg-indigo-50/80"
-                                      title="Drag up or down to reorder in Page Blocks"
+                                {/* Accordion Header — drag anywhere on the main row; chevron toggles expand */}
+                                <div className="flex items-center justify-between p-3.5 select-none acn-editor-accordion-header transition-colors">
+                                  <div
+                                    draggable
+                                    onDragStart={(e) => handleBlockDragStart(e, idx)}
+                                    onDragEnd={handleBlockDragEnd}
+                                    onClick={() => handleAccordionHeaderActivate(block.id, isExpanded)}
+                                    className="flex items-center gap-3 min-w-0 flex-1 cursor-grab active:cursor-grabbing acn-editor-accordion-drag-handle rounded-xl -m-1 p-1"
+                                    title="Drag anywhere here to reorder · click to expand"
+                                  >
+                                    <span
+                                      className="text-slate-300 group-hover:text-[#6366f1] shrink-0 px-0.5 pointer-events-none"
+                                      aria-hidden
                                     >
                                       <GripVertical className="h-4 w-4" />
-                                    </div>
-                                    
-                                    {/* Styled Icon */}
+                                    </span>
+
                                     {getBlockIcon(block.type)}
 
-                                    <div className="min-w-0">
+                                    <div className="min-w-0 pointer-events-none">
                                       <span className="block text-xs font-bold text-slate-800 truncate" title={block.label}>
                                         {block.label}
                                       </span>
@@ -2520,13 +3274,24 @@ export default function BioPagesScreen({
                                     </div>
                                   </div>
 
-                                  <div className="flex items-center gap-2 shrink-0 text-slate-400">
+                                  <button
+                                    type="button"
+                                    data-accordion-chevron
+                                    aria-expanded={isExpanded}
+                                    aria-label={isExpanded ? "Collapse block" : "Expand block"}
+                                    onPointerDown={(e) => e.stopPropagation()}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleAccordionBlock(block.id, isExpanded);
+                                    }}
+                                    className="flex items-center justify-center shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-[#6366f1] hover:bg-indigo-50/80 transition-colors cursor-pointer"
+                                  >
                                     {isExpanded ? (
                                       <ChevronUp className="h-4 w-4 text-[#6366f1]" />
                                     ) : (
                                       <ChevronDown className="h-4 w-4" />
                                     )}
-                                  </div>
+                                  </button>
                                 </div>
 
                                 {/* Accordion Content */}
@@ -2587,10 +3352,18 @@ export default function BioPagesScreen({
                                     )}
 
                                     {/* Destination URL or Action values */}
-                                    {block.type !== "Header" && block.type !== "Text" && block.type !== "Shop" && block.type !== "Gallery" && block.type !== "Coupon" && (
+                                    {block.type !== "Header" && block.type !== "Text" && block.type !== "Shop" && block.type !== "Gallery" && block.type !== "Coupon" && block.type !== "Socials" && block.type !== "Countdown" && (
                                       <div>
                                         <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                                          {block.type === "WhatsApp" ? "WhatsApp Number" : block.type === "Smart Form" ? "Email for Leads" : "Destination Link / Action"}
+                                          {block.type === "WhatsApp"
+                                            ? "WhatsApp Number"
+                                            : block.type === "Smart Form"
+                                              ? "Email for Leads"
+                                              : block.type === "Deep Link"
+                                                ? "Deep link URL"
+                                                : block.type === "Link Spin"
+                                                  ? "Button label"
+                                                  : "Destination Link / Action"}
                                         </label>
                                         <input
                                           type="text"
@@ -2876,31 +3649,184 @@ export default function BioPagesScreen({
                                       </div>
                                     )}
 
+                                    {/* Countdown Specific Fields */}
+                                    {block.type === "Countdown" && (
+                                      <div className="space-y-3">
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Headline (Optional)</label>
+                                          <input
+                                            type="text"
+                                            value={(block as any).headline || ""}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "headline", e.target.value)}
+                                            className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                                            placeholder="e.g. Limited offer ends in"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">End date &amp; time</label>
+                                          <input
+                                            type="datetime-local"
+                                            value={toDatetimeLocalValue((block as any).endAt as string)}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "endAt", fromDatetimeLocalValue(e.target.value))}
+                                            className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                                          />
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Socials Specific Fields */}
+                                    {block.type === "Socials" && (
+                                      <div className="space-y-3">
+                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Social profile URLs</label>
+                                        {SOCIAL_PLATFORMS.map((platform) => (
+                                          <div key={platform.id}>
+                                            <label className="block text-[10px] font-semibold text-slate-500 mb-1">{platform.label}</label>
+                                            <input
+                                              type="url"
+                                              value={(block as any)[platform.field] || ""}
+                                              onChange={(e) => handleUpdateBlockField(block.id, platform.field, e.target.value)}
+                                              placeholder={platform.placeholder}
+                                              className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800 font-mono"
+                                            />
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+
                                     {/* Gallery Specific Fields */}
                                     {block.type === "Gallery" && (
                                       <div className="space-y-2">
                                         <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Image URLs (up to 3)</label>
                                         <input
                                           type="text"
-                                          value={(block as any).img1 || "https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&q=80&w=300"}
+                                          value={(block as any).img1 || ""}
                                           onChange={(e) => handleUpdateBlockField(block.id, "img1", e.target.value)}
                                           placeholder="Image 1 URL"
                                           className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
                                         />
                                         <input
                                           type="text"
-                                          value={(block as any).img2 || "https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&q=80&w=300"}
+                                          value={(block as any).img2 || ""}
                                           onChange={(e) => handleUpdateBlockField(block.id, "img2", e.target.value)}
                                           placeholder="Image 2 URL (Optional)"
                                           className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
                                         />
                                         <input
                                           type="text"
-                                          value={(block as any).img3 || "https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&q=80&w=300"}
+                                          value={(block as any).img3 || ""}
                                           onChange={(e) => handleUpdateBlockField(block.id, "img3", e.target.value)}
                                           placeholder="Image 3 URL (Optional)"
                                           className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
                                         />
+                                      </div>
+                                    )}
+
+                                    {block.type === "Link Spin" && (
+                                      <div className="space-y-3">
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Win coupon code</label>
+                                          <input
+                                            type="text"
+                                            value={(block as any).couponCode || "LUCKYSPIN20"}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "couponCode", e.target.value)}
+                                            className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800 font-mono"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Prize messages (one per line)</label>
+                                          <textarea
+                                            rows={4}
+                                            value={(block as any).prizesText || ""}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "prizesText", e.target.value)}
+                                            placeholder={"20% discount unlocked!\nFree gift with your next order!"}
+                                            className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                                          />
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {block.type === "vCard" && (
+                                      <div className="space-y-2">
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Contact name</label>
+                                          <input
+                                            type="text"
+                                            value={(block as any).contactName || ""}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "contactName", e.target.value)}
+                                            className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Phone</label>
+                                          <input
+                                            type="text"
+                                            value={(block as any).phone || ""}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "phone", e.target.value)}
+                                            placeholder="+919876543210"
+                                            className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Email</label>
+                                          <input
+                                            type="email"
+                                            value={(block as any).email || ""}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "email", e.target.value)}
+                                            placeholder="you@example.com"
+                                            className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                                          />
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {block.type === "Video" && (
+                                      <div>
+                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Custom thumbnail URL (optional)</label>
+                                        <input
+                                          type="url"
+                                          value={(block as any).thumbUrl || ""}
+                                          onChange={(e) => handleUpdateBlockField(block.id, "thumbUrl", e.target.value)}
+                                          placeholder="Leave empty for YouTube auto-thumb"
+                                          className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800 font-mono"
+                                        />
+                                      </div>
+                                    )}
+
+                                    {block.type === "Music" && (
+                                      <div>
+                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Track subtitle</label>
+                                        <input
+                                          type="text"
+                                          value={(block as any).subtext || ""}
+                                          onChange={(e) => handleUpdateBlockField(block.id, "subtext", e.target.value)}
+                                          placeholder="e.g. Theme Track • 3:24"
+                                          className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                                        />
+                                      </div>
+                                    )}
+
+                                    {block.type === "Events" && (
+                                      <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Month label</label>
+                                          <input
+                                            type="text"
+                                            value={(block as any).eventMonth || ""}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "eventMonth", e.target.value.toUpperCase())}
+                                            placeholder="JUL"
+                                            className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800 uppercase"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Day</label>
+                                          <input
+                                            type="text"
+                                            value={(block as any).eventDay || ""}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "eventDay", e.target.value)}
+                                            placeholder="20"
+                                            className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                                          />
+                                        </div>
                                       </div>
                                     )}
 
@@ -3009,24 +3935,7 @@ export default function BioPagesScreen({
                   <Smartphone className="h-3.5 w-3.5" />
                   Live Preview
                 </div>
-                <div className="acn-editor-preview-theme-toggle" role="group" aria-label="Preview page theme">
-                  <button
-                    type="button"
-                    className="acn-editor-preview-theme-toggle__btn"
-                    aria-pressed={editorPageTheme === "dark"}
-                    onClick={() => handlePreviewThemeChange("dark")}
-                  >
-                    Dark
-                  </button>
-                  <button
-                    type="button"
-                    className="acn-editor-preview-theme-toggle__btn"
-                    aria-pressed={editorPageTheme === "light"}
-                    onClick={() => handlePreviewThemeChange("light")}
-                  >
-                    Light
-                  </button>
-                </div>
+                <BioPageThemePicker value={editorPageTheme} onChange={handlePreviewThemeChange} compact />
               </div>
 
               <div className="acn-editor-preview-rail__stage">
@@ -3045,7 +3954,7 @@ export default function BioPagesScreen({
                         <div className="acn-phone-preview__browser-bar">
                           <span className="acn-phone-preview__browser-home" aria-hidden>⌂</span>
                           <span className="acn-phone-preview__browser-url">
-                            {PRIMARY_DOMAIN}/{selectedEditPage.slug.split("/").pop() || "page"}
+                            {selectedEditPageLink?.displayLabel || `${PRIMARY_DOMAIN}/page`}
                           </span>
                           <span className="acn-phone-preview__browser-tabs" aria-hidden>1</span>
                         </div>
@@ -3056,18 +3965,21 @@ export default function BioPagesScreen({
                         onDragEnter={handleDragEnterPreview}
                         onDragLeave={handleDragLeavePreview}
                         onDrop={handleDropOnPreview}
-                        className={`acn-preview-isolate acn-phone-preview__screen acn-bio-page-theme-${editorPageTheme} no-scrollbar transition-all duration-200 ${
+                        className={`acn-preview-isolate acn-phone-preview__screen ${getBioPageThemeClass(editorPageTheme)} no-scrollbar transition-all duration-200 ${
                           isDraggingOverPreview ? "acn-phone-preview__screen--drop-target" : ""
                         }`}
+                        style={getBioPageThemeStyle(editorPageTheme)}
                       >
-                        <div className="acn-phone-preview__cover acn-public-bio-page__cover">
-                          <img
-                            src={editorCoverPhoto || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800"}
-                            alt="Hero Cover"
-                            referrerPolicy="no-referrer"
-                          />
-                          <div className="acn-phone-preview__cover-fade" />
-                        </div>
+                        <CoverPhotoView
+                          src={
+                            editorCoverPhoto ||
+                            "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800"
+                          }
+                          alt="Hero Cover"
+                          settings={editorCoverSettings}
+                          variant="preview"
+                          className="acn-phone-preview__cover acn-public-bio-page__cover"
+                        />
 
                         <div className="acn-phone-preview__body acn-public-bio-page__body">
                           <div className="acn-public-bio-page__profile">
@@ -3084,324 +3996,7 @@ export default function BioPagesScreen({
                           )}
 
                           <div className="acn-phone-preview__blocks">
-                    {editorBlocks.map((block, idx) => {
-                      const getBlockContent = () => {
-                        switch (block.type) {
-                          case "Header":
-                            return (
-                              <h4 className="acn-phone-preview__block-heading font-display">
-                                {block.label}
-                              </h4>
-                            );
-                          case "Text":
-                            return (
-                              <p className="acn-phone-preview__block-text">
-                                {block.label}
-                              </p>
-                            );
-                          case "Button":
-                          case "Deep Link":
-                            return (
-                              <button
-                                onClick={() => triggerSimulatorToast(`🔗 Simulated redirection to: ${block.value || "https://acn.link"}`)}
-                                style={getLinkButtonStyle(block as any)}
-                                className={`w-full font-bold py-3 px-4 rounded-xl flex items-center justify-between transition-all active:scale-98 acn-bio-link-btn ${
-                                  isDefaultBrightLink(block as any)
-                                    ? "shadow-md shadow-violet-500/30 border-0"
-                                    : "shadow-sm border border-slate-200/80"
-                                }`}
-                              >
-                                <div className="flex items-center gap-1.5 truncate">
-                                  {(block as any).iconEmoji && <span>{(block as any).iconEmoji}</span>}
-                                  <div className="text-left">
-                                    <span className="acn-bio-link-label block font-bold">{block.label}</span>
-                                    {(block as any).subtext && <span className="acn-bio-link-subtext block font-medium opacity-70">{(block as any).subtext}</span>}
-                                  </div>
-                                </div>
-                                {(block as any).showArrow !== "No" && (
-                                  <ArrowRight className="h-3.5 w-3.5 shrink-0" style={{ color: getLinkArrowColor(block as any) }} />
-                                )}
-                              </button>
-                            );
-                          case "Socials":
-                            return (
-                              <div className="flex items-center justify-center gap-4 py-1">
-                                <span
-                                  onClick={() => {
-                                    const webBlock = selectedEditPage ? editorBlocks.find(b => b.type === "Button" && b.value && b.value.startsWith("http")) : null;
-                                    const targetUrl = webBlock ? webBlock.value : "https://google.com";
-                                    window.open(targetUrl, "_blank", "noopener,noreferrer");
-                                  }}
-                                  className="p-2 bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 rounded-full cursor-pointer transition-all shadow-sm active:scale-90"
-                                >
-                                  🌐
-                                </span>
-                                <span
-                                  onClick={() => {
-                                    const whatsappBlock = selectedEditPage ? editorBlocks.find(b => b.type === "WhatsApp" && b.value) : null;
-                                    const whatsappVal = whatsappBlock ? whatsappBlock.value : "+919876543210";
-                                    handleWhatsAppRedirect(whatsappVal);
-                                  }}
-                                  className="p-2 bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 rounded-full cursor-pointer transition-all shadow-sm active:scale-90"
-                                >
-                                  💬
-                                </span>
-                                <span
-                                  onClick={() => {
-                                    window.open("https://instagram.com", "_blank", "noopener,noreferrer");
-                                  }}
-                                  className="p-2 bg-white text-slate-600 hover:bg-slate-100 border border-slate-200 rounded-full cursor-pointer transition-all shadow-sm active:scale-90"
-                                >
-                                  📸
-                                </span>
-                              </div>
-                            );
-                          case "Shop": {
-                            const shopProducts = (block as any).products || defaultProductsList;
-                            const align = (block as any).alignment || "Centre";
-                            const alignClass = align === "Left" ? "text-left" : align === "Right" ? "text-right" : "text-center";
-                            const symbol = getCurrencySymbol((block as any).currency);
-                            const cardBg = (block as any).bgColor || "#10B981";
-                            const textCol = (block as any).textColor || "#FFFFFF";
-                            
-                            return (
-                              <div className="space-y-2 text-left">
-                                <span className={`text-[9px] font-bold text-slate-400 block tracking-wider uppercase ${alignClass}`}>
-                                  {block.label}
-                                </span>
-                                <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-                                  {shopProducts.map((p: any, idxProduct: number) => (
-                                    <div
-                                      key={p.id || idxProduct}
-                                      onClick={() => triggerSimulatorToast(`🛒 Simulated product click: ${p.name}`)}
-                                      className="min-w-[105px] bg-white rounded-xl border border-slate-200 overflow-hidden shrink-0 shadow-sm hover:shadow transition-all cursor-pointer hover:border-slate-300"
-                                    >
-                                      <div className="h-16 bg-white flex items-center justify-center p-1.5">
-                                        {p.image ? (
-                                          <img
-                                            src={p.image}
-                                            alt={p.name}
-                                            className="h-full w-full object-contain"
-                                            referrerPolicy="no-referrer"
-                                          />
-                                        ) : (
-                                          <div className="text-[8px] text-slate-400 font-bold">No Image</div>
-                                        )}
-                                      </div>
-                                      <div className="p-1.5 text-[8.5px] text-center font-medium" style={{ backgroundColor: cardBg, color: textCol }}>
-                                        <p className="font-bold truncate">{p.name || "Product"}</p>
-                                        <p className="font-black text-[8px] mt-0.5 opacity-90">{symbol}{p.price || "0"}</p>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            );
-                          }
-                          case "Coupon":
-                            return (
-                              <div className="bg-blue-50/70 border border-blue-100 p-3 rounded-2xl relative overflow-hidden space-y-1 text-left shadow-sm">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[9px] text-blue-600 font-medium">Special Offer</span>
-                                  <span className="text-[7px] bg-blue-600 text-white px-1.5 py-0.5 rounded font-extrabold">COUPON</span>
-                                </div>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="font-mono font-bold text-xs tracking-wider text-blue-700 bg-blue-100/60 py-0.5 px-2 rounded border border-dashed border-blue-200">
-                                    {block.value || "MARVELTOYCODE007"}
-                                  </span>
-                                  <button
-                                    onClick={() => {
-                                      navigator.clipboard.writeText(block.value || "MARVELTOYCODE007");
-                                      triggerSimulatorToast("🎟️ Coupon copied to clipboard!");
-                                    }}
-                                    className="p-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded transition-colors"
-                                    title="Copy Code"
-                                  >
-                                    <Copy className="h-3 w-3" />
-                                  </button>
-                                </div>
-                                <p className="text-[9px] text-slate-500 leading-tight">{block.label}</p>
-                              </div>
-                            );
-                          case "Countdown":
-                            return (
-                              <div className="bg-rose-50/70 border border-rose-100 p-2.5 rounded-xl text-center space-y-1 shadow-sm">
-                                <span className="text-[8px] font-bold text-rose-600 uppercase tracking-widest block">Limited offer ends in</span>
-                                <div className="flex items-center justify-center gap-1 text-rose-700">
-                                  <div className="bg-white border border-rose-100 p-1 rounded min-w-[32px] text-center shadow-sm">
-                                    <span className="font-bold text-xs block leading-none text-rose-700">
-                                      {String(countdownTime.days).padStart(2, "0")}
-                                    </span>
-                                    <span className="text-[6px] text-rose-500 block tracking-wide uppercase">DAYS</span>
-                                  </div>
-                                  <span className="text-rose-400">:</span>
-                                  <div className="bg-white border border-rose-100 p-1 rounded min-w-[32px] text-center shadow-sm">
-                                    <span className="font-bold text-xs block leading-none text-rose-700">
-                                      {String(countdownTime.hrs).padStart(2, "0")}
-                                    </span>
-                                    <span className="text-[6px] text-rose-500 block tracking-wide uppercase">HRS</span>
-                                  </div>
-                                  <span className="text-rose-400">:</span>
-                                  <div className="bg-white border border-rose-100 p-1 rounded min-w-[32px] text-center shadow-sm">
-                                    <span className="font-bold text-xs block leading-none text-rose-700">
-                                      {String(countdownTime.mins).padStart(2, "0")}
-                                    </span>
-                                    <span className="text-[6px] text-rose-500 block tracking-wide uppercase">MIN</span>
-                                  </div>
-                                  <span className="text-rose-400">:</span>
-                                  <div className="bg-white border border-rose-100 p-1 rounded min-w-[32px] text-center shadow-sm">
-                                    <span className="font-bold text-xs block leading-none text-rose-700">
-                                      {String(countdownTime.secs).padStart(2, "0")}
-                                    </span>
-                                    <span className="text-[6px] text-rose-500 block tracking-wide uppercase">SEC</span>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          case "Link Spin":
-                            return (
-                              <button
-                                onClick={() => {
-                                  setSpinResult(null);
-                                  setIsSpinning(false);
-                                  setShowSpinWheel(true);
-                                }}
-                                className="w-full bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 text-white font-bold py-2.5 rounded-xl transition-all shadow-md text-xs flex items-center justify-center gap-1.5 active:scale-95"
-                              >
-                                <span>🎡</span>
-                                <span>{block.label}</span>
-                              </button>
-                            );
-                          case "WhatsApp":
-                            return (
-                              <button
-                                onClick={() => handleWhatsAppRedirect(block.value || "+919876543210")}
-                                className="w-full bg-[#25D366] hover:bg-[#20ba5a] text-white font-bold py-2.5 rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition-all text-xs active:scale-95 border-0"
-                              >
-                                <MessageSquare className="h-3.5 w-3.5 font-bold" />
-                                <span className="truncate">{block.label}</span>
-                              </button>
-                            );
-                          case "Smart Form":
-                            return (
-                              <div className="bg-white border border-slate-200 p-4 rounded-2xl space-y-2 text-left shadow-sm">
-                                <span className="font-bold text-[9px] block text-center text-slate-700 uppercase tracking-wider">{block.label}</span>
-                                <div className="space-y-1.5">
-                                  <input
-                                    type="email"
-                                    required
-                                    value={simulatorLeadEmail}
-                                    onChange={(e) => setSimulatorLeadEmail(e.target.value)}
-                                    placeholder="Enter your email"
-                                    className="w-full bg-slate-50 border border-slate-200 rounded-lg py-1.5 px-3.5 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-violet-500"
-                                  />
-                                  <button
-                                    onClick={() => {
-                                      if (simulatorLeadEmail) {
-                                        triggerSimulatorToast(`✅ Lead saved: ${simulatorLeadEmail}`);
-                                        setSimulatorLeadEmail("");
-                                      } else {
-                                        triggerSimulatorToast(`❌ Please enter your email first.`);
-                                      }
-                                    }}
-                                    className="w-full bg-[#7c3aed] hover:bg-[#6d28d9] text-white font-bold py-1.5 rounded-lg text-xs transition-colors shadow-md shadow-violet-500/25"
-                                  >
-                                    Submit
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          case "vCard":
-                            return (
-                              <button
-                                onClick={() => triggerSimulatorToast(`🪪 Simulated vCard contact info download saved to phone Contacts!`)}
-                                className="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 rounded-xl flex items-center justify-center gap-1.5 transition-all shadow-sm text-xs active:scale-95 border-0"
-                              >
-                                <User className="h-3.5 w-3.5 text-gray-400" />
-                                <span className="truncate">{block.label}</span>
-                              </button>
-                            );
-                          case "Video":
-                            return (
-                              <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm hover:border-slate-300 transition-colors">
-                                <div className="h-32 bg-slate-950 flex items-center justify-center relative group cursor-pointer" onClick={() => triggerSimulatorToast(`🎥 Playing Video: ${block.value || "https://youtube.com"}`)}>
-                                  <div className="absolute inset-0 bg-cover bg-center opacity-70" style={{ backgroundImage: "url('https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&q=80&w=400')" }} />
-                                  <div className="absolute h-10 w-10 bg-red-600 rounded-full flex items-center justify-center text-white text-lg font-bold shadow-md transform group-hover:scale-110 transition-transform">
-                                    ▶
-                                  </div>
-                                </div>
-                                <div className="p-2.5 text-left">
-                                  <span className="text-[10px] font-bold text-slate-800 block truncate">{block.label}</span>
-                                </div>
-                              </div>
-                            );
-                          case "Music":
-                            return (
-                              <div className="bg-gradient-to-r from-violet-500 to-indigo-600 p-3 rounded-2xl text-white shadow-sm flex items-center justify-between gap-3 cursor-pointer" onClick={() => triggerSimulatorToast(`🎵 Playing Audio: ${block.value || "Soundtrack"}`)}>
-                                <div className="flex items-center gap-2.5 min-w-0">
-                                  <span className="text-xl">🎵</span>
-                                  <div className="min-w-0 text-left">
-                                    <span className="font-bold text-[10px] block truncate">{block.label}</span>
-                                    <span className="text-[8px] text-indigo-200 block font-bold">Theme Track • 3:24</span>
-                                  </div>
-                                </div>
-                                <div className="h-7 w-7 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center text-white shrink-0">
-                                  ▶
-                                </div>
-                              </div>
-                            );
-                          case "Gallery":
-                            return (
-                              <div className="space-y-1.5 text-left">
-                                <span className="text-[9px] font-bold text-slate-400 block uppercase tracking-wider">{block.label}</span>
-                                <div className="grid grid-cols-3 gap-1.5">
-                                  <img onClick={() => triggerSimulatorToast("🖼️ Opened gallery image 1")} src="https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&q=80&w=150" alt="1" className="h-14 w-full object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity" />
-                                  <img onClick={() => triggerSimulatorToast("🖼️ Opened gallery image 2")} src="https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&q=80&w=150" alt="2" className="h-14 w-full object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity" />
-                                  <img onClick={() => triggerSimulatorToast("🖼️ Opened gallery image 3")} src="https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&q=80&w=150" alt="3" className="h-14 w-full object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity" />
-                                </div>
-                              </div>
-                            );
-                          case "PDF":
-                            return (
-                              <div className="bg-white border border-slate-200 p-3 rounded-2xl flex items-center justify-between gap-3 hover:border-slate-300 transition-colors cursor-pointer" onClick={() => triggerSimulatorToast(`📄 Opening PDF Catalog: ${block.value || "catalog.pdf"}`)}>
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span className="text-xl">📄</span>
-                                  <div className="min-w-0 text-left">
-                                    <span className="font-bold text-[10px] block text-slate-800 truncate">{block.label}</span>
-                                    <span className="text-[8px] text-slate-400 block font-mono">PDF Document • 3.2 MB</span>
-                                  </div>
-                                </div>
-                                <span className="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded-lg font-semibold shrink-0">GET</span>
-                              </div>
-                            );
-                          case "Events":
-                            return (
-                              <div className="bg-white border border-slate-200 p-3 rounded-2xl flex items-center justify-between gap-3 hover:border-slate-300 transition-colors cursor-pointer" onClick={() => triggerSimulatorToast(`📅 RSVP Successful for Event: ${block.label}`)}>
-                                <div className="flex items-center gap-2.5 min-w-0 text-left">
-                                  <div className="bg-violet-50 border border-violet-100 text-violet-600 rounded-lg p-1 text-center min-w-[34px] shrink-0 font-bold">
-                                    <span className="text-[8px] block uppercase leading-none font-mono">JUL</span>
-                                    <span className="text-xs block leading-none mt-0.5">20</span>
-                                  </div>
-                                  <div className="min-w-0">
-                                    <span className="font-bold text-[10px] block text-slate-800 truncate">{block.label}</span>
-                                    <span className="text-[8px] text-slate-500 block">7:00 PM • Virtual Livestream</span>
-                                  </div>
-                                </div>
-                                <span className="text-[9px] bg-[#7c3aed] hover:bg-[#6d28d9] text-white px-2.5 py-1.5 rounded-lg font-extrabold shadow-md shadow-violet-500/25 tracking-wide shrink-0">RSVP</span>
-                              </div>
-                            );
-                          default:
-                            return (
-                              <button
-                                onClick={() => triggerSimulatorToast(`✨ Clicked block: ${block.label}`)}
-                                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-2.5 rounded-xl text-xs shadow-sm border border-slate-200 transition-colors"
-                              >
-                                {block.label}
-                              </button>
-                            );
-                        }
-                      };
-
+                    {editorBlocks.map((block) => {
                       return (
                         <div
                           key={block.id}
@@ -3414,7 +4009,6 @@ export default function BioPagesScreen({
                             }
                           }}
                         >
-                          {/* Floating Live Editor Controls */}
                           <div className="absolute -top-3.5 right-1.5 hidden max-lg:flex lg:group-hover:flex items-center gap-1 bg-white border border-[#6366f1]/30 shadow-md py-0.5 px-1.5 rounded-lg z-30 animate-in zoom-in-95 duration-150">
                             <span className="text-[7px] font-mono font-bold text-[#6366f1] uppercase tracking-widest mr-1">
                               {block.type}
@@ -3436,9 +4030,17 @@ export default function BioPagesScreen({
                             </button>
                           </div>
 
-                          {/* Block Preview Content */}
                           <div className="relative z-10">
-                            {getBlockContent()}
+                            <BlockRenderer
+                              block={block as BlockRecord}
+                              mode="preview"
+                              context={{
+                                compact: true,
+                                displayTitle: editorTitle,
+                                displayHandle: previewHandle
+                              }}
+                              handlers={previewBlockHandlers}
+                            />
                           </div>
                         </div>
                       );
@@ -3506,11 +4108,11 @@ export default function BioPagesScreen({
                         <div className="text-center space-y-2.5 animate-in zoom-in-95 duration-200">
                           <p className="text-xs font-bold text-green-400">🎉 CONGRATULATIONS! 🎉</p>
                           <p className="text-xs font-black text-white">{spinResult}</p>
-                          <p className="text-[9px] text-slate-400 bg-slate-950 px-2 py-1.5 rounded font-mono border border-slate-800">Use Code: <span className="font-bold text-cyan-400">LUCKYSPIN20</span></p>
+                          <p className="text-[9px] text-slate-400 bg-slate-950 px-2 py-1.5 rounded font-mono border border-slate-800">Use Code: <span className="font-bold text-cyan-400">{spinCouponCode}</span></p>
                           <div className="flex gap-2 justify-center">
                             <button
                               onClick={() => {
-                                navigator.clipboard.writeText("LUCKYSPIN20");
+                                navigator.clipboard.writeText(spinCouponCode);
                                 triggerSimulatorToast("🎟️ Spin coupon code copied!");
                                 setShowSpinWheel(false);
                               }}
@@ -3536,13 +4138,7 @@ export default function BioPagesScreen({
                             setIsSpinning(true);
                             setTimeout(() => {
                               setIsSpinning(false);
-                              const prizes = [
-                                "FREE Superhero Action Figure!",
-                                "20% Discount Code!",
-                                "Buy 1 Get 1 Free Marvel Poster!",
-                                "Free shipping on next order!"
-                              ];
-                              const won = prizes[Math.floor(Math.random() * prizes.length)];
+                              const won = spinPrizes[Math.floor(Math.random() * spinPrizes.length)];
                               setSpinResult(won);
                             }, 1800);
                           }}
@@ -3736,7 +4332,7 @@ export default function BioPagesScreen({
                   src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&color=${qrForeground.replace(
                     "#",
                     ""
-                  )}&bgcolor=${qrBackground.replace("#", "")}&data=${encodeURIComponent(`${getShareableOrigin()}/?previewPageId=${selectedQRPage.id}`)}`}
+                  )}&bgcolor=${qrBackground.replace("#", "")}&data=${encodeURIComponent(selectedQRPageLink?.shareUrl || "")}`}
                   alt="QR Code"
                   referrerPolicy="no-referrer"
                   className="w-44 h-44 rounded-lg shadow bg-white"
@@ -3755,13 +4351,13 @@ export default function BioPagesScreen({
               {/* URL label under QR */}
               <div className="mt-3 flex flex-col items-center gap-1.5 max-w-sm w-full">
                 <span className="text-[10px] font-mono text-slate-500 font-bold bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg truncate w-full text-center">
-                  {`${getShareableOrigin()}/?previewPageId=${selectedQRPage.id}`}
+                  {selectedQRPageLink?.displayLabel || ""}
                 </span>
                 <button
                   type="button"
                   onClick={() => {
                     void copyText(
-                      `${getShareableOrigin()}/?previewPageId=${selectedQRPage.id}`,
+                      selectedQRPageLink?.shareUrl || "",
                       "🔗 Public shareable link copied!"
                     );
                   }}
@@ -3882,7 +4478,7 @@ export default function BioPagesScreen({
                 href={`https://api.qrserver.com/v1/create-qr-code/?size=500x500&color=${qrForeground.replace(
                   "#",
                   ""
-                )}&bgcolor=${qrBackground.replace("#", "")}&data=${encodeURIComponent(`${getShareableOrigin()}/?previewPageId=${selectedQRPage.id}`)}`}
+                )}&bgcolor=${qrBackground.replace("#", "")}&data=${encodeURIComponent(selectedQRPageLink?.shareUrl || "")}`}
                 download="qrcode.png"
                 target="_blank"
                 rel="noreferrer"
@@ -3896,7 +4492,7 @@ export default function BioPagesScreen({
                 href={`https://api.qrserver.com/v1/create-qr-code/?size=500x500&color=${qrForeground.replace(
                   "#",
                   ""
-                )}&bgcolor=${qrBackground.replace("#", "")}&format=svg&data=${encodeURIComponent(`${getShareableOrigin()}/?previewPageId=${selectedQRPage.id}`)}`}
+                )}&bgcolor=${qrBackground.replace("#", "")}&format=svg&data=${encodeURIComponent(selectedQRPageLink?.shareUrl || "")}`}
                 download="qrcode.svg"
                 target="_blank"
                 rel="noreferrer"

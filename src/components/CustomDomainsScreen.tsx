@@ -1,10 +1,15 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
+import { screenToPath } from "../navigation";
+import { ScreenId } from "../types";
 import {
   AlertCircle,
   Check,
   CheckCircle,
   Clock,
   Copy,
+  Edit3,
   ExternalLink,
   Globe,
   Loader2,
@@ -13,7 +18,8 @@ import {
   Search,
   Shield,
   Trash2,
-  X
+  X,
+  ChevronDown
 } from "lucide-react";
 import type { BioPage, CustomDomain } from "../types";
 import { isValidHostname, normaliseHostname } from "../storage/publishStorage";
@@ -29,10 +35,174 @@ interface CustomDomainsScreenProps {
   onConnectDomain: (domainName: string, pageId: string) => Promise<void>;
   onVerifyDomain: (id: string) => Promise<void>;
   onDeleteDomain: (id: string) => Promise<void>;
+  onEditPage: (pageId: string, options?: { fromCustomDomain?: boolean }) => void;
 }
 
 function isDomainLive(domain: CustomDomain) {
   return domain.status === "Verified" || domain.status === "DNS Verified";
+}
+
+function matchesConnectPageSearch(page: BioPage, query: string): boolean {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return true;
+
+  return [page.title, page.id, page.slug, page.status, page.handle || ""]
+    .join(" ")
+    .toLowerCase()
+    .includes(normalized);
+}
+
+interface SearchablePagePickerProps {
+  pages: BioPage[];
+  value: string;
+  onChange: (pageId: string) => void;
+  linkedDomainsByPageId: Map<string, CustomDomain>;
+  placeholder?: string;
+}
+
+function SearchablePagePicker({
+  pages,
+  value,
+  onChange,
+  linkedDomainsByPageId,
+  placeholder = "Choose your live page"
+}: SearchablePagePickerProps) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  const sortedPages = useMemo(
+    () => [...pages].sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" })),
+    [pages]
+  );
+
+  const filteredPages = useMemo(
+    () => sortedPages.filter((page) => matchesConnectPageSearch(page, query)),
+    [sortedPages, query]
+  );
+
+  const availableCount = useMemo(
+    () => pages.filter((page) => !linkedDomainsByPageId.has(page.id)).length,
+    [pages, linkedDomainsByPageId]
+  );
+
+  const selectedPage = pages.find((page) => page.id === value);
+
+  const trySelectPage = (page: BioPage) => {
+    const linkedDomain = linkedDomainsByPageId.get(page.id);
+    if (linkedDomain) {
+      window.alert(
+        `"${page.title}" is already connected to ${linkedDomain.domainName}.\n\nEach bio page can only be linked to one custom domain. Remove it from that domain first, or choose a different page.`
+      );
+      return;
+    }
+    onChange(page.id);
+    setOpen(false);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) setQuery("");
+  }, [open]);
+
+  return (
+    <div className="acn-page-picker" ref={rootRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="acn-page-picker__trigger w-full text-left flex items-center justify-between gap-2"
+        aria-expanded={open}
+        aria-haspopup="listbox"
+      >
+        <span className={`acn-page-picker__trigger-label truncate ${selectedPage ? "" : "is-placeholder"}`}>
+          {selectedPage ? `${selectedPage.title} (${selectedPage.status})` : placeholder}
+        </span>
+        <ChevronDown
+          className={`acn-page-picker__chevron h-4 w-4 shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {open && (
+        <div className="acn-page-picker__menu">
+          <div className="acn-page-picker__search">
+            <Search className="h-4 w-4 shrink-0" />
+            <input
+              type="search"
+              autoFocus
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search page name, ID, slug, or status…"
+              className="acn-page-picker__search-input"
+              onKeyDown={(event) => {
+                if (event.key === "Escape") setOpen(false);
+              }}
+            />
+          </div>
+
+          <ul className="acn-page-picker__list" role="listbox">
+            {filteredPages.length === 0 ? (
+              <li className="acn-page-picker__empty">No pages match your search.</li>
+            ) : (
+              filteredPages.map((page) => {
+                const linkedDomain = linkedDomainsByPageId.get(page.id);
+                const isLocked = Boolean(linkedDomain);
+                return (
+                  <li key={page.id}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={page.id === value}
+                      aria-disabled={isLocked}
+                      className={`acn-page-picker__option ${
+                        page.id === value ? "acn-page-picker__option--selected" : ""
+                      } ${isLocked ? "acn-page-picker__option--locked" : ""}`}
+                      onClick={() => trySelectPage(page)}
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="acn-page-picker__option-title block truncate">{page.title}</span>
+                        {linkedDomain ? (
+                          <span className="acn-page-picker__option-linked block truncate">
+                            Already used on {linkedDomain.domainName}
+                          </span>
+                        ) : (
+                          <span className="acn-page-picker__option-id block truncate">{page.id}</span>
+                        )}
+                      </span>
+                      {isLocked ? (
+                        <span className="acn-page-picker__status acn-page-picker__status--in-use">In use</span>
+                      ) : (
+                        <span
+                          className={`acn-page-picker__status acn-page-picker__status--${page.status.toLowerCase()}`}
+                        >
+                          {page.status}
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })
+            )}
+          </ul>
+
+          <p className="acn-page-picker__footer">
+            {availableCount} available · Showing {filteredPages.length} of {pages.length}
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function statusBadge(domain: CustomDomain) {
@@ -60,8 +230,10 @@ export default function CustomDomainsScreen({
   onReload,
   onConnectDomain,
   onVerifyDomain,
-  onDeleteDomain
+  onDeleteDomain,
+  onEditPage
 }: CustomDomainsScreenProps) {
+  const navigate = useNavigate();
   const [isAdding, setIsAdding] = useState(false);
   const [domainName, setDomainName] = useState("");
   const [pageId, setPageId] = useState("");
@@ -79,10 +251,28 @@ export default function CustomDomainsScreen({
     return domains.filter((domain) => !query || domain.domainName.includes(query));
   }, [domains, searchQuery]);
 
+  const linkedDomainsByPageId = useMemo(() => {
+    const map = new Map<string, CustomDomain>();
+    for (const domain of domains) {
+      if (domain.pageId) map.set(domain.pageId, domain);
+    }
+    return map;
+  }, [domains]);
+
+  const firstAvailablePageId = useMemo(() => {
+    return pages.find((page) => !linkedDomainsByPageId.has(page.id))?.id || "";
+  }, [pages, linkedDomainsByPageId]);
+
   const triggerToast = (message: string) => {
     setToast(message);
     window.setTimeout(() => setToast(null), 3500);
   };
+
+  React.useEffect(() => {
+    if (!isAdding) return;
+    document.body.classList.add("acn-connect-domain-modal-open");
+    return () => document.body.classList.remove("acn-connect-domain-modal-open");
+  }, [isAdding]);
 
   const copy = async (key: string, value: string) => {
     try {
@@ -96,7 +286,7 @@ export default function CustomDomainsScreen({
 
   const resetForm = () => {
     setDomainName("");
-    setPageId(pages[0]?.id || "");
+    setPageId(firstAvailablePageId);
     setFormError("");
   };
 
@@ -114,6 +304,14 @@ export default function CustomDomainsScreen({
     }
     if (!pageId) {
       setFormError("Choose which published page should open when someone visits this address.");
+      return;
+    }
+    const linkedDomain = linkedDomainsByPageId.get(pageId);
+    if (linkedDomain) {
+      const pageTitle = pages.find((page) => page.id === pageId)?.title || "This page";
+      const message = `"${pageTitle}" is already connected to ${linkedDomain.domainName}. Each page can only use one custom domain.`;
+      setFormError(message);
+      window.alert(message);
       return;
     }
     setFormError("");
@@ -154,6 +352,26 @@ export default function CustomDomainsScreen({
     const page = pages.find((item) => item.id === domain.pageId);
     await syncLocalPageDocumentToServer(domain.pageId, page?.slug);
     window.open(`https://${domain.domainName}`, "_blank", "noopener,noreferrer");
+  };
+
+  const editLinkedPage = (domain: CustomDomain, event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.nativeEvent.stopImmediatePropagation();
+
+    const page = pages.find((item) => item.id === domain.pageId);
+    if (!page) {
+      triggerToast("Linked page not found. Refresh and try again.");
+      return;
+    }
+
+    const params = new URLSearchParams({
+      edit: domain.pageId,
+      source: "domain"
+    });
+    navigate(`${screenToPath(ScreenId.BIO_PAGES)}?${params.toString()}`);
+    onEditPage(domain.pageId, { fromCustomDomain: true });
+    triggerToast(`Opening Bio Pages editor for "${page.title}". Publish to update ${domain.domainName}.`);
   };
 
   const verifyAndSync = async (domain: CustomDomain) => {
@@ -282,7 +500,7 @@ export default function CustomDomainsScreen({
                       </p>
                     )}
                   </div>
-                  <div className="flex flex-wrap items-center gap-1">
+                  <div className="flex flex-wrap items-center gap-1 shrink-0">
                     <button
                       type="button"
                       onClick={() => setDnsHelpDomain(domain)}
@@ -300,11 +518,25 @@ export default function CustomDomainsScreen({
                     >
                       <RefreshCw className={`h-4 w-4 ${verifyingId === domain.id ? "animate-spin" : ""}`} />
                     </button>
+                    {isDomainLive(domain) && (
+                      <button
+                        type="button"
+                        onClick={(event) => editLinkedPage(domain, event)}
+                        className="rounded-lg p-2 text-slate-500 hover:bg-indigo-50 hover:text-indigo-700"
+                        title={`Edit Bio Page for ${domain.domainName}`}
+                      >
+                        <Edit3 className="h-4 w-4" />
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => void openLiveWebsite(domain)}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        void openLiveWebsite(domain);
+                      }}
                       className="rounded-lg p-2 text-slate-500 hover:bg-indigo-50 hover:text-indigo-700"
-                      title="Open website (syncs latest edits first)"
+                      title="Open live website in a new tab"
                     >
                       <ExternalLink className="h-4 w-4" />
                     </button>
@@ -330,68 +562,80 @@ export default function CustomDomainsScreen({
         </Workspace>
       </SectionCard>
 
-      {isAdding && (
-        <div className="acn-modal-backdrop">
-          <div className="acn-modal-panel max-w-md">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold">Connect Your Own Website Address</h3>
-              <button type="button" onClick={() => setIsAdding(false)} disabled={isSubmitting}>
+      {isAdding &&
+        createPortal(
+        <div className="acn-modal-backdrop acn-workflow-modal-backdrop">
+          <div className="acn-modal-panel acn-workflow-modal acn-workflow-modal--domain animate-in fade-in zoom-in-95 duration-200">
+            <div className="acn-workflow-modal__accent" aria-hidden />
+            <header className="acn-workflow-modal__header">
+              <div className="acn-workflow-modal__brand">
+                <div className="acn-workflow-modal__icon acn-workflow-modal__icon--domain">
+                  <Globe />
+                </div>
+                <div className="acn-workflow-modal__titles">
+                  <h3 className="acn-workflow-modal__title">Connect Your Own Website Address</h3>
+                  <p className="acn-workflow-modal__subtitle">
+                    Use your brand domain (e.g. links.yourbrand.com) instead of the default ACN Link URL.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAdding(false)}
+                disabled={isSubmitting}
+                className="acn-workflow-modal__close"
+                aria-label="Close"
+              >
                 <X className="h-5 w-5" />
               </button>
-            </div>
-            <p className="mt-2 text-sm text-slate-500 leading-relaxed">
-              Use your brand domain (e.g. links.yourbrand.com) instead of the default ACN Link URL.
-            </p>
-            <form onSubmit={submit} className="mt-5 space-y-6">
-              <label className="block text-xs font-bold text-slate-700">
-                Your website address (domain)
+            </header>
+
+            <form onSubmit={submit} className="acn-workflow-modal__form">
+              <div className="acn-workflow-modal__field">
+                <label className="acn-workflow-modal__label" htmlFor="connect-domain-name">
+                  Your website address (domain)
+                </label>
                 <input
+                  id="connect-domain-name"
                   autoFocus
                   value={domainName}
                   onChange={(event) => setDomainName(event.target.value)}
                   placeholder="e.g. links.yourbrand.com"
-                  className="acn-input mt-1.5"
+                  className="acn-workflow-modal__input"
                 />
-                <span className="mt-1 block text-[11px] font-normal text-slate-500">
+                <p className="acn-workflow-modal__hint">
                   The address you own or bought from GoDaddy, Namecheap, Cloudflare, etc.
-                </span>
-              </label>
-              <label className="block text-xs font-bold text-slate-700">
-                Which published page should open on this address?
-                <select
-                  value={pageId}
-                  onChange={(event) => setPageId(event.target.value)}
-                  className="acn-input mt-1.5"
-                >
-                  <option value="">Choose your live page</option>
-                  {pages.map((page) => (
-                    <option key={page.id} value={page.id}>
-                      {page.title} ({page.status})
-                    </option>
-                  ))}
-                </select>
-                <span className="mt-1 block text-[11px] font-normal text-slate-500">
-                  When someone visits your domain, this published page will open.
-                </span>
-              </label>
-              <div className="acn-banner-info text-xs">
-                Next step: we will show exactly what to add in your domain settings (DNS). Usually
-                takes 5–10 minutes after you save the record.
+                </p>
               </div>
-              {formError && <p className="text-xs font-medium text-rose-600">{formError}</p>}
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsAdding(false)}
-                  disabled={isSubmitting}
-                  className="acn-btn-secondary"
-                >
-                  Cancel
-                </button>
+
+              <div className="acn-workflow-modal__field">
+                <span className="acn-workflow-modal__label">
+                  Which published page should open on this address?
+                </span>
+                <SearchablePagePicker
+                  pages={pages}
+                  value={pageId}
+                  onChange={setPageId}
+                  linkedDomainsByPageId={linkedDomainsByPageId}
+                />
+                <p className="acn-workflow-modal__hint">
+                  Search by page name or ID. Pages already on another custom domain show{" "}
+                  <strong>In use</strong> and cannot be selected again.
+                </p>
+              </div>
+
+              <div className="acn-workflow-modal__note">
+                Next step: we will show exactly what to add in your domain settings (DNS). Usually takes
+                5–10 minutes after you save the record.
+              </div>
+
+              {formError && <p className="acn-workflow-modal__error">{formError}</p>}
+
+              <div className="acn-workflow-modal__actions">
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="acn-btn-chip disabled:opacity-60"
+                  className="acn-workflow-modal__submit acn-btn-accent disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
                   Connect This Address
@@ -399,7 +643,8 @@ export default function CustomDomainsScreen({
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {dnsHelpDomain && (

@@ -26,6 +26,9 @@ import { isValidHostname, normaliseHostname } from "../storage/publishStorage";
 import { syncLocalPageDocumentToServer } from "../storage/bioBuilderStorage";
 import { fetchCustomDomainPlatformConfig } from "../lib/domainApi";
 import { buildDnsInstructions } from "../lib/customDomainDns";
+import CustomDomainPlatformPanel from "./customDomains/CustomDomainPlatformPanel";
+import CustomDomainProgressSteps from "./customDomains/CustomDomainProgressSteps";
+import CustomDomainSetupGuide from "./customDomains/CustomDomainSetupGuide";
 import PageShell, { PageHeader, SectionCard, Workspace } from "./layout/PageShell";
 
 interface CustomDomainsScreenProps {
@@ -256,12 +259,25 @@ export default function CustomDomainsScreen({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [platformConfig, setPlatformConfig] = useState<CustomDomainPlatformConfig | null>(null);
+  const [platformConfigLoading, setPlatformConfigLoading] = useState(true);
+  const [platformConfigError, setPlatformConfigError] = useState<string | null>(null);
+
+  const loadPlatformConfig = React.useCallback(async () => {
+    setPlatformConfigLoading(true);
+    setPlatformConfigError(null);
+    try {
+      setPlatformConfig(await fetchCustomDomainPlatformConfig());
+    } catch (error) {
+      setPlatformConfig(null);
+      setPlatformConfigError(error instanceof Error ? error.message : "Could not load domain settings.");
+    } finally {
+      setPlatformConfigLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    fetchCustomDomainPlatformConfig()
-      .then(setPlatformConfig)
-      .catch(() => setPlatformConfig(null));
-  }, []);
+    void loadPlatformConfig();
+  }, [loadPlatformConfig]);
 
   const filteredDomains = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -276,9 +292,25 @@ export default function CustomDomainsScreen({
     return map;
   }, [domains]);
 
+  const verifiedCount = useMemo(
+    () => domains.filter((domain) => domain.status === "Verified").length,
+    [domains]
+  );
+
+  const pendingCount = useMemo(
+    () => domains.filter((domain) => !isDomainLive(domain)).length,
+    [domains]
+  );
+
   const firstAvailablePageId = useMemo(() => {
     return pages.find((page) => !linkedDomainsByPageId.has(page.id))?.id || "";
   }, [pages, linkedDomainsByPageId]);
+
+  React.useEffect(() => {
+    if (!pageId && firstAvailablePageId) {
+      setPageId(firstAvailablePageId);
+    }
+  }, [firstAvailablePageId, pageId]);
 
   const triggerToast = (message: string) => {
     setToast(message);
@@ -438,39 +470,24 @@ export default function CustomDomainsScreen({
         }
       />
 
-      <div className="acn-banner-info">
-        <p className="font-bold">How it works — self-serve for every user</p>
-        {platformConfig?.selfServeEnabled ? (
+      <CustomDomainPlatformPanel
+        config={platformConfig}
+        loading={platformConfigLoading}
+        error={platformConfigError}
+        domains={domains}
+        onRetry={() => void loadPlatformConfig()}
+      />
+
+      {platformConfig && !platformConfigLoading && (
+        <div className="acn-banner-info">
+          <p className="font-bold">End-user flow (production)</p>
           <ol className="mt-2 list-decimal space-y-1 pl-5 text-indigo-800">
-            <li>Click <strong>Connect Domain</strong> and enter your address (e.g. links.yourbrand.com).</li>
-            <li>
-              At GoDaddy, Namecheap, Cloudflare, or any DNS provider, add one CNAME pointing to{" "}
-              <code className="font-mono text-xs">{platformConfig.cnameTarget}</code>.
-            </li>
-            <li>Click <strong>Check DNS and SSL</strong>. HTTPS is issued automatically — no manual Cloudflare setup.</li>
+            {platformConfig.steps.map((step, index) => (
+              <li key={index}>{step}</li>
+            ))}
           </ol>
-        ) : (
-          <div className="mt-2 space-y-2 text-indigo-800">
-            <ol className="list-decimal space-y-1 pl-5">
-              <li>Click <strong>Connect Domain</strong> and pick your published page.</li>
-              <li>
-                Add a CNAME at your DNS provider →{" "}
-                <code className="font-mono text-xs">
-                  {platformConfig?.cnameTarget || "domains.acnlink.mindflo.today"}
-                </code>
-                .
-              </li>
-              <li>Click <strong>Check DNS and SSL</strong> after DNS propagates.</li>
-            </ol>
-            <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-              Platform automatic SSL is not enabled yet. Your administrator must set{" "}
-              <code className="font-mono">CLOUDFLARE_API_TOKEN</code> and{" "}
-              <code className="font-mono">CLOUDFLARE_ZONE_ID</code> on Railway so every customer can connect
-              without manual Cloudflare work per domain.
-            </p>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {loadError && (
         <div className="acn-banner-error">
@@ -481,22 +498,24 @@ export default function CustomDomainsScreen({
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="acn-glass-card p-4">
           <p className="text-[10px] font-bold uppercase text-slate-400">Total</p>
           <p className="mt-1 text-2xl font-black">{domains.length}</p>
         </div>
         <div className="acn-glass-card p-4">
-          <p className="text-[10px] font-bold uppercase text-slate-400">Live</p>
-          <p className="mt-1 text-2xl font-black text-emerald-600">
+          <p className="text-[10px] font-bold uppercase text-slate-400">HTTPS Verified</p>
+          <p className="mt-1 text-2xl font-black text-emerald-600">{verifiedCount}</p>
+        </div>
+        <div className="acn-glass-card p-4">
+          <p className="text-[10px] font-bold uppercase text-slate-400">DNS Live</p>
+          <p className="mt-1 text-2xl font-black text-sky-600">
             {domains.filter((domain) => isDomainLive(domain)).length}
           </p>
         </div>
         <div className="acn-glass-card p-4">
           <p className="text-[10px] font-bold uppercase text-slate-400">Pending</p>
-          <p className="mt-1 text-2xl font-black text-amber-600">
-            {domains.filter((domain) => !isDomainLive(domain)).length}
-          </p>
+          <p className="mt-1 text-2xl font-black text-amber-600">{pendingCount}</p>
         </div>
       </div>
 
@@ -520,15 +539,11 @@ export default function CustomDomainsScreen({
             <Loader2 className="h-4 w-4 animate-spin" /> Loading domains…
           </div>
         ) : filteredDomains.length === 0 ? (
-          <div className="p-6 text-center">
-            <Globe className="mx-auto h-10 w-10 text-indigo-400" />
-            <h3 className="mt-3 font-bold">No custom domains connected</h3>
-            <p className="mt-1 text-sm text-slate-500">
-              {pages.length
-                ? "Use your own address like links.yourbrand.com so visitors see your brand, not acnlink.mindflo.today."
-                : "Publish a website first, then come back here to connect your own domain."}
-            </p>
-          </div>
+          <CustomDomainSetupGuide
+            config={platformConfig}
+            hasPages={pages.length > 0}
+            onConnect={openAdd}
+          />
         ) : (
           <div className="divide-y">
             {filteredDomains.map((domain) => (
@@ -553,6 +568,12 @@ export default function CustomDomainsScreen({
                         {domain.setupHint || domain.errorMessage}
                       </p>
                     )}
+                    <CustomDomainProgressSteps
+                      domain={domain}
+                      onDnsSetup={() => setDnsHelpDomain(domain)}
+                      onVerify={() => void verify(domain)}
+                      onOpenLive={() => void openLiveWebsite(domain)}
+                    />
                   </div>
                   <div className="flex flex-wrap items-center gap-1 shrink-0">
                     <button
@@ -681,7 +702,7 @@ export default function CustomDomainsScreen({
               <div className="acn-workflow-modal__note">
                 Next step: add one CNAME at your DNS provider pointing to{" "}
                 <code className="font-mono text-xs">
-                  {platformConfig?.cnameTarget || "domains.acnlink.mindflo.today"}
+                  {platformConfig?.cnameTarget || "acnlink.mindflo.today"}
                 </code>
                 . {platformConfig?.selfServeEnabled ? "HTTPS is automatic." : "Then verify here."}
               </div>

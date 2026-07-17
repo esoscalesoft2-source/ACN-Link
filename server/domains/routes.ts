@@ -9,7 +9,6 @@ import {
   registerCustomHostname,
   type ProviderHostname
 } from "./cloudflare";
-import { getCustomDomainPlatformConfig } from "./platformConfig";
 import { verifyDomainDns, verifyHostnameReachability } from "./dns";
 import {
   createDomain,
@@ -139,7 +138,29 @@ export function createDomainsRouter() {
   const router = Router();
 
   router.get("/config", (_req, res: Response) => {
-    res.json(getCustomDomainPlatformConfig());
+    const saasConfigured = isCloudflareForSaasConfigured();
+    const cnameTarget =
+      process.env.CUSTOM_DOMAIN_CNAME_TARGET?.trim() || "acnlink.mindflo.today";
+    res.json({
+      provider: saasConfigured ? "cloudflare" : "manual",
+      cnameTarget,
+      selfServeEnabled: saasConfigured,
+      sslAutomatic: saasConfigured,
+      workerRequired: !saasConfigured,
+      cloudflareEnvConfigured: saasConfigured,
+      steps: saasConfigured
+        ? [
+            "Connect your hostname in ACN Link and pick the published page.",
+            `At your DNS provider, create a CNAME: your subdomain → ${cnameTarget}.`,
+            "Return here and click Check DNS and SSL. HTTPS is issued automatically."
+          ]
+        : [
+            "Connect your hostname in ACN Link and pick the published page.",
+            `At your DNS provider, create a CNAME: your subdomain → ${cnameTarget}.`,
+            "Click Check DNS and SSL after DNS propagates.",
+            "Platform automatic SSL must be enabled by your administrator for all users to go live without manual Cloudflare setup."
+          ]
+    });
   });
 
   router.use(requireAuth);
@@ -206,7 +227,7 @@ export function createDomainsRouter() {
 
     const provider = isCloudflareForSaasConfigured() ? "cloudflare" : "manual";
     const dnsTarget =
-      process.env.CUSTOM_DOMAIN_CNAME_TARGET?.trim() || "acnlink.mindflo.today";
+      process.env.CUSTOM_DOMAIN_CNAME_TARGET?.trim() || "domains.acnlink.mindflo.today";
 
     try {
       let record = await createDomain({

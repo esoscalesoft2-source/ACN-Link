@@ -72,12 +72,8 @@ Create a **scoped token** (never use the Global API Key).
 |--------|--------|
 | Token name | `ACN Link Custom Hostnames` |
 | Permissions | **Zone** → **SSL and Certificates** → **Edit** |
+| Permissions | **Zone** → **Custom Hostnames** → **Edit** (if listed) |
 | Zone Resources | **Include** → **Specific zone** → **mindflo.today** |
-
-> **Note:** Cloudflare’s token UI usually does **not** list a separate
-> **Custom Hostnames** permission. That is normal. Custom Hostnames API
-> (`/zones/.../custom_hostnames`) is covered by **SSL and Certificates → Edit**.
-> Do not add a second permission unless Cloudflare shows it on your account.
 
 5. Click **Continue to summary** → **Create Token**.
 6. **Copy the token immediately** (shown once only). It looks like a long random string.
@@ -88,17 +84,11 @@ Create a **scoped token** (never use the Global API Key).
 
 Store it only in **Railway Variables** (or local `.env` for dev). Never commit to git or put in Vercel/browser code.
 
-**Test the token (optional):** after saving on Railway, redeploy and open (no login required):
+**Test the token (optional):** after saving on Railway, redeploy and open:
 
 `https://acnlink.mindflo.today/api/domains/config`
 
-or
-
-`https://acnlink.mindflo.today/api/health` → check the `customDomains` object.
-
 You should see `"provider": "cloudflare"` and `"selfServeEnabled": true`.
-
-If you see `{"error":"Unauthorized","code":"NO_TOKEN"}`, the latest server code is not deployed yet — redeploy Railway from the latest git push.
 
 ---
 

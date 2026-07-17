@@ -172,6 +172,7 @@ export interface CustomDomainPlatformConfig {
   selfServeEnabled: boolean;
   sslAutomatic: boolean;
   workerRequired: boolean;
+  cloudflareEnvConfigured?: boolean;
   steps: string[];
 }
 

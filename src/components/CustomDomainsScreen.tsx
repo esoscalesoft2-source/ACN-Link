@@ -6,22 +6,39 @@ import { ScreenId } from "../types";
 import {
   AlertCircle,
   CheckCircle,
+  ChevronDown,
   Clock,
   Edit3,
   ExternalLink,
   Globe,
   HelpCircle,
   Loader2,
-  Plus,
+  PlugZap,
   RefreshCw,
-  Trash2
+  Trash2,
+  Wifi,
+  WifiOff
 } from "lucide-react";
 import type { BioPage, CustomDomain, CustomDomainPlatformConfig } from "../types";
 import { syncLocalPageDocumentToServer } from "../storage/bioBuilderStorage";
-import { fetchCustomDomainPlatformConfig } from "../lib/domainApi";
+import {
+  fetchCustomDomainPlatformConfig,
+  testDomainConnection,
+  type DomainConnectionTest
+} from "../lib/domainApi";
 import { buildDnsRecordSet } from "../lib/customDomainDns";
+import {
+  canOpenCustomDomainInBrowser,
+  domainStatusTone,
+  getDomainConnectionLabel,
+  getDomainConnectionState,
+  getDomainStatusLabel,
+  isCustomDomainPublicReady,
+  isDomainDnsLinked
+} from "../lib/customDomainStatus";
 import ConnectDomainWizard from "./customDomains/ConnectDomainWizard";
 import CustomDomainSetupGuide from "./customDomains/CustomDomainSetupGuide";
+import DomainDnsPanel from "./customDomains/DomainDnsPanel";
 import RemoveDomainDialog from "./customDomains/RemoveDomainDialog";
 import PageShell, { PageHeader, SectionCard, Workspace } from "./layout/PageShell";
 
@@ -37,27 +54,51 @@ interface CustomDomainsScreenProps {
   onEditPage: (pageId: string, options?: { fromCustomDomain?: boolean }) => void;
 }
 
-function isDomainLive(domain: CustomDomain) {
-  return domain.status === "Verified" || domain.status === "DNS Verified" || domain.status === "Provisioning SSL";
+function ConnectionIndicator({ domain }: { domain: CustomDomain }) {
+  const state = getDomainConnectionState(domain);
+  const label = getDomainConnectionLabel(domain);
+  const Icon = state === "live" ? Wifi : state === "connecting" ? Clock : WifiOff;
+
+  return (
+    <span className={`acn-domains-lovable__connection acn-domains-lovable__connection--${state}`}>
+      <Icon className="h-3.5 w-3.5" />
+      {label}
+    </span>
+  );
+}
+
+function ConnectionTestResult({ test }: { test: DomainConnectionTest }) {
+  return (
+    <div className={`acn-domains-lovable__test-result acn-domains-lovable__test-result--${test.connectionState}`}>
+      <p className="acn-domains-lovable__test-result-summary">{test.summary}</p>
+      <ul className="acn-domains-lovable__test-result-checks">
+        <li className={test.dnsVerified ? "is-ok" : "is-bad"}>
+          DNS {test.dnsVerified ? "OK" : "not ready"} — {test.dnsMessage}
+        </li>
+        <li className={test.servesAcn ? "is-ok" : test.dnsVerified ? "is-warn" : "is-bad"}>
+          ACN Link {test.servesAcn ? "reachable" : "not reachable yet"}
+        </li>
+        {!test.sslAutomatic && test.dnsVerified && !test.servesAcn && (
+          <li className="is-warn">Automatic SSL is not configured on the platform — DNS must route traffic to ACN Link.</li>
+        )}
+      </ul>
+      {test.nextStep && <p className="acn-domains-lovable__test-result-next">{test.nextStep}</p>}
+    </div>
+  );
 }
 
 function statusBadge(domain: CustomDomain) {
+  const tone = domainStatusTone(domain);
   const verified = domain.status === "Verified";
   const failed = domain.status === "Error" || domain.providerStatus === "error";
   const provisioning = domain.status === "Provisioning SSL";
   const pending = domain.status === "Pending DNS";
-  const Icon = verified ? CheckCircle : failed ? AlertCircle : provisioning || pending ? Loader2 : Clock;
-  const colors = verified
-    ? "bg-emerald-50 text-emerald-700"
-    : failed
-      ? "bg-rose-50 text-rose-700"
-      : provisioning
-        ? "bg-sky-50 text-sky-700"
-        : "bg-amber-50 text-amber-700";
+  const dnsVerified = domain.status === "DNS Verified";
+  const Icon = verified ? CheckCircle : failed ? AlertCircle : provisioning || pending ? Loader2 : dnsVerified ? Clock : Clock;
   return (
-    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${colors}`}>
+    <span className={`acn-domains-lovable__status acn-domains-lovable__status--${tone}`}>
       <Icon className={`h-3.5 w-3.5 ${provisioning || pending ? "animate-spin" : ""}`} />
-      {domain.status}
+      {getDomainStatusLabel(domain)}
     </span>
   );
 }
@@ -82,6 +123,9 @@ export default function CustomDomainsScreen({
   const [toast, setToast] = useState<{ message: string; tone?: "ok" | "error" } | null>(null);
   const [platformConfig, setPlatformConfig] = useState<CustomDomainPlatformConfig | null>(null);
   const [platformConfigLoading, setPlatformConfigLoading] = useState(true);
+  const [expandedDnsIds, setExpandedDnsIds] = useState<Set<string>>(new Set());
+  const [testingId, setTestingId] = useState<string | null>(null);
+  const [connectionTests, setConnectionTests] = useState<Record<string, DomainConnectionTest>>({});
 
   const loadPlatformConfig = React.useCallback(async () => {
     setPlatformConfigLoading(true);
@@ -121,7 +165,34 @@ export default function CustomDomainsScreen({
 
   const pageName = (id: string) => pages.find((page) => page.id === id)?.title || "Bio page";
 
+  const domainStats = useMemo(() => {
+    let live = 0;
+    let connecting = 0;
+    let offline = 0;
+    for (const domain of domains) {
+      const state = getDomainConnectionState(domain);
+      if (state === "live") live += 1;
+      else if (state === "connecting") connecting += 1;
+      else offline += 1;
+    }
+    return { total: domains.length, live, connecting, offline };
+  }, [domains]);
+
+  const toggleDnsPanel = (domainId: string) => {
+    setExpandedDnsIds((current) => {
+      const next = new Set(current);
+      if (next.has(domainId)) next.delete(domainId);
+      else next.add(domainId);
+      return next;
+    });
+  };
+
   const openLiveWebsite = async (domain: CustomDomain) => {
+    if (!canOpenCustomDomainInBrowser(domain)) {
+      triggerToast("Verify DNS first — Open is available after DNS is verified.", "error");
+      return;
+    }
+
     const page = pages.find((item) => item.id === domain.pageId);
     await syncLocalPageDocumentToServer(domain.pageId, page?.slug);
     window.open(`https://${domain.domainName}`, "_blank", "noopener,noreferrer");
@@ -138,6 +209,28 @@ export default function CustomDomainsScreen({
     onEditPage(domain.pageId, { fromCustomDomain: true });
   };
 
+  const testConnection = async (domain: CustomDomain) => {
+    setTestingId(domain.id);
+    try {
+      const page = pages.find((item) => item.id === domain.pageId);
+      await syncLocalPageDocumentToServer(domain.pageId, page?.slug);
+      const { test, domain: updated } = await testDomainConnection(domain.id);
+      setConnectionTests((current) => ({ ...current, [domain.id]: test }));
+      await onReload();
+      if (updated.status === "Verified") {
+        triggerToast(`${updated.domainName} is live — connection OK.`, "ok");
+      } else if (test.connectionState === "connecting") {
+        triggerToast(`${updated.domainName}: DNS OK, waiting for traffic to reach ACN Link.`, "error");
+      } else {
+        triggerToast(test.nextStep || test.summary, "error");
+      }
+    } catch (error) {
+      triggerToast(error instanceof Error ? error.message : "Connection test failed.", "error");
+    } finally {
+      setTestingId(null);
+    }
+  };
+
   const verifyDomain = async (domain: CustomDomain) => {
     setVerifyingId(domain.id);
     try {
@@ -146,7 +239,7 @@ export default function CustomDomainsScreen({
       const updated = await onVerifyDomain(domain.id);
       if (updated.status === "Verified") {
         triggerToast(`${updated.domainName} is live with HTTPS.`);
-      } else if (isDomainLive(updated)) {
+      } else if (isDomainDnsLinked(updated)) {
         triggerToast(`${updated.domainName} DNS verified. SSL may take a few minutes.`);
       } else {
         triggerToast(updated.setupHint || updated.errorMessage || "DNS not detected yet.", "error");
@@ -224,6 +317,14 @@ export default function CustomDomainsScreen({
               <div>
                 <h3 className="acn-domains-lovable__heading">Connected domains</h3>
                 <p className="acn-domains-lovable__desc">View, verify, or remove domains linked to your bio pages.</p>
+                {domains.length > 0 && (
+                  <p className="acn-domains-lovable__stats">
+                    {domainStats.total} domain{domainStats.total === 1 ? "" : "s"} ·{" "}
+                    <span className="acn-domains-lovable__stats-live">{domainStats.live} live</span> ·{" "}
+                    <span className="acn-domains-lovable__stats-connecting">{domainStats.connecting} connecting</span> ·{" "}
+                    <span className="acn-domains-lovable__stats-offline">{domainStats.offline} offline</span>
+                  </p>
+                )}
               </div>
             </div>
 
@@ -249,18 +350,30 @@ export default function CustomDomainsScreen({
                       cnameTarget: platformConfig.cnameTarget,
                       platformUrl: platformConfig.platformUrl
                     });
+                  const dnsExpanded = expandedDnsIds.has(domain.id);
+                  const publicReady = isCustomDomainPublicReady(domain);
+                  const canOpen = canOpenCustomDomainInBrowser(domain);
+                  const dnsLinked = isDomainDnsLinked(domain);
+                  const connectionTest = connectionTests[domain.id];
                   return (
                     <li key={domain.id} className="acn-domains-lovable__row">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => void openLiveWebsite(domain)}
-                            className="font-bold text-slate-950 hover:text-indigo-600 hover:underline"
-                            title="Open website"
-                          >
-                            {domain.domainName}
-                          </button>
+                          {canOpen ? (
+                            <button
+                              type="button"
+                              onClick={() => void openLiveWebsite(domain)}
+                              className={`acn-domains-lovable__domain-name ${
+                                publicReady ? "acn-domains-lovable__domain-name--live" : "acn-domains-lovable__domain-name--open"
+                              }`}
+                              title="Open website in new tab"
+                            >
+                              {domain.domainName}
+                            </button>
+                          ) : (
+                            <span className="acn-domains-lovable__domain-name">{domain.domainName}</span>
+                          )}
+                          <ConnectionIndicator domain={domain} />
                           {statusBadge(domain)}
                         </div>
                         <p className="mt-1 text-xs text-slate-500">
@@ -270,39 +383,56 @@ export default function CustomDomainsScreen({
                         {(domain.setupHint || domain.errorMessage) && (
                           <p
                             className={`mt-1 text-xs ${
-                              domain.errorMessage && !isDomainLive(domain) ? "text-rose-600" : "text-slate-600"
+                              domain.errorMessage && !dnsLinked ? "text-rose-600" : "text-slate-600"
                             }`}
                           >
                             {domain.setupHint || domain.errorMessage}
                           </p>
                         )}
+                        {dnsSet && (
+                          <div className="mt-2">
+                            <button
+                              type="button"
+                              onClick={() => toggleDnsPanel(domain.id)}
+                              className="acn-domains-lovable__dns-toggle"
+                              aria-expanded={dnsExpanded}
+                            >
+                              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${dnsExpanded ? "rotate-180" : ""}`} />
+                              {dnsExpanded ? "Hide DNS" : "Show DNS"}
+                            </button>
+                            {dnsExpanded && (
+                              <DomainDnsPanel records={dnsSet.records} aRecordTarget={platformConfig!.aRecordTarget} />
+                            )}
+                          </div>
+                        )}
+                        {connectionTest && <ConnectionTestResult test={connectionTest} />}
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
-                        {!isDomainLive(domain) && (
-                          <>
-                            <button
-                              type="button"
-                              title="View DNS records"
-                              onClick={() => {
-                                setResumeDomain(domain);
-                                setWizardOpen(true);
-                              }}
-                              className="acn-domains-lovable__icon-btn"
-                            >
-                              <Globe className="h-4 w-4" />
-                            </button>
-                            <button
-                              type="button"
-                              title="Verify DNS"
-                              disabled={verifyingId === domain.id}
-                              onClick={() => void verifyDomain(domain)}
-                              className="acn-domains-lovable__icon-btn"
-                            >
-                              <RefreshCw className={`h-4 w-4 ${verifyingId === domain.id ? "animate-spin" : ""}`} />
-                            </button>
-                          </>
+                        <button
+                          type="button"
+                          title="Test connection"
+                          disabled={testingId === domain.id || verifyingId === domain.id}
+                          onClick={() => void testConnection(domain)}
+                          className="acn-domains-lovable__icon-btn"
+                        >
+                          {testingId === domain.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <PlugZap className="h-4 w-4" />
+                          )}
+                        </button>
+                        {!publicReady && (
+                          <button
+                            type="button"
+                            title="Verify DNS"
+                            disabled={verifyingId === domain.id}
+                            onClick={() => void verifyDomain(domain)}
+                            className="acn-domains-lovable__icon-btn"
+                          >
+                            <RefreshCw className={`h-4 w-4 ${verifyingId === domain.id ? "animate-spin" : ""}`} />
+                          </button>
                         )}
-                        {isDomainLive(domain) && (
+                        {dnsLinked && (
                           <button
                             type="button"
                             title="Edit linked bio page"
@@ -312,14 +442,20 @@ export default function CustomDomainsScreen({
                             <Edit3 className="h-4 w-4" />
                           </button>
                         )}
-                        <button
-                          type="button"
-                          title="Open in new tab"
-                          onClick={() => void openLiveWebsite(domain)}
-                          className="acn-domains-lovable__icon-btn"
-                        >
-                          <ExternalLink className="h-4 w-4" />
-                        </button>
+                        {canOpen && (
+                          <button
+                            type="button"
+                            title="Open website in new tab"
+                            onClick={() => void openLiveWebsite(domain)}
+                            className={`acn-domains-lovable__icon-btn ${
+                              publicReady
+                                ? "acn-domains-lovable__icon-btn--live"
+                                : "acn-domains-lovable__icon-btn--open"
+                            }`}
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </button>
+                        )}
                         <button
                           type="button"
                           title="Remove domain"
@@ -410,36 +546,25 @@ export default function CustomDomainsScreen({
               setResumeDomain(null);
             }}
             onVerify={onVerifyDomain}
-            onComplete={async ({ domainName, pageId, existingDomain }) => {
+            onConnectDomain={onConnectDomain}
+            onFinished={({ domain, connected, pending }) => {
+              if (pending) {
+                setWizardOpen(false);
+                setResumeDomain(null);
+                return;
+              }
+
               setWizardOpen(false);
               setResumeDomain(null);
-              triggerToast(
-                `Connecting domain… Hold on while we are mapping ${domainName} to your project.`
-              );
+              void onReload();
 
-              try {
-                let domain = existingDomain;
-                if (!domain) {
-                  domain = await onConnectDomain(domainName, pageId);
-                }
-
-                const updated = await onVerifyDomain(domain.id);
-                if (isDomainLive(updated)) {
-                  triggerToast(`${domainName} is connected successfully.`);
+              window.setTimeout(() => {
+                if (connected) {
+                  triggerToast(`${domain.domainName} connected successfully.`, "ok");
                 } else {
-                  triggerToast(
-                    "Domain not connected. Check your DNS records and try again.",
-                    "error"
-                  );
+                  triggerToast("Connection failed.", "error");
                 }
-              } catch (error) {
-                triggerToast(
-                  error instanceof Error ? error.message : "Domain not connected.",
-                  "error"
-                );
-              } finally {
-                void onReload();
-              }
+              }, 100);
             }}
           />,
           document.body
@@ -456,9 +581,19 @@ export default function CustomDomainsScreen({
           document.body
         )}
 
-      {toast && (
-        <div className={`acn-toast ${toast.tone === "error" ? "acn-toast--error" : ""}`}>{toast.message}</div>
-      )}
+      {toast &&
+        createPortal(
+          <div
+            className={`acn-toast acn-toast--portal ${
+              toast.tone === "error" ? "acn-toast--error" : toast.tone === "ok" ? "acn-toast--success" : ""
+            }`}
+            role="status"
+            aria-live="polite"
+          >
+            {toast.message}
+          </div>,
+          document.body
+        )}
     </PageShell>
   );
 }

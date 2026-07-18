@@ -1,4 +1,4 @@
-﻿# acncdplan — Custom Domain Reference (Lovable.dev Workflow)
+# acncdplan — Custom Domain Reference (Lovable.dev Workflow)
 
 Reference plan for ACN Link custom domains — **root domain only** (`yourbrand.com`).
 
@@ -40,7 +40,7 @@ See PDF. Covers Lovable Domains UI, wizard, GoDaddy DNS, success/error states.
 ## Production env
 
 ```text
-CUSTOM_DOMAIN_A_TARGET=76.76.21.21
+CUSTOM_DOMAIN_A_TARGET=69.46.46.90
 APP_URL=https://acnlink.mindflo.today
 CLOUDFLARE_ZONE_ID=...
 CLOUDFLARE_API_TOKEN=...

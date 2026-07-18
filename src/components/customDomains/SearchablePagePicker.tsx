@@ -17,6 +17,8 @@ interface SearchablePagePickerProps {
   onChange: (pageId: string) => void;
   linkedDomainsByPageId: Map<string, CustomDomain>;
   placeholder?: string;
+  /** When set, manual selection calls this instead of applying `onChange` immediately. */
+  onSelectAttempt?: (page: BioPage) => void;
 }
 
 export default function SearchablePagePicker({
@@ -24,7 +26,8 @@ export default function SearchablePagePicker({
   value,
   onChange,
   linkedDomainsByPageId,
-  placeholder = "Choose your live page"
+  placeholder = "Choose your live page",
+  onSelectAttempt
 }: SearchablePagePickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -53,6 +56,11 @@ export default function SearchablePagePicker({
       window.alert(
         `"${page.title}" is already connected to ${linkedDomain.domainName}.\n\nEach bio page can only be linked to one custom domain. Remove it from that domain first, or choose a different page.`
       );
+      return;
+    }
+    if (onSelectAttempt) {
+      onSelectAttempt(page);
+      setOpen(false);
       return;
     }
     onChange(page.id);

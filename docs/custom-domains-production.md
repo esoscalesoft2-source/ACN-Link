@@ -9,7 +9,7 @@ APP_URL=https://acnlink.mindflo.today
 API_URL=https://acnlink.mindflo.today
 CORS_ORIGINS=https://acnlink.mindflo.today,https://www.acnlink.mindflo.today
 
-CUSTOM_DOMAIN_A_TARGET=76.76.21.21
+CUSTOM_DOMAIN_A_TARGET=69.46.46.90
 CUSTOM_DOMAIN_CNAME_TARGET=acnlink.mindflo.today
 
 CLOUDFLARE_ZONE_ID=<mindflo.today zone ID>

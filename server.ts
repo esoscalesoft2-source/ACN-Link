@@ -14,6 +14,7 @@ import {
 import { createDomainsRouter } from "./server/domains/routes";
 import { findRoutableDomainByHostname } from "./server/domains/repository";
 import { isCloudflareForSaasConfigured } from "./server/domains/cloudflare";
+import { resolveCnameTarget, resolveCustomDomainATarget } from "./server/domains/hostname";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -78,8 +79,8 @@ app.get("/api/health", (_req, res) => {
     database: storeStatus,
     customDomains: {
       provider: isCloudflareForSaasConfigured() ? "cloudflare" : "manual",
-      aRecordTarget: process.env.CUSTOM_DOMAIN_A_TARGET || "76.76.21.21",
-      cnameTarget: process.env.CUSTOM_DOMAIN_CNAME_TARGET || process.env.APP_URL?.replace(/^https?:\/\//, "").split("/")[0] || "acnlink.mindflo.today",
+      aRecordTarget: resolveCustomDomainATarget(),
+      cnameTarget: process.env.CUSTOM_DOMAIN_CNAME_TARGET?.trim() || resolveCnameTarget(),
       rootDomainOnly: false,
       subdomainSupport: true
     }
@@ -587,6 +588,7 @@ async function startServer() {
   if (!process.env.VERCEL) {
     const server = app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running on http://localhost:${PORT}`);
+      console.log(`[custom-domains] A record target: ${resolveCustomDomainATarget()}`);
     });
     server.on("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "EADDRINUSE") {

@@ -9,13 +9,16 @@ import {
   registerCustomHostname,
   type ProviderHostname
 } from "./cloudflare";
-import { detectDnsProvider, verifyDomainDns, verifyHostnameReachability } from "./dns";
+import { detectDnsProvider, domainServesAcnBio, verifyDomainDns, verifyHostnameReachability } from "./dns";
 import {
   assertSupportedCustomDomain,
   getCustomDomainKind,
   getSubdomainHostLabel,
   normalizeHostname,
-  resolveCnameTarget
+  resolveCnameTarget,
+  resolveCustomDomainATarget,
+  resolvePlatformHostname,
+  sanitizeARecordTarget
 } from "./hostname";
 import {
   createDomain,
@@ -92,18 +95,21 @@ function buildSetupHint(record: CustomDomainRecord, saasConfigured: boolean): st
   }
   if (record.status === "DNS Verified") {
     return saasConfigured
-      ? "DNS is verified. SSL should finish automatically — click Check DNS and SSL again in a minute."
-      : "DNS is verified. Your site can route traffic once platform SSL is enabled for your hostname.";
+      ? "DNS is verified. SSL is still provisioning — click Test Connection in a minute."
+      : "DNS is verified. Click Test Connection — when your domain reaches ACN Link, status becomes Verified.";
   }
   if (record.status === "Pending DNS") {
     const kind = getCustomDomainKind(record.domainName);
     if (kind === "subdomain") {
       const hostLabel = getSubdomainHostLabel(record.domainName);
       const cnameTarget = resolveCnameTarget();
-      return `Add a CNAME record at your DNS provider: Host ${hostLabel} → ${cnameTarget}, then verify here.`;
+      return `Cloudflare DNS: CNAME · Name ${hostLabel} · Target ${cnameTarget} (Proxied). Then click Test.`;
     }
-    const aTarget = process.env.CUSTOM_DOMAIN_A_TARGET?.trim() || "76.76.21.21";
-    return `Add A records at your DNS provider: www → ${aTarget} and @ → ${aTarget}, then verify here.`;
+    const aTarget = resolveCustomDomainATarget();
+    return (
+      `Cloudflare DNS: two A records — Name www → ${aTarget} and Name @ → ${aTarget} (Proxied). ` +
+      `Remove old Hostinger A records. Root domains on Railway also need a Cloudflare Worker (see docs). Then click Test.`
+    );
   }
   return record.errorMessage;
 }
@@ -120,11 +126,75 @@ function providerPatch(provider: ProviderHostname) {
   };
 }
 
-function finalStatus(dnsVerified: boolean, provider?: ProviderHostname): DomainStatus {
+async function resolveFinalStatus(
+  dnsVerified: boolean,
+  domainName: string,
+  provider?: ProviderHostname
+): Promise<DomainStatus> {
   if (!dnsVerified) return "Pending DNS";
-  if (!provider) return "DNS Verified";
-  if (provider.status === "active" && provider.sslStatus === "active") return "Verified";
-  return "Provisioning SSL";
+  if (provider) {
+    if (provider.status === "active" && provider.sslStatus === "active") return "Verified";
+    if (await domainServesAcnBio(domainName)) return "Verified";
+    return "Provisioning SSL";
+  }
+  if (await domainServesAcnBio(domainName)) return "Verified";
+  return "DNS Verified";
+}
+
+export type DomainConnectionTest = {
+  dnsVerified: boolean;
+  dnsMessage: string;
+  servesAcn: boolean;
+  sslAutomatic: boolean;
+  connectionState: "live" | "connecting" | "offline";
+  summary: string;
+  nextStep: string | null;
+};
+
+async function runConnectionTest(domainName: string): Promise<DomainConnectionTest & { checkedAt: string }> {
+  const dns = await verifyDomainDns(domainName);
+  const servesAcn = await domainServesAcnBio(domainName);
+  const sslAutomatic = isCloudflareForSaasConfigured();
+  const checkedAt = dns.checkedAt;
+
+  if (dns.verified && servesAcn) {
+    return {
+      checkedAt,
+      dnsVerified: true,
+      dnsMessage: dns.message,
+      servesAcn: true,
+      sslAutomatic,
+      connectionState: "live",
+      summary: `${domainName} is connected and serving ACN Link.`,
+      nextStep: null
+    };
+  }
+
+  if (dns.verified) {
+    return {
+      checkedAt,
+      dnsVerified: true,
+      dnsMessage: dns.message,
+      servesAcn: false,
+      sslAutomatic,
+      connectionState: "connecting",
+      summary: "DNS records look correct, but this domain does not reach ACN Link yet.",
+      nextStep: sslAutomatic
+        ? "SSL is still provisioning. Wait a few minutes, then Test Connection again."
+        : "Confirm DNS points to ACN (A → platform IP or CNAME → acnlink.mindflo.today) and that traffic reaches our server."
+    };
+  }
+
+  return {
+    checkedAt,
+    dnsVerified: false,
+    dnsMessage: dns.message,
+    servesAcn: false,
+    sslAutomatic,
+    connectionState: "offline",
+    summary: dns.message,
+    nextStep: "Add the DNS records shown under Show DNS, wait 5–15 minutes, then Test Connection."
+  };
 }
 
 export function createDomainsRouter() {
@@ -132,11 +202,8 @@ export function createDomainsRouter() {
 
   router.get("/config", (_req, res: Response) => {
     const saasConfigured = isCloudflareForSaasConfigured();
-    const aRecordTarget =
-      process.env.CUSTOM_DOMAIN_A_TARGET?.trim() || "76.76.21.21";
-    const platformUrl =
-      process.env.APP_URL?.replace(/^https?:\/\//, "").replace(/\/.*$/, "") ||
-      "acnlink.mindflo.today";
+    const aRecordTarget = sanitizeARecordTarget(resolveCustomDomainATarget());
+    const platformUrl = resolvePlatformHostname();
     const cnameTarget = resolveCnameTarget();
     res.json({
       provider: saasConfigured ? "cloudflare" : "manual",
@@ -157,15 +224,15 @@ export function createDomainsRouter() {
       ],
       steps: saasConfigured
         ? [
-            "Click Connect Domain and enter your domain or subdomain (yourbrand.com or studio.yourbrand.com).",
+            "Click Connect Domain, enter your domain, and choose which published bio page should open.",
             "Add the DNS records ACN shows at your provider (A records for root domains, CNAME for subdomains).",
-            "Choose which published bio page should open on that address.",
+            "Confirm records are added, then ACN verifies DNS and issues HTTPS.",
             "Your bio page opens on your address with HTTPS."
           ]
         : [
-            "Click Connect Domain and enter your domain or subdomain (yourbrand.com or studio.yourbrand.com).",
+            "Click Connect Domain, enter your domain, and choose which published bio page should open.",
             "Add the DNS records ACN shows at your provider.",
-            "Choose which published bio page should open on that address.",
+            "Confirm records are added, then ACN verifies DNS automatically.",
             "Automatic HTTPS requires Cloudflare for SaaS (see docs/custom-domains-production.md)."
           ]
     });
@@ -225,6 +292,64 @@ export function createDomainsRouter() {
     }
   });
 
+  router.post("/:id/test-connection", async (req: AuthedRequest, res: Response) => {
+    try {
+      let record = await findDomainById(req.params.id, req.authUser!.id);
+      if (!record) {
+        res.status(404).json({ error: "Domain not found." });
+        return;
+      }
+
+      const test = await runConnectionTest(record.domainName);
+      let providerState: ProviderHostname | undefined;
+
+      if (isCloudflareForSaasConfigured() && record.providerHostnameId) {
+        try {
+          providerState = await getCustomHostname(record.providerHostnameId);
+        } catch {
+          // keep manual reachability result
+        }
+      }
+
+      const status = await resolveFinalStatus(test.dnsVerified, record.domainName, providerState);
+      record = await updateDomain(record.id, req.authUser!.id, {
+        status,
+        dns_verified_at: test.dnsVerified ? test.checkedAt : null,
+        last_checked_at: test.checkedAt,
+        ...(providerState ? providerPatch(providerState) : {}),
+        error_message: test.connectionState === "offline" ? test.dnsMessage : null
+      });
+
+      res.status(200).json({
+        test,
+        domain: publicDomain(record)
+      });
+    } catch (error) {
+      res.status(500).json({ error: errorMessage(error), code: "DOMAIN_TEST_CONNECTION_FAILED" });
+    }
+  });
+
+  router.get("/:id/serves-acn", async (req: AuthedRequest, res: Response) => {
+    try {
+      const record = await findDomainById(req.params.id, req.authUser!.id);
+      if (!record) {
+        res.status(404).json({ error: "Domain not found." });
+        return;
+      }
+
+      const servesAcn = await domainServesAcnBio(record.domainName);
+      const aTarget = resolveCustomDomainATarget();
+      res.json({
+        servesAcn,
+        message: servesAcn
+          ? null
+          : `${record.domainName} still opens another website (not ACN Link). Set @ and www A records to ${aTarget} in Cloudflare, remove duplicate root A records and old Hostinger redirects, then verify again.`
+      });
+    } catch (error) {
+      res.status(500).json({ error: errorMessage(error), code: "DOMAIN_SERVES_ACN_FAILED" });
+    }
+  });
+
   router.post("/", async (req: AuthedRequest, res: Response) => {
     const domainName = normalizeHostname(req.body?.domainName);
     const pageId = String(req.body?.pageId || "").trim();
@@ -265,7 +390,7 @@ export function createDomainsRouter() {
     const dnsTarget =
       kind === "subdomain"
         ? resolveCnameTarget()
-        : process.env.CUSTOM_DOMAIN_A_TARGET?.trim() || "76.76.21.21";
+        : resolveCustomDomainATarget();
 
     try {
       let record = await createDomain({
@@ -353,8 +478,7 @@ export function createDomainsRouter() {
       if (!dnsVerified) {
         dnsVerified = await verifyHostnameReachability(record.domainName);
       }
-      dnsVerified = dnsVerified || providerState?.status === "active";
-      const status = finalStatus(dnsVerified, providerState);
+      const status = await resolveFinalStatus(dnsVerified, record.domainName, providerState);
       record = await updateDomain(record.id, req.authUser!.id, {
         status,
         dns_verified_at: dnsVerified ? dns.checkedAt : null,

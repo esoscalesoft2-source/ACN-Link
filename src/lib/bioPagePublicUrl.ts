@@ -19,12 +19,30 @@ export function getPlatformPublicOrigin(): string {
   return origin;
 }
 
+export function isCustomDomainLinked(domain: CustomDomain): boolean {
+  return (
+    domain.status === "Verified" ||
+    domain.status === "DNS Verified" ||
+    domain.status === "Provisioning SSL"
+  );
+}
+
+/** @deprecated Use isCustomDomainLinked for UI badges or isCustomDomainPublicReady for open/share URLs. */
 export function isCustomDomainLive(domain: CustomDomain): boolean {
-  return domain.status === "Verified" || domain.status === "DNS Verified";
+  return isCustomDomainLinked(domain);
+}
+
+/** Custom domain URL is safe to open only when fully verified on the platform. */
+export function isCustomDomainPublicReady(domain: CustomDomain): boolean {
+  return domain.status === "Verified";
 }
 
 export function findLiveDomainForPage(pageId: string, domains: CustomDomain[]): CustomDomain | null {
-  return domains.find((domain) => domain.pageId === pageId && isCustomDomainLive(domain)) ?? null;
+  return domains.find((domain) => domain.pageId === pageId && isCustomDomainLinked(domain)) ?? null;
+}
+
+export function findPublicReadyDomainForPage(pageId: string, domains: CustomDomain[]): CustomDomain | null {
+  return domains.find((domain) => domain.pageId === pageId && isCustomDomainPublicReady(domain)) ?? null;
 }
 
 export interface BioPagePublicLink {
@@ -35,30 +53,41 @@ export interface BioPagePublicLink {
   /** Short label shown under the page title */
   displayLabel: string;
   kind: "custom" | "platform";
+  /** Custom domain is fully Verified and safe to open on the live domain */
+  publicReady: boolean;
+  /** DNS verified — Open goes to the custom domain URL */
+  canOpen: boolean;
 }
 
 export function resolveBioPagePublicLink(page: BioPage, domains: CustomDomain[] = []): BioPagePublicLink {
-  const liveDomain = findLiveDomainForPage(page.id, domains);
-  if (liveDomain) {
-    const url = `https://${liveDomain.domainName}`;
+  const linkedDomain = findLiveDomainForPage(page.id, domains);
+  const publicReadyDomain = findPublicReadyDomainForPage(page.id, domains);
+  const platformOrigin = getPlatformPublicOrigin();
+  const previewOpenUrl = `${getShareableOrigin()}/?previewPageId=${encodeURIComponent(page.id)}`;
+  const previewShareUrl = `${platformOrigin}/?previewPageId=${encodeURIComponent(page.id)}`;
+  const displayHost = platformOrigin.replace(/^https?:\/\//, "");
+
+  if (linkedDomain) {
+    const customUrl = `https://${linkedDomain.domainName}`;
+    const publicReady = Boolean(publicReadyDomain);
+    const canOpen = isCustomDomainLinked(linkedDomain);
     return {
-      shareUrl: url,
-      openUrl: url,
-      displayLabel: liveDomain.domainName,
-      kind: "custom"
+      shareUrl: publicReady ? customUrl : previewShareUrl,
+      openUrl: canOpen ? customUrl : previewOpenUrl,
+      displayLabel: linkedDomain.domainName,
+      kind: "custom",
+      publicReady,
+      canOpen
     };
   }
 
-  const platformOrigin = getPlatformPublicOrigin();
-  const shareUrl = `${platformOrigin}/?previewPageId=${encodeURIComponent(page.id)}`;
-  const openUrl = `${getShareableOrigin()}/?previewPageId=${encodeURIComponent(page.id)}`;
-  const displayHost = platformOrigin.replace(/^https?:\/\//, "");
-
   return {
-    shareUrl,
-    openUrl,
+    shareUrl: previewShareUrl,
+    openUrl: previewOpenUrl,
     displayLabel: `${displayHost}/?previewPageId=${page.id}`,
-    kind: "platform"
+    kind: "platform",
+    publicReady: true,
+    canOpen: true
   };
 }
 

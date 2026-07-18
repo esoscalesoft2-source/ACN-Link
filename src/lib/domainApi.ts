@@ -1,5 +1,6 @@
 import type { CustomDomain, CustomDomainPlatformConfig } from "../types";
 import { analyzeDomainClient } from "./detectDnsProvider";
+import { sanitizeARecordTarget } from "./customDomainDns";
 import { apiUrl } from "./apiBase";
 import {
   clearAuthSession,
@@ -84,7 +85,12 @@ export async function fetchCustomDomainPlatformConfig(): Promise<CustomDomainPla
       data?.code || "DOMAIN_CONFIG_FAILED"
     );
   }
-  return data as CustomDomainPlatformConfig;
+  const rawTarget = (data as CustomDomainPlatformConfig).aRecordTarget;
+  const sanitizedTarget = sanitizeARecordTarget(rawTarget);
+  return {
+    ...(data as CustomDomainPlatformConfig),
+    aRecordTarget: sanitizedTarget
+  };
 }
 
 export async function fetchDomains(): Promise<CustomDomain[]> {
@@ -144,6 +150,29 @@ export async function connectDomain(domainName: string, pageId: string): Promise
     body: JSON.stringify({ domainName, pageId })
   });
   return result.domain;
+}
+
+export type DomainConnectionTest = {
+  dnsVerified: boolean;
+  dnsMessage: string;
+  servesAcn: boolean;
+  sslAutomatic: boolean;
+  connectionState: "live" | "connecting" | "offline";
+  summary: string;
+  nextStep: string | null;
+};
+
+export async function testDomainConnection(
+  id: string
+): Promise<{ test: DomainConnectionTest; domain: CustomDomain }> {
+  return domainFetch<{ test: DomainConnectionTest; domain: CustomDomain }>(
+    `/api/domains/${id}/test-connection`,
+    { method: "POST" }
+  );
+}
+
+export async function checkDomainServesAcn(id: string): Promise<{ servesAcn: boolean; message: string | null }> {
+  return domainFetch<{ servesAcn: boolean; message: string | null }>(`/api/domains/${id}/serves-acn`);
 }
 
 export async function verifyDomain(id: string): Promise<CustomDomain> {

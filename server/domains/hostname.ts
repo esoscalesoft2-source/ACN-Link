@@ -1,3 +1,24 @@
+/** Default A record target for ACN Link on Railway (override with CUSTOM_DOMAIN_A_TARGET). */
+export const DEFAULT_CUSTOM_DOMAIN_A_TARGET = "69.46.46.90";
+
+/** Lovable/Vercel demo IP — must never be shown to ACN Link customers. */
+export const LOVABLE_DEMO_A_RECORD_TARGET = "76.76.21.21";
+
+const BLOCKED_A_RECORD_TARGETS = new Set([LOVABLE_DEMO_A_RECORD_TARGET]);
+
+export function sanitizeARecordTarget(value: string | undefined | null): string {
+  const trimmed = String(value || "").trim();
+  if (!trimmed || BLOCKED_A_RECORD_TARGETS.has(trimmed)) {
+    if (trimmed && BLOCKED_A_RECORD_TARGETS.has(trimmed)) {
+      console.warn(
+        `[custom-domains] Ignoring demo IP ${trimmed} (Lovable/Vercel). Using ACN Link IP ${DEFAULT_CUSTOM_DOMAIN_A_TARGET}.`
+      );
+    }
+    return DEFAULT_CUSTOM_DOMAIN_A_TARGET;
+  }
+  return trimmed;
+}
+
 export function normalizeHostname(value: unknown): string {
   return String(value || "")
     .trim()
@@ -48,15 +69,27 @@ export function resolveCnameTarget(): string {
   if (explicit) {
     return explicit.replace(/^https?:\/\//, "").split("/")[0];
   }
-  const appUrl = process.env.APP_URL?.trim();
-  if (appUrl) {
+
+  const candidates = [process.env.API_URL, process.env.APP_URL].filter(Boolean);
+  for (const raw of candidates) {
     try {
-      return new URL(appUrl.includes("://") ? appUrl : `https://${appUrl}`).hostname;
+      const hostname = new URL(raw!.includes("://") ? raw! : `https://${raw}`).hostname.toLowerCase();
+      if (hostname && hostname !== "localhost" && !hostname.startsWith("127.")) {
+        return hostname;
+      }
     } catch {
       /* ignore */
     }
   }
   return "acnlink.mindflo.today";
+}
+
+export function resolvePlatformHostname(): string {
+  return resolveCnameTarget();
+}
+
+export function resolveCustomDomainATarget(): string {
+  return sanitizeARecordTarget(process.env.CUSTOM_DOMAIN_A_TARGET);
 }
 
 export const CUSTOM_DOMAIN_PATTERN =

@@ -5,7 +5,8 @@ import {
   getDnsZoneDomain,
   getSubdomainHostLabel,
   normalizeHostname,
-  resolveCnameTarget
+  resolveCnameTarget,
+  resolveCustomDomainATarget
 } from "./hostname";
 
 async function safeResolve<T>(resolver: () => Promise<T>): Promise<T | null> {
@@ -215,14 +216,71 @@ function cnameMatchesTarget(cnames: string[], expectedHost: string): boolean {
   });
 }
 
+/** Cloudflare orange-cloud returns anycast edge IPs, not the origin A record value. */
+function isLikelyCloudflareProxyIp(ip: string): boolean {
+  if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip)) return false;
+  const [a, b] = ip.split(".").map(Number);
+  if (a === 104 && b >= 16 && b <= 31) return true;
+  if (a === 172 && b >= 64 && b <= 71) return true;
+  if (a === 103 && (b === 21 || b === 22 || b === 31)) return true;
+  if (a === 141 && b === 101) return true;
+  if (a === 108 && b === 162) return true;
+  if (a === 190 && b === 93) return true;
+  if (a === 188 && b === 114) return true;
+  if (a === 197 && b === 234) return true;
+  if (a === 198 && b === 41) return true;
+  return false;
+}
+
+async function isCloudflareHostedZone(zoneDomain: string): Promise<boolean> {
+  const detection = await detectDnsProvider(zoneDomain);
+  return (
+    detection.providerId === "cloudflare" ||
+    detection.nameservers.some((nameserver) => nameserver.includes("cloudflare"))
+  );
+}
+
+async function verifyCloudflareProxiedRoot(
+  host: string,
+  apexAddresses: string[],
+  wwwAddresses: string[],
+  expectedARecord: string
+): Promise<{ verified: boolean; message: string } | null> {
+  const zoneDomain = getDnsZoneDomain(host);
+  const onCloudflare = await isCloudflareHostedZone(zoneDomain);
+  if (!onCloudflare) return null;
+  if (!apexAddresses.length || !wwwAddresses.length) return null;
+
+  const apexProxied = apexAddresses.some(isLikelyCloudflareProxyIp);
+  const wwwProxied = wwwAddresses.some(isLikelyCloudflareProxyIp);
+  if (!apexProxied || !wwwProxied) return null;
+
+  const wwwHost = `www.${host}`;
+  const reachable =
+    (await verifyHostnameReachability(host)) || (await verifyHostnameReachability(wwwHost));
+
+  if (reachable) {
+    return {
+      verified: true,
+      message: "Cloudflare proxied DNS points to ACN Link."
+    };
+  }
+
+  return {
+    verified: false,
+    message:
+      `Cloudflare shows @ and www records, but ${host} still opens another site (not ACN Link). ` +
+      `Set both A records to ${expectedARecord}, remove duplicate root A records and Hostinger redirects, then verify again.`
+  };
+}
+
 /**
  * Root domains: A records for @ and www.
  * Subdomains: CNAME to platform hostname or A record to platform IP.
  */
 export async function verifyDomainDns(hostname: string): Promise<DnsVerification> {
   const host = normalizeHostname(hostname);
-  const expectedARecord =
-    process.env.CUSTOM_DOMAIN_A_TARGET?.trim() || "76.76.21.21";
+  const expectedARecord = resolveCustomDomainATarget();
   const expectedCname = resolveCnameTarget();
   const kind = getCustomDomainKind(host);
 
@@ -305,12 +363,31 @@ export async function verifyDomainDns(hostname: string): Promise<DnsVerification
     : `Add A records at your registrar: Host www → ${expectedARecord} and Host @ → ${expectedARecord}.`;
 
   if (!verified) {
+    const cloudflareResult = await verifyCloudflareProxiedRoot(
+      host,
+      apexAddresses,
+      wwwAddresses,
+      expectedARecord
+    );
+    if (cloudflareResult) {
+      verified = cloudflareResult.verified;
+      message = cloudflareResult.message;
+    }
+  }
+
+  if (!verified) {
     const reachable =
       (await verifyHostnameReachability(host)) || (await verifyHostnameReachability(wwwHost));
     if (reachable) {
       verified = true;
       message = "DNS points to ACN Link (live HTTPS check passed).";
     }
+  }
+
+  if (!verified && (await isCloudflareHostedZone(getDnsZoneDomain(host)))) {
+    message +=
+      " On Cloudflare, edit (do not duplicate) the @ and www A records to point to the IP above, " +
+      "and remove any extra root A records (for example old Hostinger IPs).";
   }
 
   return {
@@ -322,6 +399,10 @@ export async function verifyDomainDns(hostname: string): Promise<DnsVerification
     checkedAt: new Date().toISOString(),
     message
   };
+}
+
+export async function domainServesAcnBio(hostname: string): Promise<boolean> {
+  return verifyHostnameReachability(normalizeHostname(hostname));
 }
 
 export async function verifyHostnameReachability(hostname: string): Promise<boolean> {

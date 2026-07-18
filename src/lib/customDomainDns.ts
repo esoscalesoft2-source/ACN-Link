@@ -2,6 +2,20 @@ export function labelCount(hostname: string): number {
   return hostname.trim().toLowerCase().replace(/\.$/, "").split(".").filter(Boolean).length;
 }
 
+/** ACN Link production server IP for root domain A records (@ and www). */
+export const ACN_LINK_A_RECORD_TARGET = "69.46.46.90";
+
+/** Lovable/Vercel demo IP copied from reference docs — never show to ACN users. */
+const LOVABLE_DEMO_A_RECORD_TARGET = "76.76.21.21";
+
+export function sanitizeARecordTarget(value: string | undefined | null): string {
+  const trimmed = String(value || "").trim();
+  if (!trimmed || trimmed === LOVABLE_DEMO_A_RECORD_TARGET) {
+    return ACN_LINK_A_RECORD_TARGET;
+  }
+  return trimmed;
+}
+
 function getLabels(hostname: string): string[] {
   return hostname.trim().toLowerCase().replace(/\.$/, "").split(".").filter(Boolean);
 }
@@ -70,10 +84,19 @@ export interface DnsInstructionSet {
 export function resolveCnameTarget(explicitTarget?: string, platformUrl?: string): string {
   const fromEnv = explicitTarget?.trim().replace(/^https?:\/\//, "").split("/")[0];
   if (fromEnv) return fromEnv;
-  const fromPlatform = platformUrl?.trim();
-  if (fromPlatform) {
+
+  const candidates = [
+    platformUrl,
+    typeof import.meta !== "undefined" ? (import.meta.env.VITE_API_URL as string | undefined) : undefined,
+    typeof import.meta !== "undefined" ? (import.meta.env.VITE_APP_URL as string | undefined) : undefined
+  ].filter(Boolean);
+
+  for (const raw of candidates) {
     try {
-      return new URL(fromPlatform.includes("://") ? fromPlatform : `https://${fromPlatform}`).hostname;
+      const hostname = new URL(String(raw).includes("://") ? String(raw) : `https://${raw}`).hostname.toLowerCase();
+      if (hostname && hostname !== "localhost" && !hostname.startsWith("127.")) {
+        return hostname;
+      }
     } catch {
       /* ignore */
     }

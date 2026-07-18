@@ -1447,26 +1447,38 @@ export default function BioPagesScreen({
     const link = resolveBioPagePublicLink(page, domains);
     return (
       <div className="mt-1 flex flex-wrap items-center gap-2 min-w-0">
-        <a
-          href={link.openUrl}
-          target="_blank"
-          rel="noreferrer"
-          title={link.shareUrl}
-          className={`text-xs font-medium flex items-center gap-1 font-mono hover:underline min-w-0 max-w-full ${
-            link.kind === "custom"
-              ? "text-emerald-700 hover:text-emerald-800"
-              : "text-indigo-600 hover:text-indigo-700"
-          }`}
-        >
-          {link.kind === "custom" ? (
+        {link.kind === "custom" && !link.canOpen ? (
+          <span
+            title="Verify DNS on Custom Domains before opening this address"
+            className="text-xs font-medium flex items-center gap-1 font-mono min-w-0 max-w-full text-amber-700"
+          >
             <Globe className="h-3 w-3 shrink-0" />
-          ) : (
-            <Link className="h-3 w-3 shrink-0" />
-          )}
-          <span className="truncate">{link.displayLabel}</span>
-        </a>
+            <span className="truncate">{link.displayLabel}</span>
+          </span>
+        ) : (
+          <a
+            href={link.openUrl}
+            target="_blank"
+            rel="noreferrer"
+            title={link.shareUrl}
+            className={`text-xs font-medium flex items-center gap-1 font-mono hover:underline min-w-0 max-w-full ${
+              link.kind === "custom"
+                ? "text-emerald-700 hover:text-emerald-800"
+                : "text-indigo-600 hover:text-indigo-700"
+            }`}
+          >
+            {link.kind === "custom" ? (
+              <Globe className="h-3 w-3 shrink-0" />
+            ) : (
+              <Link className="h-3 w-3 shrink-0" />
+            )}
+            <span className="truncate">{link.displayLabel}</span>
+          </a>
+        )}
         {link.kind === "custom" && (
-          <span className="acn-bio-page-link-badge shrink-0">Custom domain</span>
+          <span className={`acn-bio-page-link-badge shrink-0 ${link.publicReady ? "" : "acn-bio-page-link-badge--pending"}`}>
+            {link.publicReady ? "Custom domain" : link.canOpen ? "DNS OK" : "Pending DNS"}
+          </span>
         )}
       </div>
     );
@@ -1603,15 +1615,17 @@ export default function BioPagesScreen({
             >
               <QrCode className="h-4.5 w-4.5" />
             </button>
-            <a
-              href={publicLink.openUrl}
-              target="_blank"
-              rel="noreferrer"
-              title="Open (visit page)"
-              className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#6366f1] transition-all flex items-center justify-center"
-            >
-              <ExternalLink className="h-4.5 w-4.5" />
-            </a>
+            {publicLink.canOpen && (
+              <a
+                href={publicLink.openUrl}
+                target="_blank"
+                rel="noreferrer"
+                title="Open (visit page)"
+                className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-[#6366f1] transition-all flex items-center justify-center"
+              >
+                <ExternalLink className="h-4.5 w-4.5" />
+              </a>
+            )}
             <button
               type="button"
               onClick={() => {

@@ -17,12 +17,13 @@ interface ConnectDomainWizardProps {
   platformConfig: CustomDomainPlatformConfig | null;
   resumeDomain?: CustomDomain | null;
   onClose: () => void;
+  onConnectDomain: (domainName: string, pageId: string) => Promise<CustomDomain>;
   onVerify: (id: string) => Promise<CustomDomain>;
-  onComplete: (input: {
-    domainName: string;
-    pageId: string;
-    existingDomain?: CustomDomain | null;
-  }) => Promise<void>;
+  onFinished: (result: { domain: CustomDomain; connected: boolean; pending?: boolean }) => void;
+}
+
+function isDomainLive(domain: CustomDomain) {
+  return domain.status === "Verified" || domain.status === "DNS Verified" || domain.status === "Provisioning SSL";
 }
 
 function progressIndex(phase: WizardPhase): number {
@@ -40,12 +41,15 @@ export default function ConnectDomainWizard({
   platformConfig,
   resumeDomain,
   onClose,
+  onConnectDomain,
   onVerify,
-  onComplete
+  onFinished
 }: ConnectDomainWizardProps) {
   const [phase, setPhase] = useState<WizardPhase>("domain");
   const [domainName, setDomainName] = useState("");
   const [pageId, setPageId] = useState("");
+  const [pageSelectionConfirmed, setPageSelectionConfirmed] = useState(false);
+  const [pendingPage, setPendingPage] = useState<BioPage | null>(null);
   const [formError, setFormError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [connectedDomain, setConnectedDomain] = useState<CustomDomain | null>(null);
@@ -66,6 +70,8 @@ export default function ConnectDomainWizard({
       setConnectedDomain(resumeDomain);
       setDomainName(resumeDomain.domainName);
       setPageId(resumeDomain.pageId || firstAvailablePageId);
+      setPageSelectionConfirmed(Boolean(resumeDomain.pageId || firstAvailablePageId));
+      setPendingPage(null);
       setPhase("dns");
       void analyzeDomain(resumeDomain.domainName)
         .then(setAnalysis)
@@ -83,7 +89,9 @@ export default function ConnectDomainWizard({
     } else {
       setPhase("domain");
       setDomainName("");
-      setPageId(firstAvailablePageId);
+      setPageId("");
+      setPageSelectionConfirmed(false);
+      setPendingPage(null);
       setConnectedDomain(null);
       setAnalysis(null);
     }
@@ -94,7 +102,7 @@ export default function ConnectDomainWizard({
     setProviderUsername("");
     setProviderPassword("");
     setShowProviderPassword(false);
-  }, [open, firstAvailablePageId, resumeDomain]);
+  }, [open, resumeDomain]);
 
   useEffect(() => {
     if (phase === "dns") {
@@ -170,6 +178,22 @@ export default function ConnectDomainWizard({
     }
   };
 
+  const requestPageSelection = (page: BioPage) => {
+    setPendingPage(page);
+  };
+
+  const confirmPageSelection = () => {
+    if (!pendingPage) return;
+    setPageId(pendingPage.id);
+    setPageSelectionConfirmed(true);
+    setPendingPage(null);
+    setFormError("");
+  };
+
+  const cancelPageSelection = () => {
+    setPendingPage(null);
+  };
+
   const submitDomain = (event: FormEvent) => {
     event.preventDefault();
     const hostname = normaliseHostname(domainName);
@@ -180,6 +204,15 @@ export default function ConnectDomainWizard({
     }
     if (!isValidHostname(hostname)) {
       setFormError("Enter a valid domain or subdomain, for example yourbrand.com or studio.yourbrand.com.");
+      return;
+    }
+    if (!pageId || !pageSelectionConfirmed) {
+      setFormError("Choose which published page should open on this address and confirm with Yes.");
+      return;
+    }
+    const linkedDomain = linkedDomainsByPageId.get(pageId);
+    if (linkedDomain) {
+      setFormError(`That page is already connected to ${linkedDomain.domainName}.`);
       return;
     }
     setFormError("");
@@ -197,27 +230,16 @@ export default function ConnectDomainWizard({
     setVerifyError(null);
     setIsSubmitting(true);
     try {
-      if (connectedDomain) {
-        const updated = await onVerify(connectedDomain.id);
-        setConnectedDomain(updated);
-        if (
-          updated.status === "Verified" ||
-          updated.status === "DNS Verified" ||
-          updated.status === "Provisioning SSL"
-        ) {
-          setPageId(updated.pageId || pageId || firstAvailablePageId);
-          setPhase("success");
-        } else {
-          setVerifyError(
-            updated.errorMessage ||
-              updated.setupHint ||
-              "DNS not detected yet. Wait a few minutes and try again."
-          );
+      let domain = connectedDomain;
+      if (!domain) {
+        if (!pageId || !pageSelectionConfirmed) {
+          setVerifyError("Choose and confirm which published page should open on this address.");
+          return;
         }
-        return;
+        domain = await onConnectDomain(activeHostname, pageId);
+        setConnectedDomain(domain);
       }
 
-      setPageId(firstAvailablePageId);
       setPhase("success");
     } catch (error) {
       setVerifyError(error instanceof Error ? error.message : "Verification failed.");
@@ -227,27 +249,17 @@ export default function ConnectDomainWizard({
   };
 
   const finishWizard = async () => {
-    if (!pageId) {
-      setFormError("Choose which published page should open on this address.");
-      return;
-    }
-    const linkedDomain = linkedDomainsByPageId.get(pageId);
-    if (linkedDomain && linkedDomain.id !== connectedDomain?.id) {
-      setFormError(`That page is already connected to ${linkedDomain.domainName}.`);
-      return;
-    }
+    const domainRecord = connectedDomain;
+    if (!domainRecord) return;
 
-    setFormError("");
+    onFinished({ domain: domainRecord, connected: false, pending: true });
     setIsSubmitting(true);
+
     try {
-      await onComplete({
-        domainName: activeHostname,
-        pageId,
-        existingDomain: connectedDomain
-      });
-      onClose();
-    } catch (error) {
-      setFormError(error instanceof Error ? error.message : "Unable to connect domain.");
+      const updated = await onVerify(domainRecord.id);
+      onFinished({ domain: updated, connected: isDomainLive(updated), pending: false });
+    } catch {
+      onFinished({ domain: domainRecord, connected: false, pending: false });
     } finally {
       setIsSubmitting(false);
     }
@@ -328,9 +340,26 @@ export default function ConnectDomainWizard({
               <strong>links.yourbrand.com</strong> (one CNAME record).
             </p>
 
+            <div className="mt-5">
+              <label className="acn-domain-wizard__label">
+                Which published page should open on this address?
+              </label>
+              <SearchablePagePicker
+                pages={pages}
+                value={pageId}
+                onChange={setPageId}
+                linkedDomainsByPageId={linkedDomainsByPageId}
+                onSelectAttempt={requestPageSelection}
+              />
+            </div>
+
             {formError && <p className="acn-domain-wizard__error">{formError}</p>}
 
-            <button type="submit" className="acn-domain-wizard__primary">
+            <button
+              type="submit"
+              className="acn-domain-wizard__primary"
+              disabled={!pageSelectionConfirmed || !pageId}
+            >
               Continue
             </button>
           </form>
@@ -527,23 +556,17 @@ export default function ConnectDomainWizard({
               <strong>{activeHostname}</strong> will be successfully connected.
             </p>
 
-            <div className="mt-5 text-left">
-              <label className="acn-domain-wizard__label">
-                Which published page should open on this address?
-              </label>
-              <SearchablePagePicker
-                pages={pages}
-                value={pageId}
-                onChange={setPageId}
-                linkedDomainsByPageId={linkedDomainsByPageId}
-              />
-            </div>
+            {pageId && (
+              <p className="acn-domain-wizard__lead mt-4">
+                Opens: <strong>{pages.find((page) => page.id === pageId)?.title || "Your bio page"}</strong>
+              </p>
+            )}
 
             {formError && <p className="acn-domain-wizard__error">{formError}</p>}
 
             <button
               type="button"
-              disabled={!pageId || isSubmitting}
+              disabled={!connectedDomain || isSubmitting}
               className="acn-domain-wizard__primary disabled:opacity-50"
               onClick={() => void finishWizard()}
             >
@@ -556,6 +579,25 @@ export default function ConnectDomainWizard({
           </div>
         )}
       </div>
+
+      {pendingPage && (
+        <div className="acn-modal-backdrop acn-page-confirm-backdrop">
+          <div className="acn-domain-remove-dialog animate-in fade-in zoom-in-95 duration-200" role="dialog" aria-modal="true">
+            <h3 className="text-lg font-bold text-slate-950">Confirm page selection</h3>
+            <p className="mt-2 text-sm text-slate-600">
+              Should <strong>{pendingPage.title}</strong> open on this custom domain address?
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button type="button" onClick={cancelPageSelection} className="acn-domain-remove-dialog__cancel">
+                No
+              </button>
+              <button type="button" onClick={confirmPageSelection} className="acn-domain-wizard__primary flex-1">
+                Yes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

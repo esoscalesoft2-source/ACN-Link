@@ -78,8 +78,10 @@ app.get("/api/health", (_req, res) => {
     database: storeStatus,
     customDomains: {
       provider: isCloudflareForSaasConfigured() ? "cloudflare" : "manual",
-      cnameTarget:
-        process.env.CUSTOM_DOMAIN_CNAME_TARGET || "domains.acnlink.mindflo.today"
+      aRecordTarget: process.env.CUSTOM_DOMAIN_A_TARGET || "76.76.21.21",
+      cnameTarget: process.env.CUSTOM_DOMAIN_CNAME_TARGET || process.env.APP_URL?.replace(/^https?:\/\//, "").split("/")[0] || "acnlink.mindflo.today",
+      rootDomainOnly: false,
+      subdomainSupport: true
     }
   });
 });

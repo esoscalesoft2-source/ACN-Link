@@ -287,7 +287,7 @@ create table if not exists public.media_files (
 create table if not exists public.custom_domains (
   id text primary key,
   domain_name text not null,
-  type text not null default 'CNAME',
+  type text not null default 'A',
   target_ip text not null default '',
   status text not null default 'Pending DNS',
   owner_user_id text,

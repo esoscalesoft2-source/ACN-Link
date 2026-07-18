@@ -1,4 +1,5 @@
 import type { CustomDomain, CustomDomainPlatformConfig } from "../types";
+import { analyzeDomainClient } from "./detectDnsProvider";
 import { apiUrl } from "./apiBase";
 import {
   clearAuthSession,
@@ -89,6 +90,52 @@ export async function fetchCustomDomainPlatformConfig(): Promise<CustomDomainPla
 export async function fetchDomains(): Promise<CustomDomain[]> {
   const result = await domainFetch<{ domains: CustomDomain[] }>("/api/domains");
   return result.domains;
+}
+
+export type DomainAnalysis = {
+  domainName: string;
+  providerId: string;
+  providerName: string;
+  nameservers: string[];
+};
+
+export async function analyzeDomain(domainName: string): Promise<DomainAnalysis> {
+  const host = domainName.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\.$/, "");
+
+  let serverResult: DomainAnalysis | null = null;
+  try {
+    const response = await fetch(
+      apiUrl(`/api/domains/analyze?domainName=${encodeURIComponent(host)}`),
+      { headers: { Accept: "application/json" } }
+    );
+    if (response.ok) {
+      const data = (await response.json()) as { analysis?: DomainAnalysis };
+      serverResult = data.analysis ?? null;
+    }
+  } catch {
+    // fall through to client-side lookup
+  }
+
+  const clientResult = await analyzeDomainClient(host);
+
+  if (serverResult && serverResult.providerId !== "unknown") return serverResult;
+  if (clientResult.providerId !== "unknown") return clientResult;
+  if (serverResult && serverResult.providerName !== "your DNS provider") return serverResult;
+  return clientResult;
+}
+
+export async function checkDomainDns(domainName: string): Promise<{
+  verified: boolean;
+  message: string;
+}> {
+  const result = await domainFetch<{ dns: { verified: boolean; message: string } }>(
+    "/api/domains/check-dns",
+    {
+      method: "POST",
+      body: JSON.stringify({ domainName })
+    }
+  );
+  return { verified: result.dns.verified, message: result.dns.message };
 }
 
 export async function connectDomain(domainName: string, pageId: string): Promise<CustomDomain> {

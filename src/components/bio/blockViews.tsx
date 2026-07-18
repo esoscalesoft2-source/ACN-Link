@@ -551,7 +551,6 @@ export function MusicBlockView({ block, mode, context, handlers }: BlockViewProp
 export function GalleryBlockView({ block, mode, context, handlers }: BlockViewProps) {
   const compact = context.compact;
   const images = getGalleryImages(block);
-  if (!images.length && mode === "live") return null;
 
   return (
     <div className={`text-left ${compact ? "space-y-1.5" : "space-y-2 pt-2"}`}>

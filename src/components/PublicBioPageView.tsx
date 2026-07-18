@@ -296,9 +296,7 @@ export default function PublicBioPageView({
       setCustomDetails(details);
       setPageTheme(normalizePageTheme(details.pageTheme));
     }
-    if (nextBlocks.length > 0) {
-      writeCachedPage(pageId, nextBlocks, details);
-    }
+    writeCachedPage(pageId, nextBlocks, details);
   };
 
   const readLocalPageDataForPage = () => readLocalPageData(pageId, pageSlug);
@@ -307,7 +305,7 @@ export default function PublicBioPageView({
     data: { blocks?: Block[]; details?: BioPagePreviewDetails; updatedAt?: string },
     localUpdatedAt: string | null
   ) => {
-    const serverBlocks = Array.isArray(data.blocks) ? data.blocks : [];
+    const serverBlocks = Array.isArray(data.blocks) ? data.blocks : null;
     const serverDetails = data.details ?? null;
     const serverUpdatedAt = typeof data.updatedAt === "string" ? data.updatedAt : null;
     const localIsNewer =
@@ -318,7 +316,7 @@ export default function PublicBioPageView({
     if (mode !== "live" && localIsNewer) {
       return false;
     }
-    if (serverBlocks.length > 0) {
+    if (serverBlocks) {
       applyLoadedPage(serverBlocks, serverDetails, "ready");
       return true;
     }

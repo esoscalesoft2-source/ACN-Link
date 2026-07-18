@@ -149,7 +149,7 @@ export interface CustomDomain {
   id: string;
   pageId: string;
   domainName: string;
-  type: "CNAME";
+  type: "A" | "CNAME";
   dnsTarget: string;
   dnsHostLabel?: string;
   status: "Pending DNS" | "DNS Verified" | "Provisioning SSL" | "Verified" | "Error";
@@ -166,14 +166,24 @@ export interface CustomDomain {
   updatedAt: string;
 }
 
+export interface CustomDomainDnsRecordTemplate {
+  id: string;
+  type: "A" | "CNAME";
+  hostLabel: string;
+  hostDisplay: string;
+  value: string;
+}
+
 export interface CustomDomainPlatformConfig {
   provider: "cloudflare" | "manual";
-  cnameTarget: string;
+  platformUrl: string;
+  aRecordTarget: string;
+  cnameTarget?: string;
   selfServeEnabled: boolean;
   sslAutomatic: boolean;
-  workerRequired: boolean;
   cloudflareEnvConfigured?: boolean;
   steps: string[];
+  registrars: { id: string; name: string; dnsHelpUrl: string }[];
 }
 
 export interface HelpArticle {

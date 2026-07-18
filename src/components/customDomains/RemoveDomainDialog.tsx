@@ -1,0 +1,33 @@
+interface RemoveDomainDialogProps {
+  domainName: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+  isRemoving: boolean;
+}
+
+export default function RemoveDomainDialog({
+  domainName,
+  onCancel,
+  onConfirm,
+  isRemoving
+}: RemoveDomainDialogProps) {
+  return (
+    <div className="acn-modal-backdrop">
+      <div className="acn-domain-remove-dialog animate-in fade-in zoom-in-95 duration-200">
+        <h3 className="text-lg font-bold text-slate-950">Remove {domainName}?</h3>
+        <p className="mt-2 text-sm text-slate-600">
+          This disconnects the domain from your bio page. You will need to configure DNS again if you want to use
+          it here later.
+        </p>
+        <div className="mt-6 flex gap-3">
+          <button type="button" onClick={onCancel} disabled={isRemoving} className="acn-domain-remove-dialog__cancel">
+            Cancel
+          </button>
+          <button type="button" onClick={onConfirm} disabled={isRemoving} className="acn-domain-remove-dialog__remove">
+            {isRemoving ? "Removing…" : "Remove"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

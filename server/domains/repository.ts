@@ -171,7 +171,7 @@ export async function createDomain(input: {
       owner_user_id: input.ownerUserId,
       page_id: input.pageId,
       domain_name: input.domainName,
-      type: "CNAME",
+      type: "A",
       target_ip: input.dnsTarget,
       status: "Pending DNS",
       dns_target: input.dnsTarget,

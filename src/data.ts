@@ -265,10 +265,10 @@ export const initialHelpArticles: HelpArticle[] = [
     title: "Can I use my own custom domain?",
     category: "Custom Domains",
     excerpt:
-      "Yes. Connect a hostname such as links.yourbrand.com, select its website, then add the exact CNAME shown by ACN Link.",
+      "Yes. Connect your root domain (yourbrand.com), pick a bio page, then add the A records ACN shows at your registrar.",
     readTime: "3 mins",
     content:
-      "Connect a custom domain\n\n1. Open Custom Domains and click Connect Domain.\n2. Enter a hostname such as links.yourbrand.com and select the website it should open.\n3. At your DNS provider, create the CNAME record shown by ACN Link.\n4. Return to ACN Link and click Check DNS and SSL.\n5. The domain becomes Verified only after live DNS and managed HTTPS are active.\n\nDNS changes and certificate provisioning can take several minutes."
+      "Connect a custom domain\n\n1. Open Custom Domains and click Connect Domain.\n2. Enter your root domain (yourbrand.com) and continue through the setup wizard.\n3. At GoDaddy, Namecheap, Cloudflare, or your registrar, add two A records: Host www and Host @ pointing to the IP ACN shows.\n4. Confirm you added the records, choose which bio page should open on that address, and click Done.\n5. yourbrand.com and www.yourbrand.com serve your bio page with HTTPS."
   },
   {
     id: "faq5b",
@@ -278,7 +278,7 @@ export const initialHelpArticles: HelpArticle[] = [
       "Publish goes live and sets who can see your site. Custom Domains connects and manages your brand domain.",
     readTime: "2 mins",
     content:
-      "Publish vs Custom Domains\n\nPublish (navbar on Dashboard / Account)\n• Makes your ACN Link website live\n• Shows your public URL\n• Lets you choose visibility: Public, Workspace only, or Selected members\n• Lets you copy or open the live link after success\n\nCustom Domains (sidebar)\n• Connect your own domain such as links.yourbrand.com\n• View DNS setup instructions\n• Verify Pending / Verified status\n• Search, filter, and remove domains\n\nRecommended flow\n1. Build your bio pages\n2. Open Custom Domains and connect your brand domain\n3. Click Publish to go live and share the URL\n\nTip: Domain connect/manage is only on Custom Domains. Publish is only for go-live and visibility."
+      "Publish vs Custom Domains\n\nPublish (navbar on Dashboard / Account)\n• Makes your ACN Link website live\n• Shows your public URL\n• Lets you choose visibility: Public, Workspace only, or Selected members\n• Lets you copy or open the live link after success\n\nCustom Domains (sidebar)\n• Connect your root domain (yourbrand.com)\n• View A record instructions (@ and www)\n• Verify Pending / Verified status\n• Remove domains\n\nRecommended flow\n1. Build your bio pages\n2. Open Custom Domains and connect yourbrand.com\n3. Click Publish to go live and share the URL\n\nTip: Domain connect/manage is only on Custom Domains. Publish is only for go-live and visibility."
   },
   {
     id: "faq6",
@@ -305,9 +305,9 @@ export const initialHelpArticles: HelpArticle[] = [
     title: "What DNS record do I need for custom domains?",
     category: "Custom Domains",
     excerpt:
-      "Create the CNAME record displayed for your hostname in Custom Domains, then run the DNS and SSL check.",
+      "Add two A records at your registrar: Host www and Host @, using the IP shown in Custom Domains.",
     readTime: "2 mins",
     content:
-      "DNS record details\n\nType: CNAME\nHost: your subdomain (for example links)\nTarget: use the exact target displayed in Custom Domains\nTTL: Auto or 300 seconds\n\nAfter saving the record, open Custom Domains and use Check DNS and SSL. The status progresses from Pending DNS to Provisioning SSL and finally Verified."
+      "DNS record details\n\nType: A\nHost: www → platform IP shown in ACN Link\nHost: @ (root) → same IP\nTTL: Auto or 300 seconds\n\nAfter saving both records at GoDaddy, Namecheap, Cloudflare, etc., verify in Custom Domains. Status progresses from Pending DNS to Verified."
   }
 ];

@@ -9,7 +9,14 @@ import {
   registerCustomHostname,
   type ProviderHostname
 } from "./cloudflare";
-import { verifyDomainDns, verifyHostnameReachability } from "./dns";
+import { detectDnsProvider, verifyDomainDns, verifyHostnameReachability } from "./dns";
+import {
+  assertSupportedCustomDomain,
+  getCustomDomainKind,
+  getSubdomainHostLabel,
+  normalizeHostname,
+  resolveCnameTarget
+} from "./hostname";
 import {
   createDomain,
   findDomainById,
@@ -24,18 +31,6 @@ import {
 type AuthedRequest = Request & {
   authUser?: { id: string; email: string };
 };
-
-const HOSTNAME_PATTERN =
-  /^(?=.{1,253}$)(?:(?!-)[a-z0-9-]{1,63}(?<!-)\.)+(?!-)[a-z0-9-]{2,63}(?<!-)$/i;
-
-function normalizeHostname(value: unknown): string {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/^https?:\/\//, "")
-    .split("/")[0]
-    .replace(/\.$/, "");
-}
 
 function domainId() {
   return `domain_${Date.now()}_${randomBytes(5).toString("hex")}`;
@@ -61,19 +56,16 @@ function pageBelongsToUser(pageId: string, userId: string) {
 
 function publicDomain(record: CustomDomainRecord) {
   const saasConfigured = isCloudflareForSaasConfigured();
-  const dnsHostLabel = (() => {
-    const labels = record.domainName.split(".").filter(Boolean);
-    if (labels.length <= 2) return "@";
-    return labels[0];
-  })();
+  const kind = getCustomDomainKind(record.domainName);
+  const isSubdomain = kind === "subdomain";
 
   return {
     id: record.id,
     pageId: record.pageId,
     domainName: record.domainName,
-    type: "CNAME",
+    type: isSubdomain ? "CNAME" : "A",
     dnsTarget: record.dnsTarget,
-    dnsHostLabel,
+    dnsHostLabel: isSubdomain ? getSubdomainHostLabel(record.domainName) : "@",
     status: record.status,
     dnsVerifiedAt: record.dnsVerifiedAt,
     provider: record.provider,
@@ -104,15 +96,16 @@ function buildSetupHint(record: CustomDomainRecord, saasConfigured: boolean): st
       : "DNS is verified. Your site can route traffic once platform SSL is enabled for your hostname.";
   }
   if (record.status === "Pending DNS") {
-    return `Add a CNAME record: Host ${dnsHostLabelFor(record.domainName)} → ${record.dnsTarget}, then click Check DNS and SSL.`;
+    const kind = getCustomDomainKind(record.domainName);
+    if (kind === "subdomain") {
+      const hostLabel = getSubdomainHostLabel(record.domainName);
+      const cnameTarget = resolveCnameTarget();
+      return `Add a CNAME record at your DNS provider: Host ${hostLabel} → ${cnameTarget}, then verify here.`;
+    }
+    const aTarget = process.env.CUSTOM_DOMAIN_A_TARGET?.trim() || "76.76.21.21";
+    return `Add A records at your DNS provider: www → ${aTarget} and @ → ${aTarget}, then verify here.`;
   }
   return record.errorMessage;
-}
-
-function dnsHostLabelFor(domainName: string): string {
-  const labels = domainName.split(".").filter(Boolean);
-  if (labels.length <= 2) return "@";
-  return labels[0];
 }
 
 function providerPatch(provider: ProviderHostname) {
@@ -139,28 +132,58 @@ export function createDomainsRouter() {
 
   router.get("/config", (_req, res: Response) => {
     const saasConfigured = isCloudflareForSaasConfigured();
-    const cnameTarget =
-      process.env.CUSTOM_DOMAIN_CNAME_TARGET?.trim() || "acnlink.mindflo.today";
+    const aRecordTarget =
+      process.env.CUSTOM_DOMAIN_A_TARGET?.trim() || "76.76.21.21";
+    const platformUrl =
+      process.env.APP_URL?.replace(/^https?:\/\//, "").replace(/\/.*$/, "") ||
+      "acnlink.mindflo.today";
+    const cnameTarget = resolveCnameTarget();
     res.json({
       provider: saasConfigured ? "cloudflare" : "manual",
+      platformUrl,
+      aRecordTarget,
       cnameTarget,
       selfServeEnabled: saasConfigured,
       sslAutomatic: saasConfigured,
-      workerRequired: !saasConfigured,
       cloudflareEnvConfigured: saasConfigured,
+      registrars: [
+        { id: "godaddy", name: "GoDaddy", dnsHelpUrl: "https://www.godaddy.com/help/manage-dns-records-680" },
+        { id: "namecheap", name: "Namecheap", dnsHelpUrl: "https://www.namecheap.com/support/knowledgebase/article.aspx/319/2237/how-can-i-set-up-an-a-address-record-for-my-domain/" },
+        { id: "cloudflare", name: "Cloudflare", dnsHelpUrl: "https://developers.cloudflare.com/dns/manage-dns-records/how-to/create-dns-records/" },
+        { id: "hostinger", name: "Hostinger", dnsHelpUrl: "https://support.hostinger.com/en/articles/1583249-how-to-manage-dns-records" },
+        { id: "porkbun", name: "Porkbun", dnsHelpUrl: "https://kb.porkbun.com/article/68-how-to-edit-dns-records" },
+        { id: "dynadot", name: "Dynadot", dnsHelpUrl: "https://www.dynadot.com/community/help/question/set-DNS-settings" },
+        { id: "namecom", name: "Name.com", dnsHelpUrl: "https://www.name.com/support/articles/205934547-Managing-DNS-records" }
+      ],
       steps: saasConfigured
         ? [
-            "Connect your hostname in ACN Link and pick the published page.",
-            `At your DNS provider, create a CNAME: your subdomain → ${cnameTarget}.`,
-            "Return here and click Check DNS and SSL. HTTPS is issued automatically."
+            "Click Connect Domain and enter your domain or subdomain (yourbrand.com or studio.yourbrand.com).",
+            "Add the DNS records ACN shows at your provider (A records for root domains, CNAME for subdomains).",
+            "Choose which published bio page should open on that address.",
+            "Your bio page opens on your address with HTTPS."
           ]
         : [
-            "Connect your hostname in ACN Link and pick the published page.",
-            `At your DNS provider, create a CNAME: your subdomain → ${cnameTarget}.`,
-            "Click Check DNS and SSL after DNS propagates.",
-            "Platform automatic SSL must be enabled by your administrator for all users to go live without manual Cloudflare setup."
+            "Click Connect Domain and enter your domain or subdomain (yourbrand.com or studio.yourbrand.com).",
+            "Add the DNS records ACN shows at your provider.",
+            "Choose which published bio page should open on that address.",
+            "Automatic HTTPS requires Cloudflare for SaaS (see docs/custom-domains-production.md)."
           ]
     });
+  });
+
+  router.get("/analyze", async (req, res: Response) => {
+    const domainName = normalizeHostname(req.query.domainName);
+    const validationError = assertSupportedCustomDomain(domainName);
+    if (validationError) {
+      res.status(400).json({ error: validationError });
+      return;
+    }
+    try {
+      const analysis = await detectDnsProvider(domainName);
+      res.json({ analysis: { ...analysis, domainName } });
+    } catch (error) {
+      res.status(500).json({ error: errorMessage(error), code: "DOMAIN_ANALYZE_FAILED" });
+    }
   });
 
   router.use(requireAuth);
@@ -178,6 +201,21 @@ export function createDomainsRouter() {
     next();
   });
 
+  router.post("/check-dns", async (req: AuthedRequest, res: Response) => {
+    const domainName = normalizeHostname(req.body?.domainName);
+    const validationError = assertSupportedCustomDomain(domainName);
+    if (validationError) {
+      res.status(400).json({ error: validationError });
+      return;
+    }
+    try {
+      const dns = await verifyDomainDns(domainName);
+      res.json({ dns });
+    } catch (error) {
+      res.status(500).json({ error: errorMessage(error), code: "DOMAIN_DNS_CHECK_FAILED" });
+    }
+  });
+
   router.get("/", async (req: AuthedRequest, res: Response) => {
     try {
       const rows = await listDomains(req.authUser!.id);
@@ -190,8 +228,9 @@ export function createDomainsRouter() {
   router.post("/", async (req: AuthedRequest, res: Response) => {
     const domainName = normalizeHostname(req.body?.domainName);
     const pageId = String(req.body?.pageId || "").trim();
-    if (!HOSTNAME_PATTERN.test(domainName)) {
-      res.status(400).json({ error: "Enter a valid hostname such as links.example.com." });
+    const validationError = assertSupportedCustomDomain(domainName);
+    if (validationError) {
+      res.status(400).json({ error: validationError });
       return;
     }
     if (!pageId || !pageBelongsToUser(pageId, req.authUser!.id)) {
@@ -207,11 +246,7 @@ export function createDomainsRouter() {
       return;
     }
 
-    const appHosts = [
-      process.env.APP_URL,
-      process.env.API_URL,
-      process.env.CUSTOM_DOMAIN_CNAME_TARGET
-    ]
+    const appHosts = [process.env.APP_URL, process.env.API_URL]
       .filter(Boolean)
       .map((value) => {
         try {
@@ -226,8 +261,11 @@ export function createDomainsRouter() {
     }
 
     const provider = isCloudflareForSaasConfigured() ? "cloudflare" : "manual";
+    const kind = getCustomDomainKind(domainName);
     const dnsTarget =
-      process.env.CUSTOM_DOMAIN_CNAME_TARGET?.trim() || "domains.acnlink.mindflo.today";
+      kind === "subdomain"
+        ? resolveCnameTarget()
+        : process.env.CUSTOM_DOMAIN_A_TARGET?.trim() || "76.76.21.21";
 
     try {
       let record = await createDomain({

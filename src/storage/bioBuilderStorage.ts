@@ -149,9 +149,10 @@ export function pruneLocalBioCache(activePageId?: string): void {
       if (
         key.startsWith("biolink_blocks_") ||
         key.startsWith("biolink_details_") ||
-        key.startsWith("biolink_synced_at_")
+        key.startsWith("biolink_synced_at_") ||
+        key.startsWith("biolink_preview_at_")
       ) {
-        const suffix = key.replace(/^biolink_(blocks|details|synced_at)_/, "");
+        const suffix = key.replace(/^biolink_(blocks|details|synced_at|preview_at)_/, "");
         if (!suffix.startsWith("p_") && !suffix.startsWith("page_")) {
           keysToRemove.push(key);
         }
@@ -180,6 +181,7 @@ export function pruneLocalBioCache(activePageId?: string): void {
       localStorage.removeItem(`biolink_blocks_${entry.pageId}`);
       localStorage.removeItem(`biolink_details_${entry.pageId}`);
       localStorage.removeItem(`biolink_synced_at_${entry.pageId}`);
+      localStorage.removeItem(`biolink_preview_at_${entry.pageId}`);
     }
   } catch {
     /* ignore */
@@ -453,21 +455,33 @@ export function formatStorageDate(iso: string): string {
   }
 }
 
+function readTimestampKey(pageId: string, pageSlug: string | undefined, suffix: "synced_at" | "preview_at") {
+  const prefix = `biolink_${suffix}_`;
+  const stamps = [
+    localStorage.getItem(`${prefix}${pageId}`),
+    pageSlug ? localStorage.getItem(`${prefix}${pageSlug}`) : null
+  ].filter((value): value is string => Boolean(value));
+  if (!stamps.length) return null;
+  return stamps.sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
+}
+
 /** Best-effort local preview cache (single pageId key — no slug duplicate). */
 export function persistPagePreviewLocalCache(
   pageId: string,
   pageSlug: string,
   blocks: BioEditorBlock[],
   details: BioPagePreviewDetails,
-  options?: { skipBlocks?: boolean }
+  options?: { skipBlocks?: boolean; localOnly?: boolean }
 ): boolean {
   try {
     const updatedAt = new Date().toISOString();
     const detailsJson = JSON.stringify(details);
+    const timestampKey = options?.localOnly ? "preview_at" : "synced_at";
 
     localStorage.removeItem(`biolink_blocks_${pageSlug}`);
     localStorage.removeItem(`biolink_details_${pageSlug}`);
     localStorage.removeItem(`biolink_synced_at_${pageSlug}`);
+    localStorage.removeItem(`biolink_preview_at_${pageSlug}`);
 
     if (options?.skipBlocks) {
       localStorage.removeItem(`biolink_blocks_${pageId}`);
@@ -476,7 +490,7 @@ export function persistPagePreviewLocalCache(
     }
 
     localStorage.setItem(`biolink_details_${pageId}`, detailsJson);
-    localStorage.setItem(`biolink_synced_at_${pageId}`, updatedAt);
+    localStorage.setItem(`biolink_${timestampKey}_${pageId}`, updatedAt);
     persistPageSessionCache(pageId, blocks, details);
     window.dispatchEvent(
       new CustomEvent("acn-page-preview-updated", {
@@ -522,11 +536,27 @@ export function persistPagePreviewStorage(
 export function readLocalPageUpdatedAt(pageId: string, pageSlug?: string): string | null {
   try {
     const stamps = [
-      localStorage.getItem(`biolink_synced_at_${pageId}`),
-      pageSlug ? localStorage.getItem(`biolink_synced_at_${pageSlug}`) : null
+      readTimestampKey(pageId, pageSlug, "synced_at"),
+      readTimestampKey(pageId, pageSlug, "preview_at")
     ].filter((value): value is string => Boolean(value));
     if (!stamps.length) return null;
     return stamps.sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
+  } catch {
+    return null;
+  }
+}
+
+export function readLocalPublishedUpdatedAt(pageId: string, pageSlug?: string): string | null {
+  try {
+    return readTimestampKey(pageId, pageSlug, "synced_at");
+  } catch {
+    return null;
+  }
+}
+
+export function readLocalPreviewUpdatedAt(pageId: string, pageSlug?: string): string | null {
+  try {
+    return readTimestampKey(pageId, pageSlug, "preview_at");
   } catch {
     return null;
   }
@@ -542,7 +572,7 @@ export function readLocalPageDocument(
       (pageSlug ? localStorage.getItem(`biolink_blocks_${pageSlug}`) : null);
     if (!blocksRaw) return null;
     const blocks = JSON.parse(blocksRaw) as BioEditorBlock[];
-    if (!Array.isArray(blocks) || blocks.length === 0) return null;
+    if (!Array.isArray(blocks)) return null;
 
     const detailsRaw =
       localStorage.getItem(`biolink_details_${pageId}`) ||
@@ -567,6 +597,27 @@ export async function syncLocalPageDocumentToServer(
 ): Promise<boolean> {
   const local = readLocalPageDocument(pageId, pageSlug);
   if (!local) return false;
+
+  const server = await fetchPageDocumentFromServer(pageId);
+  if (server) {
+    const serverUpdatedAt =
+      typeof server.updatedAt === "string" ? new Date(server.updatedAt).getTime() : 0;
+    const localPublishedAt = readLocalPublishedUpdatedAt(pageId, pageSlug);
+    const localPreviewAt = readLocalPreviewUpdatedAt(pageId, pageSlug);
+    const localPublishedTime = localPublishedAt ? new Date(localPublishedAt).getTime() : 0;
+    const localPreviewTime = localPreviewAt ? new Date(localPreviewAt).getTime() : 0;
+    const localEditTime = Math.max(localPublishedTime, localPreviewTime, local.updatedAt ? new Date(local.updatedAt).getTime() : 0);
+    const serverBlockCount = Array.isArray(server.blocks) ? server.blocks.length : 0;
+
+    if (
+      serverUpdatedAt > 0 &&
+      localEditTime <= serverUpdatedAt &&
+      local.blocks.length <= serverBlockCount
+    ) {
+      return true;
+    }
+  }
+
   const pageList = pages?.length ? pages : readLocalPagesList();
   const result = await syncPageDocumentToServer(
     pageId,
@@ -681,7 +732,7 @@ export function persistPagePreviewLocalOnly(
   details: BioPagePreviewDetails
 ): boolean {
   persistPageSessionCache(pageId, blocks, details);
-  return persistPagePreviewLocalCache(pageId, pageSlug, blocks, details);
+  return persistPagePreviewLocalCache(pageId, pageSlug, blocks, details, { localOnly: true });
 }
 
 /** Server-first save for live pages — always mirror blocks locally for fast revisit. */
@@ -697,8 +748,27 @@ export async function persistAndSyncPagePreview(
   if (sync.ok) {
     pruneLocalBioCache(pageId);
   }
-  const localOk = persistPagePreviewLocalCache(pageId, pageSlug, blocks, details);
+  const localOk = persistPagePreviewLocalCache(pageId, pageSlug, blocks, details, { localOnly: false });
   return { serverOk: sync.ok, localOk, sync };
+}
+
+/** Resolve saved blocks for a page: memory → localStorage → null (caller may fall back to templates). */
+export function resolveStoredPageBlocks(
+  pageId: string,
+  pageSlug?: string,
+  memoryMap?: Record<string, BioEditorBlock[]>
+): BioEditorBlock[] | null {
+  if (memoryMap && pageId in memoryMap && Array.isArray(memoryMap[pageId])) {
+    return cloneBlocks(memoryMap[pageId]);
+  }
+  if (pageSlug && memoryMap && pageSlug in memoryMap && Array.isArray(memoryMap[pageSlug])) {
+    return cloneBlocks(memoryMap[pageSlug]);
+  }
+  const local = readLocalPageDocument(pageId, pageSlug);
+  if (local) {
+    return cloneBlocks(local.blocks);
+  }
+  return null;
 }
 
 /** Save one draft to Railway (primary store). */

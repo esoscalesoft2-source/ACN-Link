@@ -25,7 +25,11 @@ import {
   syncPagesListToServer,
   readStoredPageTheme,
   readStoredPageDetails,
-  createUniquePageId
+  createUniquePageId,
+  fetchPageDocumentFromServer,
+  readLocalPageDocument,
+  readLocalPublishedUpdatedAt,
+  resolveStoredPageBlocks
 } from "../storage/bioBuilderStorage";
 import { CreateNotificationInput } from "../storage/notificationStorage";
 import { PRIMARY_DOMAIN } from "../storage/publishStorage";
@@ -98,7 +102,9 @@ import {
   LayoutGrid,
   Eye,
   Search,
-  MoreVertical
+  MoreVertical,
+  Lock,
+  Unlock
 } from "lucide-react";
 import PageShell, { PageHeader, Workspace } from "./layout/PageShell";
 import { BIO_LINK } from "../lib/bioLinkColors";
@@ -494,6 +500,8 @@ export default function BioPagesScreen({
   React.useEffect(() => {
     if (selectedEditPage) {
       document.body.classList.add("acn-editor-open");
+      setCoverSectionLocked(false);
+      setExpandedBlockId(null);
     } else {
       document.body.classList.remove("acn-editor-open");
     }
@@ -579,6 +587,7 @@ export default function BioPagesScreen({
   const [editingBlockValue, setEditingBlockValue] = useState<string>("");
 
   const [expandedBlockId, setExpandedBlockId] = useState<string | null>(null);
+  const [coverSectionLocked, setCoverSectionLocked] = useState(false);
   const [showCoverUrlModal, setShowCoverUrlModal] = useState(false);
   const [coverUrlDraft, setCoverUrlDraft] = useState(DEFAULT_COVER);
 
@@ -587,8 +596,16 @@ export default function BioPagesScreen({
   const [isAccordionReorderDrag, setIsAccordionReorderDrag] = useState(false);
   const [dropTarget, setDropTarget] = useState<{ index: number; position: "before" | "after" } | null>(null);
   const accordionListRef = useRef<HTMLDivElement>(null);
+  const composeScrollRef = useRef<HTMLDivElement>(null);
   const editorTitleInputRef = useRef<HTMLInputElement>(null);
   const blockDragMovedRef = useRef(false);
+
+  React.useEffect(() => {
+    if (!coverSectionLocked) return;
+    const container = composeScrollRef.current;
+    if (!container) return;
+    container.scrollTop = 0;
+  }, [coverSectionLocked]);
 
   const getAccordionDropPosition = (e: React.DragEvent): "before" | "after" => {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -708,8 +725,28 @@ export default function BioPagesScreen({
     }, 0);
   };
 
+  const scrollAccordionIntoCenter = (blockId: string) => {
+    const container = composeScrollRef.current;
+    const element = document.getElementById(`editor-block-${blockId}`);
+    if (!container || !element) return;
+    window.requestAnimationFrame(() => {
+      const containerRect = container.getBoundingClientRect();
+      const elementRect = element.getBoundingClientRect();
+      const nextTop =
+        container.scrollTop +
+        (elementRect.top - containerRect.top) -
+        containerRect.height / 2 +
+        elementRect.height / 2;
+      container.scrollTo({ top: Math.max(0, nextTop), behavior: "smooth" });
+    });
+  };
+
   const toggleAccordionBlock = (blockId: string, isExpanded: boolean) => {
-    setExpandedBlockId(isExpanded ? null : blockId);
+    const nextExpanded = isExpanded ? null : blockId;
+    setExpandedBlockId(nextExpanded);
+    if (nextExpanded) {
+      scrollAccordionIntoCenter(blockId);
+    }
   };
 
   const handleAccordionHeaderActivate = (blockId: string, isExpanded: boolean) => {
@@ -1032,27 +1069,96 @@ export default function BioPagesScreen({
     setEditorBlocks(cloneBlocks(state.blocks));
   };
 
-  const applyStoredCoverSettings = (pageId: string, pageSlug: string) => {
-    const storedDetails = readStoredPageDetails(pageId, pageSlug);
-    setEditorCoverSettings(normalizeCoverSettings(storedDetails?.coverSettings));
-  };
-
   const getTemplateDisplayName = (tpl: BioPageTemplate) => tpl.name;
   const getTemplateBlockCount = (tpl: BioPageTemplate) => tpl.data?.blocks?.length ?? 0;
   const getDraftDisplayName = (draft: BioPageDraft) => draft.data.pageMeta.title;
   const getDraftBlockCount = (draft: BioPageDraft) => draft.data.blocks.length;
 
-  const resolvePageBlocks = (page: BioPage): BioEditorBlock[] => {
-    if (pageBlocksMap[page.id]?.length) {
-      return cloneBlocks(pageBlocksMap[page.id]);
-    }
-    if (pageBlocksMap[page.slug]?.length) {
-      return cloneBlocks(pageBlocksMap[page.slug]);
-    }
+  const getTemplateFallbackBlocks = (page: BioPage): BioEditorBlock[] => {
     if (page.title.toLowerCase().includes("marvel")) {
       return cloneBlocks(marvelInitialBlocks as BioEditorBlock[]);
     }
     return cloneBlocks(genericInitialBlocks as BioEditorBlock[]);
+  };
+
+  const resolvePageBlocks = (page: BioPage): BioEditorBlock[] => {
+    const stored = resolveStoredPageBlocks(page.id, page.slug, pageBlocksMap);
+    if (stored) return stored;
+    return getTemplateFallbackBlocks(page);
+  };
+
+  const shouldRestoreDraftForPage = (
+    page: BioPage,
+    draft: BioPageDraft,
+    preferPublished?: boolean
+  ): boolean => {
+    if (preferPublished) return false;
+    if (page.status === "Live") {
+      const publishedAt = readLocalPublishedUpdatedAt(page.id, page.slug);
+      if (publishedAt && new Date(draft.updatedAt).getTime() <= new Date(publishedAt).getTime()) {
+        return false;
+      }
+      const localDoc = readLocalPageDocument(page.id, page.slug);
+      if (localDoc?.updatedAt && new Date(draft.updatedAt).getTime() <= new Date(localDoc.updatedAt).getTime()) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const hydrateEditorPageMeta = (page: BioPage, details?: BioPagePreviewDetails | null) => {
+    setEditorTitle(details?.title || page.title);
+    setEditorHandle(details?.handle ?? page.handle ?? "");
+    setEditorBio(details?.bio || page.bio || "Write a short bio...");
+    setEditorCoverPhoto(details?.coverPhoto || page.coverPhoto || DEFAULT_COVER);
+    setEditorPageTheme(normalizePageTheme(details?.pageTheme ?? readStoredPageTheme(page.id, page.slug)));
+    setEditorCoverSettings(normalizeCoverSettings(details?.coverSettings ?? readStoredPageDetails(page.id, page.slug)?.coverSettings));
+  };
+
+  const loadEditorContentForPage = async (
+    page: BioPage,
+    options?: { templateId?: string | null; preferPublished?: boolean }
+  ) => {
+    const pageDraft = savedDrafts.find((draft) => draft.pageId === page.id);
+    if (pageDraft && shouldRestoreDraftForPage(page, pageDraft, options?.preferPublished)) {
+      hydrateEditorFromState(pageDraft.data);
+      triggerToast(`📂 Restored draft for "${pageDraft.data.pageMeta.title}"`);
+      return;
+    }
+
+    const localDoc = readLocalPageDocument(page.id, page.slug);
+    let resolvedBlocks = resolvePageBlocks(page);
+    let resolvedDetails = localDoc?.details ?? readStoredPageDetails(page.id, page.slug);
+
+    try {
+      const serverDoc = await fetchPageDocumentFromServer(page.id);
+      if (serverDoc) {
+        const serverBlocks = Array.isArray(serverDoc.blocks) ? serverDoc.blocks : null;
+        const serverUpdatedAt =
+          typeof serverDoc.updatedAt === "string" ? new Date(serverDoc.updatedAt).getTime() : 0;
+        const localUpdatedAt = localDoc?.updatedAt ? new Date(localDoc.updatedAt).getTime() : 0;
+        const useServerBlocks =
+          serverBlocks &&
+          (serverUpdatedAt >= localUpdatedAt ||
+            (page.status === "Live" && serverBlocks.length >= resolvedBlocks.length));
+
+        if (useServerBlocks) {
+          resolvedBlocks = cloneBlocks(serverBlocks);
+          if (serverDoc.details) {
+            resolvedDetails = serverDoc.details;
+          }
+        }
+      }
+    } catch {
+      /* keep local/template blocks */
+    }
+
+    hydrateEditorPageMeta(page, resolvedDetails);
+    setEditorBlocks(resolvedBlocks);
+    setPageBlocksMap((prev) => ({
+      ...prev,
+      [page.id]: cloneBlocks(resolvedBlocks)
+    }));
   };
 
   const applyEditingPageUpdate = (status?: BioPage["status"]) => {
@@ -1655,21 +1761,7 @@ export default function BioPagesScreen({
       setShowPublishSuccess(false);
       setShowSaveTemplateModal(false);
       setLinkedTemplateId(options?.templateId ?? null);
-
-      const pageDraft = savedDrafts.find((draft) => draft.pageId === page.id);
-
-      if (pageDraft && !options?.preferPublished) {
-        hydrateEditorFromState(pageDraft.data);
-        triggerToast(`📂 Restored draft for "${pageDraft.data.pageMeta.title}"`);
-      } else {
-        setEditorTitle(page.title);
-        setEditorHandle(page.handle ?? "");
-        setEditorBio(page.bio || "Write a short bio...");
-        setEditorCoverPhoto(page.coverPhoto || DEFAULT_COVER);
-        setEditorPageTheme(readStoredPageTheme(page.id, page.slug));
-        applyStoredCoverSettings(page.id, page.slug);
-        setEditorBlocks(resolvePageBlocks(page));
-      }
+      void loadEditorContentForPage(page, options);
     }
 
     const params = new URLSearchParams({ edit: page.id });
@@ -1703,20 +1795,7 @@ export default function BioPagesScreen({
       setShowPublishSuccess(false);
       setShowSaveTemplateModal(false);
       setLinkedTemplateId(initialActiveTemplateId ?? null);
-
-      const pageDraft = savedDrafts.find((draft) => draft.pageId === pageToEdit.id);
-      if (pageDraft && !editFromDomain) {
-        hydrateEditorFromState(pageDraft.data);
-        triggerToast(`📂 Restored draft for "${pageDraft.data.pageMeta.title}"`);
-      } else {
-        setEditorTitle(pageToEdit.title);
-        setEditorHandle(pageToEdit.handle ?? "");
-        setEditorBio(pageToEdit.bio || "Write a short bio...");
-        setEditorCoverPhoto(pageToEdit.coverPhoto || DEFAULT_COVER);
-        setEditorPageTheme(readStoredPageTheme(pageToEdit.id, pageToEdit.slug));
-        applyStoredCoverSettings(pageToEdit.id, pageToEdit.slug);
-        setEditorBlocks(resolvePageBlocks(pageToEdit));
-      }
+      void loadEditorContentForPage(pageToEdit, { preferPublished: editFromDomain });
     }
 
     if (initialActiveEditPageId) {
@@ -1751,16 +1830,14 @@ export default function BioPagesScreen({
       const details = buildCurrentPreviewDetails();
 
       try {
-        const [previewResult] = await Promise.all([
-          persistAndSyncPagePreview(
-            selectedEditPage.id,
-            selectedEditPage.slug,
-            editorBlocks,
-            details,
-            { pages: pagesForSync }
-          ),
-          syncPagesListToServer(pagesForSync)
-        ]);
+        await syncPagesListToServer(pagesForSync);
+        const previewResult = await persistAndSyncPagePreview(
+          selectedEditPage.id,
+          selectedEditPage.slug,
+          editorBlocks,
+          details,
+          { pages: pagesForSync }
+        );
         const { serverOk, sync } = previewResult;
         if (!serverOk) {
           throw new Error(describeServerSyncFailure(sync.reason));
@@ -3049,12 +3126,50 @@ export default function BioPagesScreen({
                       editorViewPanel === "edit" ? "block" : "hidden"
                     } lg:block`}
                     >
-                    <div className="acn-editor-zone__head">
-                      <Edit3 className="h-3.5 w-3.5" />
-                      Page Editor
+                    <div className="acn-editor-zone__head acn-editor-zone__head--with-actions">
+                      <div className="acn-editor-zone__head-main">
+                        <Edit3 className="h-3.5 w-3.5" />
+                        Page Editor
+                      </div>
+                      <button
+                        type="button"
+                        className="acn-editor-blocks-lock-btn"
+                        aria-pressed={coverSectionLocked}
+                        aria-label={
+                          coverSectionLocked
+                            ? "Unlock Cover Image & Header"
+                            : "Lock Cover Image & Header"
+                        }
+                        title={
+                          coverSectionLocked
+                            ? "Unlock to show Cover Image & Header"
+                            : "Lock to hide Cover Image & Header and focus on Page Blocks"
+                        }
+                        onClick={() => {
+                          setCoverSectionLocked((locked) => !locked);
+                        }}
+                      >
+                        {coverSectionLocked ? (
+                          <Unlock className="h-3.5 w-3.5" aria-hidden />
+                        ) : (
+                          <Lock className="h-3.5 w-3.5" aria-hidden />
+                        )}
+                        <span>{coverSectionLocked ? "Show header" : "Hide header"}</span>
+                      </button>
                     </div>
-                    <div className="acn-editor-zone__body acn-workspace--stack no-scrollbar">
-                    {/* COVER IMAGE & BIO CARD */}
+                    <div
+                      ref={composeScrollRef}
+                      className={`acn-editor-zone__body acn-editor-compose-scroll no-scrollbar ${
+                        coverSectionLocked ? "acn-editor-compose-scroll--blocks-focus" : ""
+                      }`}
+                    >
+                    <div
+                      className={`acn-editor-compose-stack ${
+                        coverSectionLocked ? "acn-editor-compose-stack--blocks-focus" : ""
+                      }`}
+                    >
+                    {/* COVER IMAGE & BIO CARD — hidden when locked */}
+                    {!coverSectionLocked && (
                     <div className="acn-editor-panel acn-editor-cover-panel p-5 shadow-sm space-y-6">
                       <div className="flex items-center justify-between gap-3">
                         <span className="acn-editor-section-label">
@@ -3167,10 +3282,11 @@ export default function BioPagesScreen({
                           </div>
                         </div>
                     </div>
+                    )}
 
-                    {/* ACCORDION BLOCKS LIST */}
+                    {/* ACCORDION BLOCKS LIST — always visible; centered when cover is locked */}
                     <div className="space-y-3.5 acn-editor-blocks-section">
-                      <div className="flex items-center justify-between gap-3">
+                      <div className="acn-editor-blocks-section__head flex items-center justify-between gap-3">
                         <span className="acn-editor-section-label">
                           Page Blocks (Accordions)
                         </span>
@@ -3194,7 +3310,7 @@ export default function BioPagesScreen({
                         onDragEnter={handleDragEnterManager}
                         onDragLeave={handleDragLeaveManager}
                         onDrop={handleDropOnManager}
-                        className={`acn-editor-accordions no-scrollbar space-y-3 p-4 rounded-3xl border transition-all max-h-[50vh] lg:max-h-[580px] overflow-y-auto overflow-x-hidden shadow-inner ${
+                        className={`acn-editor-accordions no-scrollbar space-y-3 p-4 rounded-3xl border transition-all overflow-x-hidden shadow-inner ${
                           isDraggingOverManager
                             ? "ring-2 ring-indigo-400 ring-opacity-50 border-indigo-400"
                             : isAccordionReorderDrag
@@ -3917,6 +4033,7 @@ export default function BioPagesScreen({
                           })
                         )}
                       </div>
+                    </div>
                     </div>
                     </div>
                   </div>

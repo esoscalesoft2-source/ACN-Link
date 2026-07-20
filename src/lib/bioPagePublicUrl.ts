@@ -1,5 +1,6 @@
-import type { BioPage, CustomDomain } from "../types";
+import type { BioPage, CustomDomain, PlatformSubdomain } from "../types";
 import { PRIMARY_DOMAIN } from "../storage/publishStorage";
+import { findPlatformSubdomainForPage } from "./platformSubdomain";
 
 export function getShareableOrigin(): string {
   if (typeof window === "undefined") return `https://${PRIMARY_DOMAIN}`;
@@ -52,14 +53,18 @@ export interface BioPagePublicLink {
   openUrl: string;
   /** Short label shown under the page title */
   displayLabel: string;
-  kind: "custom" | "platform";
+  kind: "custom" | "acn_subdomain" | "platform";
   /** Custom domain is fully Verified and safe to open on the live domain */
   publicReady: boolean;
   /** DNS verified — Open goes to the custom domain URL */
   canOpen: boolean;
 }
 
-export function resolveBioPagePublicLink(page: BioPage, domains: CustomDomain[] = []): BioPagePublicLink {
+export function resolveBioPagePublicLink(
+  page: BioPage,
+  domains: CustomDomain[] = [],
+  platformSubdomains: PlatformSubdomain[] = []
+): BioPagePublicLink {
   const linkedDomain = findLiveDomainForPage(page.id, domains);
   const publicReadyDomain = findPublicReadyDomainForPage(page.id, domains);
   const platformOrigin = getPlatformPublicOrigin();
@@ -81,6 +86,19 @@ export function resolveBioPagePublicLink(page: BioPage, domains: CustomDomain[] 
     };
   }
 
+  const platformSub = findPlatformSubdomainForPage(page.id, platformSubdomains);
+  if (platformSub) {
+    const url = platformSub.publicUrl || `https://${platformSub.hostname}`;
+    return {
+      shareUrl: url,
+      openUrl: url,
+      displayLabel: platformSub.hostname,
+      kind: "acn_subdomain",
+      publicReady: true,
+      canOpen: true
+    };
+  }
+
   return {
     shareUrl: previewShareUrl,
     openUrl: previewOpenUrl,
@@ -91,10 +109,14 @@ export function resolveBioPagePublicLink(page: BioPage, domains: CustomDomain[] 
   };
 }
 
-export function sortPagesByPublicLinkKind(pages: BioPage[], domains: CustomDomain[]): BioPage[] {
+export function sortPagesByPublicLinkKind(
+  pages: BioPage[],
+  domains: CustomDomain[],
+  platformSubdomains: PlatformSubdomain[] = []
+): BioPage[] {
   return [...pages].sort((a, b) => {
-    const aCustom = findLiveDomainForPage(a.id, domains) ? 1 : 0;
-    const bCustom = findLiveDomainForPage(b.id, domains) ? 1 : 0;
+    const aCustom = findLiveDomainForPage(a.id, domains) ? 2 : findPlatformSubdomainForPage(a.id, platformSubdomains) ? 1 : 0;
+    const bCustom = findLiveDomainForPage(b.id, domains) ? 2 : findPlatformSubdomainForPage(b.id, platformSubdomains) ? 1 : 0;
     if (aCustom !== bCustom) return bCustom - aCustom;
     return 0;
   });

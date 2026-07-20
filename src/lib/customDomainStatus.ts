@@ -14,7 +14,7 @@ export function isDomainDnsLinked(domain: CustomDomain): boolean {
 export { isCustomDomainPublicReady };
 
 export function canOpenCustomDomainInBrowser(domain: CustomDomain): boolean {
-  return isDomainDnsLinked(domain);
+  return isCustomDomainPublicReady(domain);
 }
 
 export function getDomainConnectionState(domain: CustomDomain): DomainConnectionState {

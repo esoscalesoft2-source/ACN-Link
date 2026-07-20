@@ -153,6 +153,40 @@ async function resolveNsViaDoh(domainName: string): Promise<string[]> {
   }
 }
 
+/** Proxied Cloudflare CNAMEs often hide from Node resolveCname — DoH still returns the target. */
+async function resolveCnameViaDoh(hostname: string): Promise<string[]> {
+  try {
+    const response = await fetch(
+      `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=CNAME`,
+      { headers: { Accept: "application/dns-json" } }
+    );
+    if (!response.ok) return [];
+    const data = (await response.json()) as { Answer?: { type: number; data: string }[] };
+    return (data.Answer || [])
+      .filter((answer) => answer.type === 5)
+      .map((answer) => answer.data.replace(/\.$/, "").toLowerCase());
+  } catch {
+    return [];
+  }
+}
+
+/** Proxied orange-cloud records expose Cloudflare edge A answers, not CNAME, in public DNS. */
+async function resolve4ViaDoh(hostname: string): Promise<string[]> {
+  try {
+    const response = await fetch(
+      `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=A`,
+      { headers: { Accept: "application/dns-json" } }
+    );
+    if (!response.ok) return [];
+    const data = (await response.json()) as { Answer?: { type: number; data: string }[] };
+    return (data.Answer || [])
+      .filter((answer) => answer.type === 1)
+      .map((answer) => answer.data.trim());
+  } catch {
+    return [];
+  }
+}
+
 export type DnsProviderDetection = {
   domainName: string;
   providerId: string;
@@ -204,18 +238,6 @@ export type DnsVerification = {
   message: string;
 };
 
-function normalizeDnsTarget(value: string): string {
-  return value.trim().toLowerCase().replace(/\.$/, "");
-}
-
-function cnameMatchesTarget(cnames: string[], expectedHost: string): boolean {
-  const expected = normalizeDnsTarget(expectedHost);
-  return cnames.some((entry) => {
-    const normalized = normalizeDnsTarget(entry);
-    return normalized === expected || normalized.endsWith(`.${expected}`);
-  });
-}
-
 /** Cloudflare orange-cloud returns anycast edge IPs, not the origin A record value. */
 function isLikelyCloudflareProxyIp(ip: string): boolean {
   if (!/^\d+\.\d+\.\d+\.\d+$/.test(ip)) return false;
@@ -232,56 +254,12 @@ function isLikelyCloudflareProxyIp(ip: string): boolean {
   return false;
 }
 
-async function isCloudflareHostedZone(zoneDomain: string): Promise<boolean> {
-  const detection = await detectDnsProvider(zoneDomain);
-  return (
-    detection.providerId === "cloudflare" ||
-    detection.nameservers.some((nameserver) => nameserver.includes("cloudflare"))
-  );
-}
-
-async function verifyCloudflareProxiedRoot(
-  host: string,
-  apexAddresses: string[],
-  wwwAddresses: string[],
-  expectedARecord: string
-): Promise<{ verified: boolean; message: string } | null> {
-  const zoneDomain = getDnsZoneDomain(host);
-  const onCloudflare = await isCloudflareHostedZone(zoneDomain);
-  if (!onCloudflare) return null;
-  if (!apexAddresses.length || !wwwAddresses.length) return null;
-
-  const apexProxied = apexAddresses.some(isLikelyCloudflareProxyIp);
-  const wwwProxied = wwwAddresses.some(isLikelyCloudflareProxyIp);
-  if (!apexProxied || !wwwProxied) return null;
-
-  const wwwHost = `www.${host}`;
-  const reachable =
-    (await verifyHostnameReachability(host)) || (await verifyHostnameReachability(wwwHost));
-
-  if (reachable) {
-    return {
-      verified: true,
-      message: "Cloudflare proxied DNS points to ACN Link."
-    };
-  }
-
-  return {
-    verified: false,
-    message:
-      `Cloudflare shows @ and www records, but ${host} still opens another site (not ACN Link). ` +
-      `Set both A records to ${expectedARecord}, remove duplicate root A records and Hostinger redirects, then verify again.`
-  };
-}
-
 /**
- * Root domains: A records for @ and www.
- * Subdomains: CNAME to platform hostname or A record to platform IP.
+ * Root: A @ → platform IP. Subdomain: CNAME → platform hostname.
  */
 export async function verifyDomainDns(hostname: string): Promise<DnsVerification> {
   const host = normalizeHostname(hostname);
   const expectedARecord = resolveCustomDomainATarget();
-  const expectedCname = resolveCnameTarget();
   const kind = getCustomDomainKind(host);
 
   if (!kind) {
@@ -292,57 +270,61 @@ export async function verifyDomainDns(hostname: string): Promise<DnsVerification
       addresses: [],
       txtRecords: [],
       checkedAt: new Date().toISOString(),
-      message: "Enter a valid domain or subdomain, for example yourbrand.com or studio.yourbrand.com."
+      message: "Enter a root domain or subdomain, for example yourbrand.com or app.yourbrand.com."
     };
   }
 
   if (kind === "subdomain") {
-    const [cnames, v4, v6, aTargetV4] = await Promise.all([
+    const expectedCname = resolveCnameTarget();
+    const [nodeCnames, dohCnames, reachable, nodeA, dohA] = await Promise.all([
       safeResolve(() => resolveCname(host)),
+      resolveCnameViaDoh(host),
+      verifyHostnameReachability(host),
       safeResolve(() => resolve4(host)),
-      safeResolve(() => resolve6(host)),
-      safeResolve(() => resolve4(expectedARecord))
+      resolve4ViaDoh(host)
     ]);
+    const resolvedCnames = [...new Set([...(nodeCnames || []), ...dohCnames])];
+    const aRecords = [...new Set([...(nodeA || []), ...dohA])];
+    let cnameOk = cnameMatchesTarget(resolvedCnames, expectedCname);
 
-    const resolvedCnames = cnames || [];
-    const addresses = [...(v4 || []), ...(v6 || [])];
-    const aRecordAddresses = new Set<string>([
-      ...(aTargetV4 || []),
-      ...(expectedARecord.match(/^\d+\.\d+\.\d+\.\d+$/) ? [expectedARecord] : [])
-    ]);
-    const cnameOk = cnameMatchesTarget(resolvedCnames, expectedCname);
-    const aOk = addresses.some((address) => aRecordAddresses.has(address));
-    let verified = cnameOk || aOk;
-    const hostLabel = getSubdomainHostLabel(host);
-    let message = verified
-      ? "DNS points to ACN Link."
-      : `Add a CNAME record at your DNS provider: Host ${hostLabel} → ${expectedCname}. You can also use an A record → ${expectedARecord}.`;
-
-    if (!verified) {
-      verified = await verifyHostnameReachability(host);
-      if (verified) {
-        message = "DNS points to ACN Link (live HTTPS check passed).";
-      }
+    // Orange-cloud proxied CNAMEs flatten to Cloudflare edge A records in public DNS.
+    if (!cnameOk && aRecords.some(isLikelyCloudflareProxyIp)) {
+      cnameOk = true;
     }
 
-    return {
+    let verified = cnameOk || reachable;
+    const hostLabel = getSubdomainHostLabel(host);
+    let message = verified
+      ? cnameOk
+        ? resolvedCnames.length > 0
+          ? "DNS CNAME points to ACN Link."
+          : "DNS CNAME configured at Cloudflare (proxied)."
+        : "DNS routes to ACN Link (live HTTPS check passed)."
+      : `Add a CNAME record at your DNS provider: Host ${hostLabel} → ${expectedCname}. Do not use an A record for subdomains.`;
+
+    if (!verified) {
+      const detection = await detectDnsProvider(getDnsZoneDomain(host));
+      const label =
+        detection.providerId !== "unknown" && detection.providerName !== "DNS Provider"
+          ? detection.providerName
+          : "your DNS provider";
+      message += ` At ${label}, set CNAME ${hostLabel} → ${expectedCname} and remove any A record for ${hostLabel}.`;
+    }
+
+  return {
       verified,
       expectedTarget: expectedCname,
       cnames: resolvedCnames,
-      addresses,
+      addresses: aRecords,
       txtRecords: [],
       checkedAt: new Date().toISOString(),
       message
     };
   }
 
-  const wwwHost = `www.${host}`;
-
-  const [apexV4, apexV6, wwwV4, wwwV6, aTargetV4] = await Promise.all([
+  const [apexV4, apexV6, aTargetV4] = await Promise.all([
     safeResolve(() => resolve4(host)),
     safeResolve(() => resolve6(host)),
-    safeResolve(() => resolve4(wwwHost)),
-    safeResolve(() => resolve6(wwwHost)),
     safeResolve(() => resolve4(expectedARecord))
   ]);
 
@@ -352,42 +334,31 @@ export async function verifyDomainDns(hostname: string): Promise<DnsVerification
   ]);
 
   const apexAddresses = [...(apexV4 || []), ...(apexV6 || [])];
-  const wwwAddresses = [...(wwwV4 || []), ...(wwwV6 || [])];
-  const addresses = [...apexAddresses, ...wwwAddresses];
+  const addresses = apexAddresses;
 
-  const apexMatches = apexAddresses.some((address) => aRecordAddresses.has(address));
-  const wwwMatches = wwwAddresses.some((address) => aRecordAddresses.has(address));
-  let verified = apexMatches || wwwMatches;
+  const apexMatches =
+    apexAddresses.some((address) => aRecordAddresses.has(address)) ||
+    apexAddresses.some(isLikelyCloudflareProxyIp);
+
+  let verified = apexMatches;
   let message = verified
-    ? "DNS A records point to ACN Link."
-    : `Add A records at your registrar: Host www → ${expectedARecord} and Host @ → ${expectedARecord}.`;
+    ? "DNS A record points to ACN Link."
+    : `Add an A record at your DNS provider: Host @ → ${expectedARecord}. Root domains use A records only.`;
 
   if (!verified) {
-    const cloudflareResult = await verifyCloudflareProxiedRoot(
-      host,
-      apexAddresses,
-      wwwAddresses,
-      expectedARecord
-    );
-    if (cloudflareResult) {
-      verified = cloudflareResult.verified;
-      message = cloudflareResult.message;
-    }
-  }
-
-  if (!verified) {
-    const reachable =
-      (await verifyHostnameReachability(host)) || (await verifyHostnameReachability(wwwHost));
-    if (reachable) {
-      verified = true;
+    verified = await verifyHostnameReachability(host);
+    if (verified) {
       message = "DNS points to ACN Link (live HTTPS check passed).";
     }
   }
 
-  if (!verified && (await isCloudflareHostedZone(getDnsZoneDomain(host)))) {
-    message +=
-      " On Cloudflare, edit (do not duplicate) the @ and www A records to point to the IP above, " +
-      "and remove any extra root A records (for example old Hostinger IPs).";
+  if (!verified) {
+    const detection = await detectDnsProvider(getDnsZoneDomain(host));
+    const label =
+      detection.providerId !== "unknown" && detection.providerName !== "DNS Provider"
+        ? detection.providerName
+        : "your DNS provider";
+    message += ` At ${label}, set @ A → ${expectedARecord} and remove conflicting records.`;
   }
 
   return {
@@ -399,6 +370,18 @@ export async function verifyDomainDns(hostname: string): Promise<DnsVerification
     checkedAt: new Date().toISOString(),
     message
   };
+}
+
+function normalizeDnsTarget(value: string): string {
+  return value.trim().toLowerCase().replace(/\.$/, "");
+}
+
+function cnameMatchesTarget(cnames: string[], expectedHost: string): boolean {
+  const expected = normalizeDnsTarget(expectedHost);
+  return cnames.some((entry) => {
+    const normalized = normalizeDnsTarget(entry);
+    return normalized === expected || normalized.endsWith(`.${expected}`);
+  });
 }
 
 export async function domainServesAcnBio(hostname: string): Promise<boolean> {

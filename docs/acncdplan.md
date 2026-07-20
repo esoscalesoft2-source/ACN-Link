@@ -4,14 +4,14 @@ Reference plan for ACN Link custom domains — **root domain only** (`yourbrand.
 
 PDF (30 screenshots): `docs/acncdplan-screenshots.pdf`
 
-Example: `searchablehowto.com` · DNS: A records `@` + `www` → platform IP
+Example: `searchablehowto.com` · DNS: A record `@` → platform IP
 
 ---
 
 ## ACN rule
 
-- **Root domain:** `yourbrand.com` — A records `@` + `www` → platform IP
-- **Subdomain:** `studio.yourbrand.com`, `links.yourbrand.com`, etc. — CNAME → platform hostname
+- **Root domain:** `yourbrand.com` — A record `@` → platform IP only
+- **Subdomain:** `king.yourbrand.com`, `www.yourbrand.com`, etc. — CNAME → platform hostname only
 - User adds records at their registrar (GoDaddy, Namecheap, Cloudflare, etc.)
 
 ---

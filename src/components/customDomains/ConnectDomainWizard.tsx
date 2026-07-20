@@ -1,14 +1,23 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { BioPage, CustomDomain, CustomDomainPlatformConfig } from "../../types";
-import { analyzeDomain, type DomainAnalysis } from "../../lib/domainApi";
-import { buildDnsRecordSet, customDomainValidationError, getCustomDomainKind, getDnsZoneDomain } from "../../lib/customDomainDns";
+import { analyzeDomain, type DomainAnalysis, type DomainConnectResult } from "../../lib/domainApi";
+import {
+  buildDnsRecordSet,
+  customDomainValidationError,
+  formatDnsVerifyError,
+  getCustomDomainKind,
+  getDnsZoneDomain,
+  parseOwnershipTxtRecord
+} from "../../lib/customDomainDns";
 import { isValidHostname, normaliseHostname } from "../../storage/publishStorage";
 import SearchablePagePicker from "./SearchablePagePicker";
-import DnsProviderBrand from "./DnsProviderBrand";
+import DnsRecordsTable from "./DnsRecordsTable";
+import { useDomainInputPreview } from "./useDomainInputPreview";
 import { getProviderBranding } from "../../lib/dnsProviderBranding";
-import { AlertTriangle, ArrowLeft, Check, ExternalLink, Eye, EyeOff, Globe, Loader2, Lock, User, X } from "lucide-react";
+import { getAccessToken, isPreviewToken } from "../../lib/authApi";
+import { AlertTriangle, ArrowLeft, Check, ExternalLink, Globe, Loader2, X } from "lucide-react";
 
-type WizardPhase = "domain" | "analyzing" | "provider" | "dns" | "success";
+type WizardPhase = "domain" | "connecting" | "manual" | "success";
 
 interface ConnectDomainWizardProps {
   open: boolean;
@@ -17,21 +26,35 @@ interface ConnectDomainWizardProps {
   platformConfig: CustomDomainPlatformConfig | null;
   resumeDomain?: CustomDomain | null;
   onClose: () => void;
-  onConnectDomain: (domainName: string, pageId: string) => Promise<CustomDomain>;
-  onVerify: (id: string) => Promise<CustomDomain>;
+  onConnectDomain: (
+    domainName: string,
+    pageId: string,
+    options?: { cloudflareApiToken?: string }
+  ) => Promise<DomainConnectResult>;
+  onVerify: (
+    id: string,
+    options?: { skipPageSync?: boolean }
+  ) => Promise<import("../../lib/domainApi").DomainVerifyResult>;
   onFinished: (result: { domain: CustomDomain; connected: boolean; pending?: boolean }) => void;
 }
 
 function isDomainLive(domain: CustomDomain) {
-  return domain.status === "Verified" || domain.status === "DNS Verified" || domain.status === "Provisioning SSL";
+  return (
+    domain.status === "Verified" ||
+    domain.status === "DNS Verified" ||
+    domain.status === "Provisioning SSL"
+  );
 }
 
 function progressIndex(phase: WizardPhase): number {
   if (phase === "domain") return 0;
-  if (phase === "analyzing") return 1;
-  if (phase === "provider") return 2;
-  if (phase === "dns") return 3;
+  if (phase === "connecting") return 2;
+  if (phase === "manual") return 3;
   return 4;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 export default function ConnectDomainWizard({
@@ -54,15 +77,22 @@ export default function ConnectDomainWizard({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [connectedDomain, setConnectedDomain] = useState<CustomDomain | null>(null);
   const [analysis, setAnalysis] = useState<DomainAnalysis | null>(null);
-  const [analyzeStep, setAnalyzeStep] = useState(0);
-  const [copiedIds, setCopiedIds] = useState<Set<string>>(new Set());
+  const [connectStep, setConnectStep] = useState(0);
+  const [connectStatus, setConnectStatus] = useState("");
   const [verifyError, setVerifyError] = useState<string | null>(null);
-  const [providerUsername, setProviderUsername] = useState("");
-  const [providerPassword, setProviderPassword] = useState("");
-  const [showProviderPassword, setShowProviderPassword] = useState(false);
+  const [cloudflareApiToken, setCloudflareApiToken] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showCfToken, setShowCfToken] = useState(false);
+  const [dnsAutoProvisioned, setDnsAutoProvisioned] = useState(false);
+  const [verifyAttempt, setVerifyAttempt] = useState(0);
+  const [verifyMaxAttempts, setVerifyMaxAttempts] = useState(6);
+  const connectStartedRef = useRef(false);
 
   const firstAvailablePageId = pages.find((page) => !linkedDomainsByPageId.has(page.id))?.id || "";
   const isResume = Boolean(resumeDomain);
+  const isPreviewSession = isPreviewToken(getAccessToken());
+  const previewSessionMessage =
+    "You are in preview/demo mode. Custom domains need a full account — sign out, then log in with your email and password.";
 
   useEffect(() => {
     if (!open) return;
@@ -72,20 +102,17 @@ export default function ConnectDomainWizard({
       setPageId(resumeDomain.pageId || firstAvailablePageId);
       setPageSelectionConfirmed(Boolean(resumeDomain.pageId || firstAvailablePageId));
       setPendingPage(null);
-      setPhase("dns");
+      setPhase("connecting");
       void analyzeDomain(resumeDomain.domainName)
         .then(setAnalysis)
-        .catch(async () => {
-          const fallback = await analyzeDomain(resumeDomain.domainName).catch(() => null);
-          setAnalysis(
-            fallback ?? {
-              domainName: resumeDomain.domainName,
-              providerId: "unknown",
-              providerName: "DNS Provider",
-              nameservers: []
-            }
-          );
-        });
+        .catch(() =>
+          setAnalysis({
+            domainName: resumeDomain.domainName,
+            providerId: "unknown",
+            providerName: "DNS Provider",
+            nameservers: []
+          })
+        );
     } else {
       setPhase("domain");
       setDomainName("");
@@ -96,87 +123,66 @@ export default function ConnectDomainWizard({
       setAnalysis(null);
     }
     setFormError("");
-    setAnalyzeStep(0);
-    setCopiedIds(new Set());
+    setConnectStep(0);
+    setConnectStatus("");
     setVerifyError(null);
-    setProviderUsername("");
-    setProviderPassword("");
-    setShowProviderPassword(false);
-  }, [open, resumeDomain]);
+    setCloudflareApiToken("");
+    setShowAdvanced(false);
+    setShowCfToken(false);
+    setDnsAutoProvisioned(false);
+    setVerifyAttempt(0);
+    setVerifyMaxAttempts(6);
+    connectStartedRef.current = false;
+  }, [open, resumeDomain, firstAvailablePageId]);
 
   useEffect(() => {
-    if (phase === "dns") {
-      setCopiedIds(new Set());
-      setVerifyError(null);
+    if (!open || phase !== "connecting" || connectStartedRef.current) return;
+    connectStartedRef.current = true;
+
+    if (isResume && connectedDomain) {
+      void runVerifyLoop(connectedDomain);
+      return;
     }
-  }, [phase]);
-
-  useEffect(() => {
-    if (phase !== "analyzing" || isResume) return;
-    let cancelled = false;
-
-    const run = async () => {
-      setAnalyzeStep(0);
-      await new Promise((resolve) => window.setTimeout(resolve, 700));
-      if (cancelled) return;
-      setAnalyzeStep(1);
-
-      try {
-        const result = await analyzeDomain(normaliseHostname(domainName));
-        if (cancelled) return;
-        setAnalysis(result);
-      } catch {
-        if (cancelled) return;
-        const fallback = await analyzeDomain(normaliseHostname(domainName)).catch(() => null);
-        setAnalysis(
-          fallback ?? {
-            domainName: normaliseHostname(domainName),
-            providerId: "unknown",
-            providerName: "DNS Provider",
-            nameservers: []
-          }
-        );
-      }
-
-      await new Promise((resolve) => window.setTimeout(resolve, 900));
-      if (cancelled) return;
-      setAnalyzeStep(2);
-
-      await new Promise((resolve) => window.setTimeout(resolve, 800));
-      if (cancelled) return;
-      setPhase("provider");
-    };
-
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, [phase, domainName, isResume]);
+    if (!pageId || !pageSelectionConfirmed) {
+      connectStartedRef.current = false;
+      return;
+    }
+    void runConnectFlow();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, phase, isResume, connectedDomain?.id, pageId, pageSelectionConfirmed]);
 
   const activeHostname = connectedDomain?.domainName || normaliseHostname(domainName);
   const dnsSet = useMemo(() => {
     if (!platformConfig || !activeHostname) return null;
     return buildDnsRecordSet(activeHostname, platformConfig.aRecordTarget, {
-      cnameTarget: platformConfig.cnameTarget,
-      platformUrl: platformConfig.platformUrl
+      cnameTarget: platformConfig.cnameTarget
     });
   }, [activeHostname, platformConfig]);
 
-  const providerBranding = getProviderBranding(analysis?.providerId || "unknown", analysis?.providerName);
+  const inputPreview = useDomainInputPreview(domainName, dnsSet, phase === "domain" && !isResume);
+  const isCloudflareProvider =
+    inputPreview.providerId === "cloudflare" || analysis?.providerId === "cloudflare";
+  const autoDnsEnabled = Boolean(platformConfig?.autoDnsViaCloudflare);
+
+  const ownershipRecord = useMemo(
+    () => parseOwnershipTxtRecord(connectedDomain?.ownershipVerification),
+    [connectedDomain?.ownershipVerification]
+  );
+
+  const dnsRecords = useMemo(() => {
+    if (!dnsSet) return [];
+    return ownershipRecord ? [...dnsSet.records, ownershipRecord] : dnsSet.records;
+  }, [dnsSet, ownershipRecord]);
+
+  const providerBranding = getProviderBranding(
+    analysis?.providerId || inputPreview.providerId || "unknown",
+    analysis?.providerName || inputPreview.providerName || undefined
+  );
   const providerName = providerBranding.displayName;
   const providerHelpUrl =
     platformConfig?.registrars.find((item) => item.id === analysis?.providerId)?.dnsHelpUrl ||
     platformConfig?.registrars.find((item) => item.name === providerName)?.dnsHelpUrl ||
     platformConfig?.registrars[0]?.dnsHelpUrl;
-
-  const copyValue = async (recordId: string, value: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopiedIds((current) => new Set([...current, recordId]));
-    } catch {
-      setFormError("Copy failed — select the value and copy manually.");
-    }
-  };
 
   const requestPageSelection = (page: BioPage) => {
     setPendingPage(page);
@@ -194,8 +200,112 @@ export default function ConnectDomainWizard({
     setPendingPage(null);
   };
 
+  const runVerifyLoop = async (domain: CustomDomain) => {
+    const maxAttempts = 6;
+    setVerifyMaxAttempts(maxAttempts);
+    setConnectStep(3);
+    setVerifyAttempt(1);
+    setConnectStatus(`Verifying connection… (1/${maxAttempts})`);
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const stepNum = attempt + 1;
+      setVerifyAttempt(stepNum);
+      setConnectStatus(`Verifying connection… (${stepNum}/${maxAttempts})`);
+
+      try {
+        const verifyResult = await onVerify(domain.id, { skipPageSync: true });
+        const updated = verifyResult.domain;
+        setConnectedDomain(updated);
+
+        const dnsOk = verifyResult.dns?.verified || isDomainLive(updated);
+        const registeredOnAcn =
+          updated.status === "Verified" ||
+          updated.status === "DNS Verified" ||
+          updated.status === "Provisioning SSL";
+
+        if (dnsOk || updated.status === "Verified") {
+          setVerifyError(null);
+          setConnectStatus("Connected!");
+          setPhase("success");
+          return;
+        }
+
+        if (registeredOnAcn && attempt >= maxAttempts - 1) {
+          setVerifyError(null);
+          setConnectStatus("Registered — SSL may take a few minutes.");
+          setPhase("success");
+          return;
+        }
+
+        if (attempt < maxAttempts - 1) {
+          setConnectStatus(`Waiting for DNS… (${stepNum}/${maxAttempts})`);
+          await sleep(4000);
+        } else {
+          setVerifyError(
+            formatDnsVerifyError(
+              activeHostname,
+              verifyResult.dns?.message || updated.errorMessage || updated.setupHint,
+              platformConfig?.aRecordTarget || ""
+            ) || "DNS not detected yet. Add the CNAME in Cloudflare, then Check again."
+          );
+          setPhase("manual");
+        }
+      } catch (error) {
+        if (attempt >= maxAttempts - 1) {
+          setVerifyError(error instanceof Error ? error.message : "Verification failed.");
+          setPhase("manual");
+        } else {
+          setConnectStatus(`Waiting for DNS… (${stepNum}/${maxAttempts})`);
+          await sleep(4000);
+        }
+      }
+    }
+  };
+
+  const runConnectFlow = async () => {
+    const hostname = normaliseHostname(domainName);
+    setIsSubmitting(true);
+    setVerifyError(null);
+    setConnectStep(0);
+    setConnectStatus("Registering with ACN Link…");
+
+    try {
+      const token = cloudflareApiToken.trim();
+      const useAutoDns = autoDnsEnabled && isCloudflareProvider && token;
+
+      setConnectStep(1);
+      if (useAutoDns) {
+        setConnectStatus("Updating DNS at Cloudflare…");
+      } else {
+        setConnectStatus("Registering SSL on ACN Link…");
+      }
+
+      const result = await onConnectDomain(hostname, pageId, {
+        cloudflareApiToken: useAutoDns ? token : undefined
+      });
+      setConnectedDomain(result.domain);
+      setDnsAutoProvisioned(Boolean(result.dnsAutoProvisioned));
+      setConnectStep(2);
+
+      if (result.dnsProvisionMessage && !result.dnsAutoProvisioned && useAutoDns) {
+        setVerifyError(result.dnsProvisionMessage);
+      }
+
+      await runVerifyLoop(result.domain);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "Could not connect this domain.");
+      setPhase("domain");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const submitDomain = (event: FormEvent) => {
     event.preventDefault();
+    if (isPreviewSession) {
+      setFormError(previewSessionMessage);
+      return;
+    }
     const hostname = normaliseHostname(domainName);
     const domainError = customDomainValidationError(hostname);
     if (domainError) {
@@ -203,7 +313,7 @@ export default function ConnectDomainWizard({
       return;
     }
     if (!isValidHostname(hostname)) {
-      setFormError("Enter a valid domain or subdomain, for example yourbrand.com or studio.yourbrand.com.");
+      setFormError("Enter a valid root domain or subdomain, for example yourbrand.com or app.yourbrand.com.");
       return;
     }
     if (!pageId || !pageSelectionConfirmed) {
@@ -216,65 +326,21 @@ export default function ConnectDomainWizard({
       return;
     }
     setFormError("");
-    setPhase("analyzing");
-  };
-
-  const continueFromProvider = () => {
-    setVerifyError(null);
-    setCopiedIds(new Set());
-    setPhase("dns");
-  };
-
-  const confirmDnsAdded = async () => {
-    if (!allRecordsCopied) return;
-    setVerifyError(null);
-    setIsSubmitting(true);
-    try {
-      let domain = connectedDomain;
-      if (!domain) {
-        if (!pageId || !pageSelectionConfirmed) {
-          setVerifyError("Choose and confirm which published page should open on this address.");
-          return;
-        }
-        domain = await onConnectDomain(activeHostname, pageId);
-        setConnectedDomain(domain);
-      }
-
-      setPhase("success");
-    } catch (error) {
-      setVerifyError(error instanceof Error ? error.message : "Verification failed.");
-    } finally {
-      setIsSubmitting(false);
-    }
+    setPhase("connecting");
   };
 
   const finishWizard = async () => {
     const domainRecord = connectedDomain;
     if (!domainRecord) return;
 
-    onFinished({ domain: domainRecord, connected: false, pending: true });
-    setIsSubmitting(true);
-
-    try {
-      const updated = await onVerify(domainRecord.id);
-      onFinished({ domain: updated, connected: isDomainLive(updated), pending: false });
-    } catch {
-      onFinished({ domain: domainRecord, connected: false, pending: false });
-    } finally {
-      setIsSubmitting(false);
-    }
+    onFinished({ domain: domainRecord, connected: isDomainLive(domainRecord), pending: false });
+    onClose();
   };
 
   if (!open) return null;
 
   const dnsZoneDomain = getDnsZoneDomain(activeHostname);
   const domainKind = getCustomDomainKind(activeHostname);
-  const recordCount = dnsSet?.records.length || 0;
-  const recordFullyCopied = (recordId: string) =>
-    copiedIds.has(recordId) && copiedIds.has(`${recordId}-val`);
-  const copiedRecordCount =
-    dnsSet?.records.filter((record) => recordFullyCopied(record.id)).length || 0;
-  const allRecordsCopied = recordCount > 0 && copiedRecordCount === recordCount;
   const activeDot = progressIndex(phase);
 
   return (
@@ -286,9 +352,7 @@ export default function ConnectDomainWizard({
               type="button"
               className="acn-domain-wizard__back"
               onClick={() => {
-                if (phase === "provider") setPhase(isResume ? "domain" : "domain");
-                if (phase === "dns") setPhase(isResume ? "domain" : "provider");
-                if (phase === "analyzing") setPhase("domain");
+                if (phase === "manual" || phase === "connecting") setPhase("domain");
               }}
               aria-label="Back"
             >
@@ -314,14 +378,20 @@ export default function ConnectDomainWizard({
           <form onSubmit={submitDomain} className="acn-domain-wizard__body">
             <div className="acn-domain-wizard__hero">
               <div className="acn-domain-wizard__hero-icon">
-                <Globe className="h-8 w-8" />
+                <Globe className="h-7 w-7" />
               </div>
-              <h2 className="acn-domain-wizard__title">What domain would you like to connect with ACN Link?</h2>
+              <h2 className="acn-domain-wizard__title">Connect your domain to ACN Link</h2>
               <p className="acn-domain-wizard__lead">
-                Enter the website address you already own. GoDaddy, Namecheap, Cloudflare, Hostinger, and others work
-                the same way.
+                One step — ACN registers SSL and updates DNS for you.
               </p>
             </div>
+
+            {isPreviewSession && (
+              <div className="acn-domain-wizard__alert" role="status">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{previewSessionMessage}</span>
+              </div>
+            )}
 
             <label className="acn-domain-wizard__label" htmlFor="wizard-domain">
               Your website address (domain)
@@ -331,18 +401,32 @@ export default function ConnectDomainWizard({
               autoFocus
               value={domainName}
               onChange={(event) => setDomainName(event.target.value)}
-              placeholder="yourbrand.com or studio.yourbrand.com"
+              placeholder="yourbrand.com or app.yourbrand.com"
               className="acn-domain-wizard__input"
             />
-            <p className="mt-2 text-xs text-slate-500">
-              Root domain example: <strong>yourbrand.com</strong> (A records for <strong>@</strong> and{" "}
-              <strong>www</strong>). Subdomain example: <strong>studio.yourbrand.com</strong> or{" "}
-              <strong>links.yourbrand.com</strong> (one CNAME record).
-            </p>
+            {inputPreview.validationError && domainName.trim() && (
+              <p className="mt-2 text-xs text-rose-600">{inputPreview.validationError}</p>
+            )}
+            {inputPreview.isValid && (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700">
+                  {inputPreview.checking ? "Checking…" : "Ready"}
+                </span>
+                {inputPreview.kindLabel && (
+                  <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700">
+                    {inputPreview.kindLabel}
+                  </span>
+                )}
+                {inputPreview.providerName && (
+                  <span className="text-[11px] text-slate-500">DNS at {inputPreview.providerName}</span>
+                )}
+              </div>
+            )}
 
-            <div className="mt-5">
+            <div className="mt-4">
               <label className="acn-domain-wizard__label">
-                Which published page should open on this address?
+                Which published page should open on{" "}
+                <strong>{inputPreview.normalized || "this address"}</strong>?
               </label>
               <SearchablePagePicker
                 pages={pages}
@@ -353,168 +437,183 @@ export default function ConnectDomainWizard({
               />
             </div>
 
+            {autoDnsEnabled && isCloudflareProvider && inputPreview.isValid && (
+              <div className="mt-3">
+                <button
+                  type="button"
+                  className="acn-domain-wizard__link"
+                  onClick={() => setShowCfToken((current) => !current)}
+                >
+                  {showCfToken
+                    ? "Hide Cloudflare auto-DNS (optional)"
+                    : "Auto-update DNS at Cloudflare (optional)"}
+                </button>
+                {showCfToken && (
+                  <div className="mt-2 rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
+                    <label className="acn-domain-wizard__label" htmlFor="wizard-cf-token">
+                      Cloudflare API token
+                    </label>
+                    <p className="mt-1 text-xs text-slate-600">
+                      Paste once with <strong>Zone → DNS → Edit</strong> permission.
+                    </p>
+                    <input
+                      id="wizard-cf-token"
+                      type="password"
+                      autoComplete="off"
+                      value={cloudflareApiToken}
+                      onChange={(event) => setCloudflareApiToken(event.target.value)}
+                      placeholder="Cloudflare API token"
+                      className="acn-domain-wizard__input mt-2"
+                    />
+                    <a
+                      href="https://developers.cloudflare.com/fundamentals/api/get-started/create-token/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="acn-domain-wizard__provider-manual-link mt-2 inline-flex items-center gap-1 text-xs"
+                    >
+                      How to create a token <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {autoDnsEnabled && inputPreview.isValid && !isCloudflareProvider && !inputPreview.checking && (
+              <p className="mt-3 text-xs text-slate-600">
+                DNS at <strong>{inputPreview.providerName || "your provider"}</strong> — ACN will set up SSL
+                automatically.
+              </p>
+            )}
+
+            {showAdvanced && dnsSet && (
+              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+                <p className="text-xs font-semibold text-slate-700">DNS records (advanced)</p>
+                <div className="mt-3">
+                  <DnsRecordsTable records={dnsSet.records} readOnly compact />
+                </div>
+              </div>
+            )}
+
+            {inputPreview.isValid && (
+              <button
+                type="button"
+                className="acn-domain-wizard__link mt-3"
+                onClick={() => setShowAdvanced((current) => !current)}
+              >
+                {showAdvanced ? "Hide DNS details" : "Show DNS details (advanced)"}
+              </button>
+            )}
+
             {formError && <p className="acn-domain-wizard__error">{formError}</p>}
 
             <button
               type="submit"
               className="acn-domain-wizard__primary"
-              disabled={!pageSelectionConfirmed || !pageId}
+              disabled={
+                isPreviewSession ||
+                !pageSelectionConfirmed ||
+                !pageId ||
+                !inputPreview.isValid ||
+                isSubmitting
+              }
             >
-              Continue
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Connect
             </button>
           </form>
         )}
 
-        {phase === "analyzing" && (
+        {phase === "connecting" && (
           <div className="acn-domain-wizard__body acn-domain-wizard__body--center">
             <div className="acn-domain-wizard__analyze-art" aria-hidden />
-            <h2 className="acn-domain-wizard__title">Analyzing your domain</h2>
+            <h2 className="acn-domain-wizard__title">Connecting {activeHostname}</h2>
+            <p className="acn-domain-wizard__lead">{connectStatus || "Please wait…"}</p>
             <ul className="acn-domain-wizard__checklist">
               <li>
-                {analyzeStep >= 1 ? (
+                {connectStep >= 1 ? (
                   <Check className="h-4 w-4 text-indigo-600" />
                 ) : (
                   <Loader2 className="h-4 w-4 animate-spin text-indigo-600" />
                 )}
-                Analyzed <strong>{normaliseHostname(domainName)}</strong>
+                Registered with ACN Link
               </li>
               <li>
-                {analyzeStep >= 2 ? (
+                {connectStep >= 2 ? (
                   <Check className="h-4 w-4 text-indigo-600" />
-                ) : analyzeStep >= 1 ? (
+                ) : connectStep >= 1 ? (
                   <Loader2 className="h-4 w-4 animate-spin text-indigo-600" />
                 ) : (
                   <span className="inline-block h-4 w-4 rounded-full bg-slate-200" />
                 )}
-                Detected DNS provider: <strong>{analysis?.providerName || "…"}</strong>
+                {dnsAutoProvisioned
+                  ? "DNS updated at Cloudflare"
+                  : connectStep >= 2
+                    ? "SSL registered on ACN Link"
+                    : connectStep >= 1
+                      ? "Registering SSL on ACN Link…"
+                      : "SSL on ACN Link"}
               </li>
               <li>
-                {analyzeStep >= 2 ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-indigo-600" />
+                {connectStep >= 3 ? (
+                  phase === "success" ? (
+                    <Check className="h-4 w-4 text-indigo-600" />
+                  ) : (
+                    <Loader2 className="h-4 w-4 animate-spin text-indigo-600" />
+                  )
                 ) : (
                   <span className="inline-block h-4 w-4 rounded-full bg-slate-200" />
                 )}
-                Getting your setup details
+                Verifying connection
+                {connectStep >= 3 && phase === "connecting" && verifyAttempt > 0
+                  ? ` (${verifyAttempt}/${verifyMaxAttempts})`
+                  : ""}
               </li>
             </ul>
-          </div>
-        )}
-
-        {phase === "provider" && analysis && (
-          <div className="acn-domain-wizard__body acn-domain-wizard__body--provider">
-            <DnsProviderBrand
-              providerId={analysis.providerId}
-              providerName={analysis.providerName}
-              domainName={analysis.domainName}
-            />
-            <p className="acn-domain-wizard__provider-lead">
-              By logging in with your {providerName} details, you give us{" "}
-              <strong>one-time permission</strong> to connect your domain.
-            </p>
-
-            <div className="acn-domain-wizard__provider-field">
-              <User className="acn-domain-wizard__provider-field-icon" />
-              <input
-                id="provider-username"
-                value={providerUsername}
-                onChange={(event) => setProviderUsername(event.target.value)}
-                placeholder="Username or Customer #"
-                className="acn-domain-wizard__provider-input"
-                autoComplete="username"
-              />
-            </div>
-
-            <div className="acn-domain-wizard__provider-field">
-              <Lock className="acn-domain-wizard__provider-field-icon" />
-              <input
-                id="provider-password"
-                type={showProviderPassword ? "text" : "password"}
-                value={providerPassword}
-                onChange={(event) => setProviderPassword(event.target.value)}
-                placeholder="Password"
-                className="acn-domain-wizard__provider-input"
-                autoComplete="current-password"
-              />
+            {connectStep >= 3 && phase === "connecting" && verifyAttempt > 0 && (
+              <p className="mt-3 text-center text-xs text-slate-500">
+                Step {verifyAttempt} of {verifyMaxAttempts} — checking DNS and SSL
+              </p>
+            )}
+            {connectedDomain && connectStep >= 2 && phase === "connecting" && (
               <button
                 type="button"
-                className="acn-domain-wizard__provider-toggle"
-                onClick={() => setShowProviderPassword((current) => !current)}
-                aria-label={showProviderPassword ? "Hide password" : "Show password"}
+                className="acn-domain-wizard__link mt-4"
+                onClick={() => {
+                  onFinished({ domain: connectedDomain, connected: false, pending: true });
+                  onClose();
+                }}
               >
-                {showProviderPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                Close — finish in background
               </button>
-            </div>
-
-            <button type="button" className="acn-domain-wizard__provider-forgot">
-              Forgot password?
-            </button>
-
-            <button type="button" className="acn-domain-wizard__primary" onClick={continueFromProvider}>
-              Continue
-            </button>
-
-            <p className="acn-domain-wizard__provider-legal">
-              ACN Link is not affiliated with or sponsored by {providerName}. {providerName} is a registered
-              trademark used for identification only.
-            </p>
-
-            <p className="acn-domain-wizard__provider-manual">
-              If you can&apos;t log in or you signed up with a social account, you&apos;ll need to{" "}
-              <button type="button" className="acn-domain-wizard__provider-manual-link" onClick={continueFromProvider}>
-                go to our manual setup
-              </button>
-              .
-            </p>
+            )}
           </div>
         )}
 
-        {phase === "dns" && dnsSet && (
+        {phase === "manual" && dnsSet && (
           <div className="acn-domain-wizard__body">
             <div className="acn-domain-wizard__info-banner">
               <AlertTriangle className="h-4 w-4 shrink-0" />
-              <span>Social login not supported</span>
+              <span>One more step at your DNS provider</span>
             </div>
 
-            <h2 className="acn-domain-wizard__title">Please add these records</h2>
+            <h2 className="acn-domain-wizard__title">Add these records at {providerName}</h2>
             <p className="acn-domain-wizard__lead">
-              Log in to <strong>{providerName}</strong> for <strong>{dnsZoneDomain}</strong>, open DNS settings, and add
-              each row below.
+              ACN Link is already set up on our side. Add the records below at{" "}
+              <strong>{dnsZoneDomain}</strong> in {providerName}, then we&apos;ll detect them automatically.
             </p>
+            {domainKind === "root" && (
+              <p className="acn-domain-wizard__lead mt-2 text-sm">
+                Root domain: one <strong>A</strong> record for <strong>@</strong> → platform IP.
+              </p>
+            )}
             {domainKind === "subdomain" && (
               <p className="acn-domain-wizard__lead mt-2 text-sm">
-                Connecting <strong>{activeHostname}</strong> — add this record in the DNS zone for{" "}
-                <strong>{dnsZoneDomain}</strong>.
+                Subdomain: one <strong>CNAME</strong> for <strong>{dnsSet.records[0]?.hostDisplay}</strong> →{" "}
+                {platformConfig?.cnameTarget || "acnlink.mindflo.today"}.
               </p>
             )}
 
-            <div className="acn-domain-wizard__dns-table">
-              <div className="acn-domain-wizard__dns-head">
-                <span>Record type</span>
-                <span>Host name</span>
-                <span>Required value</span>
-              </div>
-              {dnsSet.records.map((record) => (
-                <div key={record.id} className="acn-domain-wizard__dns-row">
-                  <span className="font-semibold">{record.type}</span>
-                  <button
-                    type="button"
-                    className={`acn-domain-wizard__copy ${copiedIds.has(record.id) ? "is-copied" : ""}`}
-                    onClick={() => void copyValue(record.id, record.hostLabel)}
-                  >
-                    {record.hostDisplay}
-                    {copiedIds.has(record.id) ? "Copied!" : "Copy"}
-                  </button>
-                  <button
-                    type="button"
-                    className={`acn-domain-wizard__copy ${copiedIds.has(`${record.id}-val`) ? "is-copied" : ""}`}
-                    onClick={() => void copyValue(`${record.id}-val`, record.value)}
-                  >
-                    <span className="font-mono text-xs">{record.value}</span>
-                    {copiedIds.has(`${record.id}-val`) ? "Copied!" : "Copy"}
-                  </button>
-                </div>
-              ))}
-            </div>
+            <DnsRecordsTable records={dnsRecords} readOnly />
 
             {providerHelpUrl && (
               <a
@@ -529,18 +628,25 @@ export default function ConnectDomainWizard({
 
             {verifyError && <p className="acn-domain-wizard__error">{verifyError}</p>}
 
-            <p className="acn-domain-wizard__footnote">
-              After updating records at your provider, changes may take up to 48 hours to propagate worldwide.
-            </p>
-
             <button
               type="button"
-              disabled={!allRecordsCopied || isSubmitting}
-              className={`acn-domain-wizard__primary ${allRecordsCopied ? "" : "is-disabled"}`}
-              onClick={() => void confirmDnsAdded()}
+              disabled={isSubmitting || !connectedDomain}
+              className="acn-domain-wizard__primary"
+              onClick={() => connectedDomain && void runVerifyLoop(connectedDomain)}
             >
               {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              I have added {copiedRecordCount}/{recordCount} records above to my domain&apos;s provider
+              Check again
+            </button>
+            <button
+              type="button"
+              className="acn-domain-wizard__link mt-2"
+              onClick={() => {
+                if (!connectedDomain) return;
+                onFinished({ domain: connectedDomain, connected: false, pending: true });
+                onClose();
+              }}
+            >
+              I&apos;ll wait — close for now
             </button>
           </div>
         )}
@@ -550,10 +656,10 @@ export default function ConnectDomainWizard({
             <div className="acn-domain-wizard__success-icon">
               <Check className="h-8 w-8" />
             </div>
-            <h2 className="acn-domain-wizard__title">You&apos;re all set!</h2>
+            <h2 className="acn-domain-wizard__title">Connected!</h2>
             <p className="acn-domain-wizard__lead">
-              If you set up the DNS records on the prior screen,{" "}
-              <strong>{activeHostname}</strong> will be successfully connected.
+              <strong>{activeHostname}</strong> is linked to ACN Link. HTTPS may take a few minutes to finish
+              worldwide.
             </p>
 
             {pageId && (
@@ -562,19 +668,13 @@ export default function ConnectDomainWizard({
               </p>
             )}
 
-            {formError && <p className="acn-domain-wizard__error">{formError}</p>}
-
             <button
               type="button"
-              disabled={!connectedDomain || isSubmitting}
-              className="acn-domain-wizard__primary disabled:opacity-50"
+              disabled={!connectedDomain}
+              className="acn-domain-wizard__primary"
               onClick={() => void finishWizard()}
             >
-              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Done
-            </button>
-            <button type="button" className="acn-domain-wizard__link" onClick={() => setPhase("dns")}>
-              &laquo; See records again
             </button>
           </div>
         )}
@@ -585,7 +685,8 @@ export default function ConnectDomainWizard({
           <div className="acn-domain-remove-dialog animate-in fade-in zoom-in-95 duration-200" role="dialog" aria-modal="true">
             <h3 className="text-lg font-bold text-slate-950">Confirm page selection</h3>
             <p className="mt-2 text-sm text-slate-600">
-              Should <strong>{pendingPage.title}</strong> open on this custom domain address?
+              Should <strong>{pendingPage.title}</strong> open when visitors go to{" "}
+              <strong>{inputPreview.normalized || normaliseHostname(domainName)}</strong>?
             </p>
             <div className="mt-6 flex gap-3">
               <button type="button" onClick={cancelPageSelection} className="acn-domain-remove-dialog__cancel">

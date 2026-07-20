@@ -20,7 +20,7 @@ CLOUDFLARE_SSL_VALIDATION_METHOD=http
 | Variable | Purpose |
 |----------|---------|
 | `APP_URL` / `API_URL` | ACN Link platform hostname on Railway |
-| `CUSTOM_DOMAIN_A_TARGET` | IP shown for root domain A records (`@` and `www`) |
+| `CUSTOM_DOMAIN_A_TARGET` | IP shown for root domain A record (`@`) |
 | `CUSTOM_DOMAIN_CNAME_TARGET` | Hostname shown for subdomain CNAME records (defaults to `APP_URL` host) |
 | `CLOUDFLARE_*` | Cloudflare for SaaS — automatic HTTPS per customer hostname |
 
@@ -34,19 +34,30 @@ CLOUDFLARE_SSL_VALIDATION_METHOD=http
 
 See earlier sections in git history for detailed Cloudflare token steps, or copy Zone ID / token from Cloudflare dashboard.
 
+## Wildcard DNS (Phase 3 — one-time in Cloudflare)
+
+In the **mindflo.today** zone, add:
+
+```text
+CNAME  *  →  acnlink.mindflo.today   (Proxied)
+```
+
+This lets `{slug}.acnlink.mindflo.today` reach Railway without per-slug DNS records.
+
 ## Customer flow
 
 ### Root domain (`yourbrand.com`)
 
 1. User opens **Custom Domains** → **Connect Domain** → enters `yourbrand.com`.
-2. ACN shows two A records:
+2. ACN shows one A record:
 
    ```text
-   A  www  →  CUSTOM_DOMAIN_A_TARGET
-   A  @    →  CUSTOM_DOMAIN_A_TARGET
+   A  @  →  CUSTOM_DOMAIN_A_TARGET
    ```
 
-3. User adds records at their DNS provider and verifies.
+3. User adds the record at their DNS provider and verifies.
+
+   For `www.yourbrand.com`, connect it as a **separate subdomain** (CNAME `www` → platform hostname).
 
 ### Subdomain (`studio.yourbrand.com`)
 

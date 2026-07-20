@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Routes, Route, Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { ScreenId, UserProfile, BioPage, Contact, WhatsAppCampaign, WhatsAppTemplate, SmartLink, QRCodeItem, TemplateItem, IntegrationItem, IntegrationVote, TrackingPixel, MediaFile, CustomDomain, HelpArticle, BioPageDraft, BioPageTemplate, BioEditorBlock, AppNotification, PublishSettings } from "./types";
+import { ScreenId, UserProfile, BioPage, Contact, WhatsAppCampaign, WhatsAppTemplate, SmartLink, QRCodeItem, TemplateItem, IntegrationItem, IntegrationVote, TrackingPixel, MediaFile, CustomDomain, PlatformSubdomain, HelpArticle, BioPageDraft, BioPageTemplate, BioEditorBlock, AppNotification, PublishSettings } from "./types";
 import {
   initialUser,
   initialBioPages,
@@ -22,6 +22,8 @@ import Sidebar from "./components/Sidebar";
 import MobileNavDrawer from "./components/MobileNavDrawer";
 import Header from "./components/Header";
 import LoginScreen from "./components/LoginScreen";
+import LoggedInLoginPrompt from "./components/LoggedInLoginPrompt";
+import NotFoundScreen from "./components/NotFoundScreen";
 import {
   AuthUser,
   clearAuthSession,
@@ -44,8 +46,11 @@ import {
   connectDomain,
   deleteDomain,
   fetchDomains,
+  patchDomainPage,
   verifyDomain
 } from "./lib/domainApi";
+import { syncPublishPrimaryUrlForVerifiedDomain } from "./lib/publishDomainSync";
+import { fetchPlatformSubdomains } from "./lib/platformSubdomainApi";
 import DashboardScreen from "./components/DashboardScreen";
 import BioPagesScreen from "./components/BioPagesScreen";
 import ContactsScreen from "./components/ContactsScreen";
@@ -96,7 +101,7 @@ import {
   markAllNotificationsRead,
   CreateNotificationInput
 } from "./storage/notificationStorage";
-import { getPublishSettings, persistPublishSettings } from "./storage/publishStorage";
+import { getPublishSettings, persistPublishSettings, PRIMARY_DOMAIN } from "./storage/publishStorage";
 import { AppTheme, getStoredTheme, saveTheme } from "./lib/themeStorage";
 import { getBlankTemplate, resolveSystemTemplate } from "./lib/systemTemplates";
 import { APP_ROUTE_ENTRIES, pathToScreen, screenToPath } from "./navigation";
@@ -339,15 +344,7 @@ export default function App() {
       if (location.pathname !== screenToPath(ScreenId.LOGIN)) {
         navigate(screenToPath(ScreenId.LOGIN), { replace: true });
       }
-      return;
-    }
-
-    if (location.pathname === screenToPath(ScreenId.LOGIN)) {
-      navigate(screenToPath(ScreenId.DASHBOARD), { replace: true });
-      return;
-    }
-
-    if (location.pathname === "/" || pathToScreen(location.pathname) === null) {
+    } else if (location.pathname === "/" || location.pathname.replace(/\/+$/, "") === "") {
       navigate(screenToPath(ScreenId.DASHBOARD), { replace: true });
     }
   }, [authBootstrapping, isBrandedHost, isLoggedIn, location.pathname, navigate, previewPageId]);
@@ -689,13 +686,31 @@ export default function App() {
   const [domains, setDomains] = useState<CustomDomain[]>([]);
   const [domainsLoading, setDomainsLoading] = useState(false);
   const [domainsLoadError, setDomainsLoadError] = useState<string | null>(null);
+  const [platformSubdomains, setPlatformSubdomains] = useState<PlatformSubdomain[]>([]);
+
+  const loadPlatformSubdomains = React.useCallback(async () => {
+    if (!getAccessToken() || isPreviewToken(getAccessToken())) return;
+    try {
+      setPlatformSubdomains(await fetchPlatformSubdomains());
+    } catch {
+      setPlatformSubdomains([]);
+    }
+  }, []);
 
   const loadDomains = React.useCallback(async () => {
     if (!getAccessToken() || isPreviewToken(getAccessToken())) return;
     setDomainsLoading(true);
     setDomainsLoadError(null);
     try {
-      setDomains(await fetchDomains());
+      const list = await fetchDomains();
+      setDomains(list);
+      const verified = list
+        .filter((domain) => domain.status === "Verified")
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      if (verified[0]) {
+        const synced = syncPublishPrimaryUrlForVerifiedDomain(verified[0]);
+        if (synced) savePublishSettings(synced);
+      }
     } catch (error) {
       setDomainsLoadError(error instanceof Error ? error.message : "Unable to load domains.");
     } finally {
@@ -704,9 +719,14 @@ export default function App() {
   }, []);
 
   React.useEffect(() => {
-    if (isLoggedIn) void loadDomains();
-    else setDomains([]);
-  }, [isLoggedIn, loadDomains]);
+    if (isLoggedIn) {
+      void loadDomains();
+      void loadPlatformSubdomains();
+    } else {
+      setDomains([]);
+      setPlatformSubdomains([]);
+    }
+  }, [isLoggedIn, loadDomains, loadPlatformSubdomains]);
   const [articles] = useState<HelpArticle[]>(initialHelpArticles);
 
   // Push browser workspace fields → Railway → Supabase normalized tables
@@ -847,6 +867,7 @@ export default function App() {
     didPushLocalPagesRef.current = false;
     setIsMobileNavOpen(false);
     navigate(screenToPath(ScreenId.LOGIN), { replace: true });
+    window.history.replaceState({ acnAuthGate: "login" }, "", screenToPath(ScreenId.LOGIN));
   };
 
   const handleAddPage = (title: string, slug: string, pageId?: string) => {
@@ -1212,28 +1233,70 @@ export default function App() {
     setMediaFiles((current) => current.filter((f) => f.id !== id));
   };
 
-  const handleConnectDomain = async (domainName: string, pageId: string) => {
-    const page = pages.find((item) => item.id === pageId);
-    await syncLocalPageDocumentToServer(pageId, page?.slug);
-    const created = await connectDomain(domainName, pageId);
-    setDomains((current) => [created, ...current.filter((domain) => domain.id !== created.id)]);
-    return created;
+  const applyVerifiedDomainPublishSync = (domain: CustomDomain) => {
+    const synced = syncPublishPrimaryUrlForVerifiedDomain(domain);
+    if (synced) savePublishSettings(synced);
   };
 
-  const handleVerifyDomain = async (id: string) => {
+  const handleConnectDomain = async (
+    domainName: string,
+    pageId: string,
+    options?: { cloudflareApiToken?: string }
+  ) => {
+    const page = pages.find((item) => item.id === pageId);
+    await syncLocalPageDocumentToServer(pageId, page?.slug);
+    const result = await connectDomain(domainName, pageId, options);
+    setDomains((current) => [result.domain, ...current.filter((domain) => domain.id !== result.domain.id)]);
+    return result;
+  };
+
+  const handleVerifyDomain = async (id: string, options?: { skipPageSync?: boolean }) => {
     const domain = domains.find((item) => item.id === id);
-    if (domain) {
+    if (domain && !options?.skipPageSync) {
       const page = pages.find((item) => item.id === domain.pageId);
       await syncLocalPageDocumentToServer(domain.pageId, page?.slug);
     }
-    const updated = await verifyDomain(id);
-    setDomains((current) => current.map((domain) => (domain.id === updated.id ? updated : domain)));
+    const result = await verifyDomain(id);
+    setDomains((current) =>
+      current.map((domain) => (domain.id === result.domain.id ? result.domain : domain))
+    );
+    applyVerifiedDomainPublishSync(result.domain);
+    return result;
+  };
+
+  const handleReassignDomain = async (id: string, pageId: string) => {
+    const page = pages.find((item) => item.id === pageId);
+    await syncLocalPageDocumentToServer(pageId, page?.slug);
+    const updated = await patchDomainPage(id, pageId);
+    setDomains((current) => current.map((item) => (item.id === updated.id ? updated : item)));
     return updated;
   };
 
   const handleDeleteDomain = async (id: string) => {
+    const removed = domains.find((item) => item.id === id);
     await deleteDomain(id);
     setDomains((current) => current.filter((d) => d.id !== id));
+
+    if (removed) {
+      const settings = getPublishSettings();
+      const removedUrl = `https://${removed.domainName}`;
+      const touchesPublish =
+        settings.primaryUrl === removedUrl ||
+        settings.customDomains.some(
+          (entry) => entry.hostname === removed.domainName || entry.id === removed.id
+        );
+      if (touchesPublish) {
+        savePublishSettings({
+          ...settings,
+          primaryUrl:
+            settings.primaryUrl === removedUrl ? `https://${PRIMARY_DOMAIN}` : settings.primaryUrl,
+          customDomains: settings.customDomains.filter(
+            (entry) => entry.hostname !== removed.domainName && entry.id !== removed.id
+          ),
+          updatedAt: new Date().toISOString()
+        });
+      }
+    }
   };
 
   const handleUpdateUser = (name: string, email: string, avatarUrl: string) => {
@@ -1382,6 +1445,8 @@ export default function App() {
           <BioPagesScreen
             pages={pages}
             domains={domains}
+            platformSubdomains={platformSubdomains}
+            onReloadPlatformSubdomains={loadPlatformSubdomains}
             onAddPage={handleAddPage}
             onDeletePage={handleDeletePage}
             onDeletePages={handleDeletePages}
@@ -1549,6 +1614,7 @@ export default function App() {
             onReload={loadDomains}
             onConnectDomain={handleConnectDomain}
             onVerifyDomain={handleVerifyDomain}
+            onReassignDomain={handleReassignDomain}
             onDeleteDomain={handleDeleteDomain}
             onEditPage={(pageId, options) => handleOpenDashboardPage(pageId, options)}
           />
@@ -1575,15 +1641,7 @@ export default function App() {
           />
         );
       default:
-        return (
-          <DashboardScreen
-            onNavigate={handleScreenChange}
-            onOpenPage={handleOpenDashboardPage}
-            user={user}
-            metrics={metrics}
-            pages={pages}
-          />
-        );
+        return <NotFoundScreen onNavigate={handleScreenChange} />;
     }
   };
 
@@ -1669,8 +1727,17 @@ export default function App() {
                   </React.Fragment>
                 ))}
                 <Route path="/" element={<Navigate to={screenToPath(ScreenId.DASHBOARD)} replace />} />
-                <Route path={screenToPath(ScreenId.LOGIN)} element={<Navigate to={screenToPath(ScreenId.DASHBOARD)} replace />} />
-                <Route path="*" element={<Navigate to={screenToPath(ScreenId.DASHBOARD)} replace />} />
+                <Route
+                  path={screenToPath(ScreenId.LOGIN)}
+                  element={
+                    <LoggedInLoginPrompt
+                      user={user}
+                      onContinue={() => navigate(screenToPath(ScreenId.DASHBOARD))}
+                      onLogout={() => void handleLogout()}
+                    />
+                  }
+                />
+                <Route path="*" element={<NotFoundScreen onNavigate={handleScreenChange} />} />
               </Routes>
             )}
           </div>

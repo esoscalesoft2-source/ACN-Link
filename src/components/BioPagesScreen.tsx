@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { screenToPath } from "../navigation";
 import { ScreenId } from "../types";
-import type { BioPage, BioPageDraft, BioPageTemplate, BioEditorState, BioEditorBlock, BioPagePreviewTheme, BioCoverPhotoSettings, CustomDomain } from "../types";
+import type { BioPage, BioPageDraft, BioPageTemplate, BioEditorState, BioEditorBlock, BioPagePreviewTheme, BioCoverPhotoSettings, CustomDomain, PlatformSubdomain } from "../types";
 import {
   buildEditorState,
   cloneBlocks,
@@ -107,6 +107,7 @@ import {
   Unlock
 } from "lucide-react";
 import PageShell, { PageHeader, Workspace } from "./layout/PageShell";
+import PlatformSubdomainClaimModal from "./customDomains/PlatformSubdomainClaimModal";
 import { BIO_LINK } from "../lib/bioLinkColors";
 import type { AppTheme } from "../lib/themeStorage";
 
@@ -166,12 +167,13 @@ interface BioPageListRowOptions {
 function matchesPlatformPageSearch(
   page: BioPage,
   query: string,
-  domains: CustomDomain[]
+  domains: CustomDomain[],
+  platformSubdomains: PlatformSubdomain[] = []
 ): boolean {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return true;
 
-  const publicLink = resolveBioPagePublicLink(page, domains);
+  const publicLink = resolveBioPagePublicLink(page, domains, platformSubdomains);
   const haystack = [
     page.title,
     page.id,
@@ -258,6 +260,8 @@ const getBlockIcon = (type: string) => {
 interface BioPagesScreenProps {
   pages: BioPage[];
   domains?: CustomDomain[];
+  platformSubdomains?: PlatformSubdomain[];
+  onReloadPlatformSubdomains?: () => Promise<void>;
   onAddPage: (title: string, slug: string, pageId?: string) => BioPage;
   onDeletePage: (id: string) => void;
   onDeletePages?: (ids: string[]) => void;
@@ -290,6 +294,8 @@ interface BioPagesScreenProps {
 export default function BioPagesScreen({
   pages,
   domains = [],
+  platformSubdomains = [],
+  onReloadPlatformSubdomains,
   onAddPage,
   onDeletePage,
   onDeletePages,
@@ -314,15 +320,23 @@ export default function BioPagesScreen({
   const [searchParams] = useSearchParams();
   const editIdFromUrl = searchParams.get("edit");
   const editFromDomain = searchParams.get("source") === "domain";
-  const sortedPages = React.useMemo(() => sortPagesByPublicLinkKind(pages, domains), [pages, domains]);
+  const sortedPages = React.useMemo(
+    () => sortPagesByPublicLinkKind(pages, domains, platformSubdomains),
+    [pages, domains, platformSubdomains]
+  );
   const customDomainPages = React.useMemo(
-    () => sortedPages.filter((page) => resolveBioPagePublicLink(page, domains).kind === "custom"),
-    [sortedPages, domains]
+    () => sortedPages.filter((page) => resolveBioPagePublicLink(page, domains, platformSubdomains).kind === "custom"),
+    [sortedPages, domains, platformSubdomains]
   );
   const platformPages = React.useMemo(
-    () => sortedPages.filter((page) => resolveBioPagePublicLink(page, domains).kind === "platform"),
-    [sortedPages, domains]
+    () => sortedPages.filter((page) => resolveBioPagePublicLink(page, domains, platformSubdomains).kind !== "custom"),
+    [sortedPages, domains, platformSubdomains]
   );
+  const resolvePublicLink = React.useCallback(
+    (page: BioPage) => resolveBioPagePublicLink(page, domains, platformSubdomains),
+    [domains, platformSubdomains]
+  );
+  const [claimSubdomainPage, setClaimSubdomainPage] = useState<BioPage | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [newPageId, setNewPageId] = useState(() => createUniquePageId());
@@ -338,11 +352,11 @@ export default function BioPagesScreen({
   const [selectedQRPage, setSelectedQRPage] = useState<BioPage | null>(null);
 
   const selectedEditPageLink = React.useMemo(
-    () => (selectedEditPage ? resolveBioPagePublicLink(selectedEditPage, domains) : null),
+    () => (selectedEditPage ? resolvePublicLink(selectedEditPage) : null),
     [selectedEditPage, domains]
   );
   const selectedQRPageLink = React.useMemo(
-    () => (selectedQRPage ? resolveBioPagePublicLink(selectedQRPage, domains) : null),
+    () => (selectedQRPage ? resolvePublicLink(selectedQRPage) : null),
     [selectedQRPage, domains]
   );
   const [customDomainSectionExpanded, setCustomDomainSectionExpanded] = useState(true);
@@ -370,7 +384,7 @@ export default function BioPagesScreen({
     return platformPages.filter((page) => {
       if (platformDuplicatesOnly && !platformDuplicateIds.has(page.id)) return false;
       if (platformStatusFilter !== "All" && page.status !== platformStatusFilter) return false;
-      return matchesPlatformPageSearch(page, query, domains);
+      return matchesPlatformPageSearch(page, query, domains, platformSubdomains);
     });
   }, [
     platformPages,
@@ -378,7 +392,8 @@ export default function BioPagesScreen({
     platformStatusFilter,
     platformDuplicatesOnly,
     platformDuplicateIds,
-    domains
+    domains,
+    platformSubdomains
   ]);
 
   const hasPlatformActiveFilters =
@@ -777,12 +792,12 @@ export default function BioPagesScreen({
       return;
     }
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setEditorCoverPhoto(reader.result as string);
-      triggerToast("✨ Cover photo uploaded successfully!");
-    };
-    reader.readAsDataURL(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setEditorCoverPhoto(reader.result as string);
+        triggerToast("✨ Cover photo uploaded successfully!");
+      };
+      reader.readAsDataURL(file);
     e.target.value = "";
   };
 
@@ -979,9 +994,9 @@ export default function BioPagesScreen({
     );
 
   const buildCurrentPreviewDetails = (theme: BioPagePreviewTheme = editorPageTheme) => ({
-    title: editorTitle,
-    bio: editorBio,
-    coverPhoto: editorCoverPhoto,
+      title: editorTitle,
+      bio: editorBio,
+      coverPhoto: editorCoverPhoto,
     handle: getStoredHandle(editorHandle),
     pageTheme: theme,
     coverSettings: editorCoverSettings
@@ -1444,7 +1459,7 @@ export default function BioPagesScreen({
   };
 
   const renderBioPagePublicLink = (page: BioPage) => {
-    const link = resolveBioPagePublicLink(page, domains);
+    const link = resolvePublicLink(page);
     return (
       <div className="mt-1 flex flex-wrap items-center gap-2 min-w-0">
         {link.kind === "custom" && !link.canOpen ? (
@@ -1464,11 +1479,15 @@ export default function BioPagesScreen({
             className={`text-xs font-medium flex items-center gap-1 font-mono hover:underline min-w-0 max-w-full ${
               link.kind === "custom"
                 ? "text-emerald-700 hover:text-emerald-800"
-                : "text-indigo-600 hover:text-indigo-700"
+                : link.kind === "acn_subdomain"
+                  ? "text-violet-700 hover:text-violet-800"
+                  : "text-indigo-600 hover:text-indigo-700"
             }`}
           >
             {link.kind === "custom" ? (
               <Globe className="h-3 w-3 shrink-0" />
+            ) : link.kind === "acn_subdomain" ? (
+              <Sparkles className="h-3 w-3 shrink-0" />
             ) : (
               <Link className="h-3 w-3 shrink-0" />
             )}
@@ -1480,18 +1499,31 @@ export default function BioPagesScreen({
             {link.publicReady ? "Custom domain" : link.canOpen ? "DNS OK" : "Pending DNS"}
           </span>
         )}
+        {link.kind === "acn_subdomain" && (
+          <span className="acn-bio-page-link-badge shrink-0">Free ACN URL</span>
+        )}
+        {link.kind === "platform" && (
+          <button
+            type="button"
+            onClick={() => setClaimSubdomainPage(page)}
+            className="acn-bio-page-link-badge shrink-0 hover:bg-indigo-100"
+            title="Claim a short free address like yourname.acnlink.mindflo.today"
+          >
+            Get free URL
+          </button>
+        )}
       </div>
     );
   };
 
   const renderBioPageListRow = (page: BioPage, rowOptions?: BioPageListRowOptions) => {
-    const publicLink = resolveBioPagePublicLink(page, domains);
+    const publicLink = resolvePublicLink(page);
     const isSelected = rowOptions?.selection?.checked ?? false;
     const showSelection = Boolean(rowOptions?.selection);
     return (
       <div
         key={page.id}
-        className={`acn-list-row min-w-0 ${publicLink.kind === "custom" ? "acn-list-row--custom-domain" : ""} ${
+        className={`acn-list-row min-w-0 ${publicLink.kind === "custom" ? "acn-list-row--custom-domain" : publicLink.kind === "acn_subdomain" ? "acn-list-row--custom-domain" : ""} ${
           isSelected ? "acn-list-row--selected" : ""
         } ${showSelection ? "acn-list-row--bulk-select" : ""}`}
       >
@@ -1769,8 +1801,8 @@ export default function BioPagesScreen({
     const isAlreadyEditing = selectedEditPage?.id === page.id;
 
     if (!isAlreadyEditing) {
-      setSelectedEditPage(page);
-      setEditorTab("Edit");
+    setSelectedEditPage(page);
+    setEditorTab("Edit");
       setEditorViewPanel("edit");
       setShowPublishSuccess(false);
       setShowSaveTemplateModal(false);
@@ -1834,7 +1866,7 @@ export default function BioPagesScreen({
       }
       setIsPublishing(true);
       const pagesForSync = applyEditingPageUpdate("Live");
-
+      
       // Persist blocks in memory map
       setPageBlocksMap(prev => ({
         ...prev,
@@ -1867,9 +1899,9 @@ export default function BioPagesScreen({
           message: `"${editorTitle}" is now live on the cloud.`,
           targetScreen: ScreenId.BIO_PAGES,
           meta: { pageId: selectedEditPage.id }
-        });
+      });
 
-        setShowPublishSuccess(true);
+      setShowPublishSuccess(true);
       } catch (err) {
         const message = err instanceof Error ? err.message : "Could not publish to the server.";
         triggerToast(message);
@@ -1894,7 +1926,7 @@ export default function BioPagesScreen({
       .filter((block) => block.type !== "Header" && block.type !== "Text")
       .map((block) => {
         const count = clicks.filter((event) => event.eventLabel?.includes(block.label)).length;
-        return {
+      return {
           name: block.label,
           type: block.type.toUpperCase().replace(/\s+/g, "_"),
           count,
@@ -1902,7 +1934,7 @@ export default function BioPagesScreen({
         };
       });
 
-    return {
+      return {
       views: pageEvents.filter((event) => event.eventType === "visit").length,
       clicks: clicks.length,
       widgets
@@ -1918,20 +1950,20 @@ export default function BioPagesScreen({
         subtitle={`Create link pages to share on Instagram, WhatsApp & business cards · ${pages.length} page${pages.length !== 1 ? "s" : ""}`}
         actions={
           <>
-            <button
-              onClick={handleRefresh}
+          <button
+            onClick={handleRefresh}
               className="acn-btn-secondary px-4 py-2.5"
-            >
-              <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
-              <span>Refresh</span>
-            </button>
-            <button
+          >
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+            <span>Refresh</span>
+          </button>
+          <button
               onClick={openCreatePageModal}
               className="acn-btn-accent px-5 py-2.5"
-            >
-              <Plus className="h-4 w-4" />
-              <span>New Page</span>
-            </button>
+          >
+            <Plus className="h-4 w-4" />
+            <span>New Page</span>
+          </button>
           </>
         }
       />
@@ -1946,13 +1978,13 @@ export default function BioPagesScreen({
               <div className="acn-workflow-modal__brand">
                 <div className="acn-workflow-modal__icon">
                   <Smartphone />
-                </div>
+        </div>
                 <div className="acn-workflow-modal__titles">
                   <h3 className="acn-workflow-modal__title">Create Your Link Page</h3>
                   <p className="acn-workflow-modal__subtitle">
                     One page for all your social links, contact info, and business details.
                   </p>
-                </div>
+      </div>
               </div>
               <button
                 type="button"
@@ -1978,7 +2010,7 @@ export default function BioPagesScreen({
                   onChange={(e) => {
                     const title = e.target.value;
                     setNewTitle(title);
-
+                    
                     const clean = title
                       .toLowerCase()
                       .replace(/[^a-z0-9\s-]/g, "")
@@ -2032,7 +2064,7 @@ export default function BioPagesScreen({
                 <div className="acn-workflow-modal__field">
                   <label className="acn-workflow-modal__label" htmlFor="create-page-template">
                     Start from saved template
-                  </label>
+                </label>
                   <select
                     id="create-page-template"
                     value={selectedTemplateId}
@@ -2040,7 +2072,7 @@ export default function BioPagesScreen({
                       const id = e.target.value;
                       setSelectedTemplateId(id);
                       if (id === "generic") {
-                        setNextInitialBlocks(genericInitialBlocks);
+                      setNextInitialBlocks(genericInitialBlocks);
                         return;
                       }
                       const tpl = savedTemplates.find((item) => item.id === id);
@@ -2071,20 +2103,20 @@ export default function BioPagesScreen({
               )}
 
               <div className="acn-workflow-modal__actions">
-                <button
+                        <button
                   type="submit"
                   disabled={isCreating}
                   className="acn-workflow-modal__submit acn-btn-accent disabled:cursor-not-allowed"
                 >
                   {isCreating ? "Creating…" : "Create My Page"}
-                </button>
+                        </button>
               </div>
 
               <footer className="acn-workflow-modal__meta">
                 <div className="acn-workflow-modal__meta-row">
                   <span className="acn-workflow-modal__meta-label">Page ID</span>
-                  <button
-                    type="button"
+                <button
+                  type="button"
                     onClick={() => copyText(newPageId, "Page ID copied.")}
                     className="acn-workflow-modal__meta-copy"
                     title="Copy page ID"
@@ -2092,8 +2124,8 @@ export default function BioPagesScreen({
                   >
                     <Copy className="h-3 w-3" />
                     Copy
-                  </button>
-                </div>
+                </button>
+              </div>
                 <code className="acn-workflow-modal__meta-id">{newPageId}</code>
                 <p className="acn-workflow-modal__hint">
                   Auto-generated — use in search if pages share the same name.
@@ -2149,8 +2181,8 @@ export default function BioPagesScreen({
                       ) : (
                         <ChevronDown className="h-4 w-4" aria-hidden />
                       )}
-                    </button>
-                  </div>
+                        </button>
+                      </div>
                 </div>
                 {customDomainSectionExpanded && (
                   <div
@@ -2160,7 +2192,7 @@ export default function BioPagesScreen({
                     {customDomainPages.map((page) => renderBioPageListRow(page))}
                   </div>
                 )}
-              </div>
+                </div>
             )}
             {platformPages.length > 0 && (
               <div className="acn-bio-pages-section-accordion acn-bio-pages-section-accordion--platform">
@@ -2172,7 +2204,7 @@ export default function BioPagesScreen({
                   <div className="acn-bio-pages-section-accordion__meta acn-bio-pages-section-accordion__meta--platform shrink-0">
                     <span className="acn-bio-pages-section-count acn-bio-pages-section-count--platform">
                       {platformPages.length}
-                    </span>
+                  </span>
                     <button
                       type="button"
                       className="acn-bio-pages-section-accordion__chevron acn-bio-pages-section-accordion__chevron--platform"
@@ -2196,7 +2228,7 @@ export default function BioPagesScreen({
                         <div className="acn-platform-bulk-toolbar__search acn-icon-field">
                           <span className="acn-icon-field__icon">
                             <Search className="h-4 w-4" />
-                          </span>
+                    </span>
                           <input
                             type="search"
                             value={platformSearchQuery}
@@ -2205,7 +2237,7 @@ export default function BioPagesScreen({
                             className="acn-input acn-icon-field__input w-full py-2.5"
                             aria-label="Search free platform links"
                           />
-                        </div>
+                  </div>
                         <select
                           value={platformStatusFilter}
                           onChange={(event) =>
@@ -2220,16 +2252,16 @@ export default function BioPagesScreen({
                           <option value="Draft">Draft</option>
                         </select>
                         {hasPlatformActiveFilters && (
-                          <button
+                    <button
                             type="button"
                             onClick={clearPlatformFilters}
                             className="acn-platform-bulk-clear"
                           >
                             Clear
-                          </button>
+                    </button>
                         )}
                         <div className="acn-platform-bulk-menu-wrap" ref={platformBulkMenuRef}>
-                          <button
+                    <button
                             type="button"
                             onClick={() => setPlatformBulkMenuOpen((open) => !open)}
                             className="acn-platform-bulk-menu-trigger"
@@ -2238,30 +2270,30 @@ export default function BioPagesScreen({
                             aria-haspopup="menu"
                           >
                             <MoreVertical className="h-4 w-4" />
-                          </button>
+                    </button>
 
                           {platformBulkMenuOpen && (
                             <div className="acn-platform-bulk-menu" role="menu">
-                              <button
+                    <button
                                 type="button"
                                 role="menuitem"
                                 className="acn-platform-bulk-menu__item"
                                 onClick={handlePlatformMenuSelectAll}
                               >
                                 Select all
-                              </button>
-                              <button
+                    </button>
+                    <button
                                 type="button"
                                 role="menuitem"
                                 className="acn-platform-bulk-menu__item"
                                 disabled={platformDuplicateIds.size === 0}
-                                onClick={() => {
+                      onClick={() => {
                                   selectVisiblePlatformPages((page) => platformDuplicateIds.has(page.id));
                                   setPlatformBulkMenuOpen(false);
                                 }}
                               >
                                 Select duplicates
-                              </button>
+                    </button>
                               <button
                                 type="button"
                                 role="menuitem"
@@ -2274,17 +2306,17 @@ export default function BioPagesScreen({
                               >
                                 Select unused
                               </button>
-                              <button
+                    <button
                                 type="button"
                                 role="menuitem"
                                 className="acn-platform-bulk-menu__item"
-                                onClick={() => {
+                      onClick={() => {
                                   setPlatformDuplicatesOnly((value) => !value);
                                   setPlatformBulkMenuOpen(false);
-                                }}
-                              >
+                      }}
+                    >
                                 {platformDuplicatesOnly ? "Show all links" : "Duplicates only"}
-                              </button>
+                    </button>
                               <button
                                 type="button"
                                 role="menuitem"
@@ -2326,13 +2358,13 @@ export default function BioPagesScreen({
                           <code>my-shop</code>),{" "}
                           <span className="acn-platform-search-help__term">page ID</span> (from create page), or{" "}
                           <span className="acn-platform-search-help__term">status</span> like{" "}
-                          <button
+                    <button
                             type="button"
                             className="acn-platform-search-help__chip"
                             onClick={() => setPlatformSearchQuery("Live")}
                           >
                             Live
-                          </button>
+                    </button>
                           /
                           <button
                             type="button"
@@ -2343,7 +2375,7 @@ export default function BioPagesScreen({
                           </button>
                           .
                         </p>
-                      </div>
+                  </div>
 
                       <p className="acn-platform-bulk-toolbar__meta">
                         Showing {filteredPlatformPages.length} of {platformPages.length} platform links
@@ -2354,7 +2386,7 @@ export default function BioPagesScreen({
                           <> · Selection mode · {selectedPlatformCount} selected</>
                         )}
                       </p>
-                    </div>
+                </div>
 
                     {filteredPlatformPages.length === 0 ? (
                       <div className="acn-platform-bulk-empty">
@@ -2371,7 +2403,7 @@ export default function BioPagesScreen({
                             Reset filters
                           </button>
                         )}
-                      </div>
+              </div>
                     ) : (
                       filteredPlatformPages.map((page) =>
                         renderBioPageListRow(
@@ -2388,9 +2420,9 @@ export default function BioPagesScreen({
                         )
                       )
                     )}
-                  </div>
-                )}
-              </div>
+          </div>
+        )}
+      </div>
             )}
           </div>
         )}
@@ -2537,11 +2569,11 @@ export default function BioPagesScreen({
               <div className="acn-editor-header__brand min-w-0">
                 <span className="acn-editor-header__domain shrink-0">acnlink</span>
                 <span className="acn-editor-header__slash shrink-0">/</span>
-                <input
+                  <input
                   ref={editorTitleInputRef}
-                  type="text"
-                  value={editorTitle}
-                  onChange={(e) => setEditorTitle(e.target.value)}
+                    type="text"
+                    value={editorTitle}
+                    onChange={(e) => setEditorTitle(e.target.value)}
                   className="acn-editor-header__title-input min-w-0"
                   aria-label="Page title"
                 />
@@ -2562,24 +2594,24 @@ export default function BioPagesScreen({
 
             <div className="acn-editor-header__center">
               <div className="acn-editor-tab-switch" role="tablist" aria-label="Editor mode">
-                <button
+              <button
                   type="button"
                   role="tab"
                   aria-selected={editorTab === "Edit"}
-                  onClick={() => setEditorTab("Edit")}
+                onClick={() => setEditorTab("Edit")}
                   className={editorTab === "Edit" ? "is-active" : ""}
-                >
-                  Edit
-                </button>
-                <button
+              >
+                Edit
+              </button>
+              <button
                   type="button"
                   role="tab"
                   aria-selected={editorTab === "Settings"}
-                  onClick={() => setEditorTab("Settings")}
+                onClick={() => setEditorTab("Settings")}
                   className={editorTab === "Settings" ? "is-active" : ""}
-                >
-                  Settings
-                </button>
+              >
+                Settings
+              </button>
               </div>
             </div>
 
@@ -2614,7 +2646,7 @@ export default function BioPagesScreen({
                 {isPublishing ? (
                   <Loader className="h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <Save className="h-3.5 w-3.5" />
+                <Save className="h-3.5 w-3.5" />
                 )}
                 <span>{isPublishing ? "Publishing…" : "Publish"}</span>
               </button>
@@ -2664,10 +2696,10 @@ export default function BioPagesScreen({
                   <p className="text-xs text-emerald-600 mt-1">
                     Changes are live at:{" "}
                     {selectedEditPageLink && (
-                      <a
+                    <a
                         href={selectedEditPageLink.openUrl}
-                        target="_blank"
-                        rel="noreferrer"
+                      target="_blank"
+                      rel="noreferrer"
                         className={`underline font-bold ml-1 ${
                           selectedEditPageLink.kind === "custom"
                             ? "text-emerald-700 hover:text-emerald-800"
@@ -3209,8 +3241,8 @@ export default function BioPagesScreen({
                             <span className="acn-cover-url-edit-btn__tooltip">Custom cover photo URL</span>
                           </button>
                           <span className="acn-editor-section-badge">
-                            Live Editing
-                          </span>
+                          Live Editing
+                        </span>
                         </div>
                       </div>
 
@@ -3249,7 +3281,7 @@ export default function BioPagesScreen({
 
                       {/* Title, handle & bio */}
                       <div className="grid grid-cols-1 gap-3.5 acn-editor-cover-panel__fields">
-                          <div>
+                        <div>
                             <label className="acn-editor-form-label">Biolink Title</label>
                             <input
                               type="text"
@@ -3258,7 +3290,7 @@ export default function BioPagesScreen({
                               className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2.5 px-3.5 text-sm font-bold text-slate-800"
                               placeholder="My BioLink"
                             />
-                          </div>
+                        </div>
 
                           <div>
                             <label className="acn-editor-form-label">
@@ -3268,8 +3300,8 @@ export default function BioPagesScreen({
                               <span className="text-sm font-bold text-slate-400 shrink-0 select-none" aria-hidden>
                                 @
                               </span>
-                              <input
-                                type="text"
+                            <input
+                              type="text"
                                 value={editorHandle}
                                 onChange={(e) => setEditorHandle(normalizeHandleInput(e.target.value))}
                                 className="acn-editor-handle-field__input flex-1 min-w-0 bg-transparent border-0 focus:outline-none focus:ring-0 py-2.5 text-sm font-semibold text-slate-800 font-mono placeholder:text-slate-400"
@@ -3295,7 +3327,7 @@ export default function BioPagesScreen({
                             />
                           </div>
                         </div>
-                    </div>
+                      </div>
                     )}
 
                     {/* ACCORDION BLOCKS LIST — always visible; centered when cover is locked */}
@@ -3313,8 +3345,8 @@ export default function BioPagesScreen({
                             </span>
                           )}
                           <span className="acn-editor-blocks-section__meta">
-                            {editorBlocks.length} widget{editorBlocks.length !== 1 ? "s" : ""}
-                          </span>
+                          {editorBlocks.length} widget{editorBlocks.length !== 1 ? "s" : ""}
+                        </span>
                         </div>
                       </div>
 
@@ -3391,7 +3423,7 @@ export default function BioPagesScreen({
                                     >
                                       <GripVertical className="h-4 w-4" />
                                     </span>
-
+                                    
                                     {getBlockIcon(block.type)}
 
                                     <div className="min-w-0 pointer-events-none">
@@ -3404,14 +3436,14 @@ export default function BioPagesScreen({
                                     </div>
                                   </div>
 
-                                  <button
-                                    type="button"
+                                      <button
+                                        type="button"
                                     data-accordion-chevron
                                     aria-expanded={isExpanded}
                                     aria-label={isExpanded ? "Collapse block" : "Expand block"}
                                     onPointerDown={(e) => e.stopPropagation()}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
+                                        onClick={(e) => {
+                                          e.stopPropagation();
                                       toggleAccordionBlock(block.id, isExpanded);
                                     }}
                                     className="flex items-center justify-center shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-[#6366f1] hover:bg-indigo-50/80 transition-colors cursor-pointer"
@@ -4048,7 +4080,7 @@ export default function BioPagesScreen({
                         )}
                       </div>
                     </div>
-                    </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -4089,13 +4121,13 @@ export default function BioPagesScreen({
                           </span>
                           <span className="acn-phone-preview__browser-tabs" aria-hidden>1</span>
                         </div>
-                      </div>
+                </div>
 
-                      <div
-                        onDragOver={handleDragOverTarget}
-                        onDragEnter={handleDragEnterPreview}
-                        onDragLeave={handleDragLeavePreview}
-                        onDrop={handleDropOnPreview}
+                <div
+                  onDragOver={handleDragOverTarget}
+                  onDragEnter={handleDragEnterPreview}
+                  onDragLeave={handleDragLeavePreview}
+                  onDrop={handleDropOnPreview}
                         className={`acn-preview-isolate acn-phone-preview__screen ${getBioPageThemeClass(editorPageTheme)} no-scrollbar transition-all duration-200 ${
                           isDraggingOverPreview ? "acn-phone-preview__screen--drop-target" : ""
                         }`}
@@ -4106,7 +4138,7 @@ export default function BioPagesScreen({
                             editorCoverPhoto ||
                             "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800"
                           }
-                          alt="Hero Cover"
+                      alt="Hero Cover"
                           settings={editorCoverSettings}
                           variant="preview"
                           className="acn-phone-preview__cover acn-public-bio-page__cover"
@@ -4115,12 +4147,12 @@ export default function BioPagesScreen({
                         <div className="acn-phone-preview__body acn-public-bio-page__body">
                           <div className="acn-public-bio-page__profile">
                             <h3 className="acn-public-bio-page__title font-display">
-                              {editorTitle || "Marvel Products"}
-                            </h3>
+                      {editorTitle || "Marvel Products"}
+                    </h3>
                             {previewHandle && (
                               <p className="acn-public-bio-page__handle">{previewHandle}</p>
-                            )}
-                          </div>
+                    )}
+                  </div>
 
                           {editorBio && (
                             <p className="acn-phone-preview__bio-text">{editorBio}</p>
@@ -4181,7 +4213,7 @@ export default function BioPagesScreen({
                   <div className="acn-bio-page-footer acn-phone-preview__footer">
                     <span>Powered by ACN Link</span>
                   </div>
-                        </div>
+                  </div>
 
                   {/* Interactive Simulator Toast Overlay */}
                   {simulatorToast && (
@@ -4283,12 +4315,12 @@ export default function BioPagesScreen({
                   )}
 
                         <div className="acn-phone-preview__home-bar" aria-hidden />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="acn-phone-preview__side-key acn-phone-preview__side-key--power" aria-hidden />
                 </div>
               </div>
+            </div>
+                  <div className="acn-phone-preview__side-key acn-phone-preview__side-key--power" aria-hidden />
+          </div>
+        </div>
             </div>
           </div>
 
@@ -4438,7 +4470,7 @@ export default function BioPagesScreen({
           )}
         </div>,
         document.body
-        )}
+      )}
 
       {/* 4th - QR Code Customizer Popup Modal matching screenshot 3 perfectly */}
       {selectedQRPage && (
@@ -4642,6 +4674,20 @@ export default function BioPagesScreen({
           <span className="text-sm font-bold">{toast}</span>
         </div>
       )}
+
+      {claimSubdomainPage &&
+        createPortal(
+          <PlatformSubdomainClaimModal
+            open={Boolean(claimSubdomainPage)}
+            page={claimSubdomainPage}
+            onClose={() => setClaimSubdomainPage(null)}
+            onClaimed={() => {
+              void onReloadPlatformSubdomains?.();
+              triggerToast(`Free ACN address claimed for "${claimSubdomainPage.title}".`);
+            }}
+          />,
+          document.body
+        )}
     </PageShell>
   );
 }

@@ -31,10 +31,8 @@ export default function CustomDomainSetupGuide({
       )}
       {config?.aRecordTarget && (
         <p className="acn-custom-domain-guide__dns mt-3">
-          Root domain: Host <code className="font-mono">www</code> and Host{" "}
-          <code className="font-mono">@</code> → <code className="font-mono">{config.aRecordTarget}</code>.
-          Subdomain: add a CNAME to{" "}
-          <code className="font-mono">{config.cnameTarget || config.platformUrl}</code>.
+          Root domain: A for <code>@</code> → <code>{config.aRecordTarget}</code>.
+          Subdomain: CNAME → <code>{config.cnameTarget || config.platformUrl || "acnlink.mindflo.today"}</code> only.
         </p>
       )}
     </div>

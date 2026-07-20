@@ -11,7 +11,6 @@ import {
   Edit3,
   ExternalLink,
   Globe,
-  HelpCircle,
   Loader2,
   PlugZap,
   RefreshCw,
@@ -26,7 +25,9 @@ import {
   testDomainConnection,
   type DomainConnectionTest
 } from "../lib/domainApi";
-import { buildDnsRecordSet } from "../lib/customDomainDns";
+import { getAccessToken, isPreviewToken } from "../lib/authApi";
+import { buildDnsRecordSet, formatDnsVerifyError } from "../lib/customDomainDns";
+import { getProviderBranding } from "../lib/dnsProviderBranding";
 import {
   canOpenCustomDomainInBrowser,
   domainStatusTone,
@@ -48,8 +49,16 @@ interface CustomDomainsScreenProps {
   isLoading: boolean;
   loadError: string | null;
   onReload: () => Promise<void>;
-  onConnectDomain: (domainName: string, pageId: string) => Promise<CustomDomain>;
-  onVerifyDomain: (id: string) => Promise<CustomDomain>;
+  onConnectDomain: (
+    domainName: string,
+    pageId: string,
+    options?: { cloudflareApiToken?: string }
+  ) => Promise<import("../lib/domainApi").DomainConnectResult>;
+  onVerifyDomain: (
+    id: string,
+    options?: { skipPageSync?: boolean }
+  ) => Promise<import("../lib/domainApi").DomainVerifyResult>;
+  onReassignDomain: (id: string, pageId: string) => Promise<CustomDomain>;
   onDeleteDomain: (id: string) => Promise<void>;
   onEditPage: (pageId: string, options?: { fromCustomDomain?: boolean }) => void;
 }
@@ -68,18 +77,29 @@ function ConnectionIndicator({ domain }: { domain: CustomDomain }) {
 }
 
 function ConnectionTestResult({ test }: { test: DomainConnectionTest }) {
+  const dnsOk = test.dnsVerified;
+  const dnsLabel = dnsOk ? "CNAME points to ACN Link" : "not ready yet";
   return (
     <div className={`acn-domains-lovable__test-result acn-domains-lovable__test-result--${test.connectionState}`}>
       <p className="acn-domains-lovable__test-result-summary">{test.summary}</p>
       <ul className="acn-domains-lovable__test-result-checks">
-        <li className={test.dnsVerified ? "is-ok" : "is-bad"}>
-          DNS {test.dnsVerified ? "OK" : "not ready"} — {test.dnsMessage}
+        <li className={dnsOk ? "is-ok" : "is-bad"}>
+          DNS {dnsOk ? "OK" : "not ready"} — {dnsOk ? dnsLabel : test.dnsMessage}
         </li>
         <li className={test.servesAcn ? "is-ok" : test.dnsVerified ? "is-warn" : "is-bad"}>
           ACN Link {test.servesAcn ? "reachable" : "not reachable yet"}
         </li>
         {!test.sslAutomatic && test.dnsVerified && !test.servesAcn && (
-          <li className="is-warn">Automatic SSL is not configured on the platform — DNS must route traffic to ACN Link.</li>
+          <li className="is-warn">
+            Server SSL auto-setup is off — set{" "}
+            <code className="rounded bg-amber-100 px-1 text-[11px]">CLOUDFLARE_ZONE_ID</code> and{" "}
+            <code className="rounded bg-amber-100 px-1 text-[11px]">CLOUDFLARE_API_TOKEN</code> on{" "}
+            <strong>Railway</strong> (where <code className="rounded bg-amber-100 px-1 text-[11px]">acnlink.mindflo.today</code>{" "}
+            runs), redeploy, then Test Connection again.
+          </li>
+        )}
+        {test.sslAutomatic && test.dnsVerified && !test.servesAcn && (
+          <li className="is-warn">SSL certificate is still provisioning — wait a few minutes and Test Connection again.</li>
         )}
       </ul>
       {test.nextStep && <p className="acn-domains-lovable__test-result-next">{test.nextStep}</p>}
@@ -111,10 +131,12 @@ export default function CustomDomainsScreen({
   onReload,
   onConnectDomain,
   onVerifyDomain,
+  onReassignDomain,
   onDeleteDomain,
   onEditPage
 }: CustomDomainsScreenProps) {
   const navigate = useNavigate();
+  const isPreviewSession = isPreviewToken(getAccessToken());
   const [wizardOpen, setWizardOpen] = useState(false);
   const [resumeDomain, setResumeDomain] = useState<CustomDomain | null>(null);
   const [removeTarget, setRemoveTarget] = useState<CustomDomain | null>(null);
@@ -125,9 +147,11 @@ export default function CustomDomainsScreen({
   const [platformConfigLoading, setPlatformConfigLoading] = useState(true);
   const [expandedDnsIds, setExpandedDnsIds] = useState<Set<string>>(new Set());
   const [testingId, setTestingId] = useState<string | null>(null);
+  const [reassigningId, setReassigningId] = useState<string | null>(null);
   const [connectionTests, setConnectionTests] = useState<Record<string, DomainConnectionTest>>({});
 
   const loadPlatformConfig = React.useCallback(async () => {
+    const startedAt = Date.now();
     setPlatformConfigLoading(true);
     try {
       setPlatformConfig(await fetchCustomDomainPlatformConfig());
@@ -163,8 +187,6 @@ export default function CustomDomainsScreen({
     window.setTimeout(() => setToast(null), 4000);
   };
 
-  const pageName = (id: string) => pages.find((page) => page.id === id)?.title || "Bio page";
-
   const domainStats = useMemo(() => {
     let live = 0;
     let connecting = 0;
@@ -189,7 +211,7 @@ export default function CustomDomainsScreen({
 
   const openLiveWebsite = async (domain: CustomDomain) => {
     if (!canOpenCustomDomainInBrowser(domain)) {
-      triggerToast("Verify DNS first — Open is available after DNS is verified.", "error");
+      triggerToast("Site opens only after status is Verified (Live). Fix DNS routing first.", "error");
       return;
     }
 
@@ -220,7 +242,10 @@ export default function CustomDomainsScreen({
       if (updated.status === "Verified") {
         triggerToast(`${updated.domainName} is live — connection OK.`, "ok");
       } else if (test.connectionState === "connecting") {
-        triggerToast(`${updated.domainName}: DNS OK, waiting for traffic to reach ACN Link.`, "error");
+        triggerToast(
+          `${updated.domainName}: DNS OK — ACN Link is registering SSL/routing. Wait 2–5 min, then Test Connection again.`,
+          "ok"
+        );
       } else {
         triggerToast(test.nextStep || test.summary, "error");
       }
@@ -231,18 +256,48 @@ export default function CustomDomainsScreen({
     }
   };
 
+  const reassignLinkedPage = async (domain: CustomDomain, nextPageId: string) => {
+    if (nextPageId === domain.pageId) return;
+    const taken = domains.find((item) => item.pageId === nextPageId && item.id !== domain.id);
+    if (taken) {
+      triggerToast(`That page is already connected to ${taken.domainName}.`, "error");
+      return;
+    }
+    setReassigningId(domain.id);
+    try {
+      const page = pages.find((item) => item.id === nextPageId);
+      await syncLocalPageDocumentToServer(nextPageId, page?.slug);
+      await onReassignDomain(domain.id, nextPageId);
+      triggerToast(`"${domain.domainName}" now opens ${page?.title || "the selected page"}.`);
+    } catch (error) {
+      triggerToast(error instanceof Error ? error.message : "Could not change linked page.", "error");
+    } finally {
+      setReassigningId(null);
+    }
+  };
+
   const verifyDomain = async (domain: CustomDomain) => {
     setVerifyingId(domain.id);
     try {
       const page = pages.find((item) => item.id === domain.pageId);
       await syncLocalPageDocumentToServer(domain.pageId, page?.slug);
-      const updated = await onVerifyDomain(domain.id);
+      const result = await onVerifyDomain(domain.id);
+      const updated = result.domain;
       if (updated.status === "Verified") {
         triggerToast(`${updated.domainName} is live with HTTPS.`);
-      } else if (isDomainDnsLinked(updated)) {
+      } else if (isDomainDnsLinked(updated) || result.dns?.verified) {
         triggerToast(`${updated.domainName} DNS verified. SSL may take a few minutes.`);
       } else {
-        triggerToast(updated.setupHint || updated.errorMessage || "DNS not detected yet.", "error");
+        triggerToast(
+          formatDnsVerifyError(
+            updated.domainName,
+            updated.errorMessage || result.dns?.message,
+            platformConfig?.aRecordTarget || ""
+          ) ||
+            updated.setupHint ||
+            "DNS not detected yet.",
+          "error"
+        );
       }
     } catch (error) {
       triggerToast(error instanceof Error ? error.message : "Verification failed.", "error");
@@ -258,6 +313,7 @@ export default function CustomDomainsScreen({
       await onDeleteDomain(removeTarget.id);
       triggerToast(`"${removeTarget.domainName}" removed.`);
       setRemoveTarget(null);
+      await onReload();
     } catch (error) {
       triggerToast(error instanceof Error ? error.message : "Unable to remove domain.", "error");
     } finally {
@@ -265,20 +321,46 @@ export default function CustomDomainsScreen({
     }
   };
 
+  const openConnectWizard = () => {
+    setResumeDomain(null);
+    setWizardOpen(true);
+  };
+
   return (
     <PageShell>
       <PageHeader
         title="Custom Domains"
-        subtitle="Connect your domain or subdomain so visitors open your bio page on your brand address."
+        subtitle={
+          <>
+            <span className="block">
+              Connect a root domain or subdomain so visitors open your bio page on your brand address.
+            </span>
+            <span className="mt-2 block text-sm text-slate-600">
+              <span className="font-semibold text-slate-800">Add existing domain</span>
+              {" — "}
+              Connect a website address you already own.
+            </span>
+          </>
+        }
         actions={
-          <a
-            href="https://github.com"
-            className="hidden sm:inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-600"
-            onClick={(event) => event.preventDefault()}
-            title="See docs/custom-domains-production.md in the project"
-          >
-            <HelpCircle className="h-4 w-4" /> How domains work
-          </a>
+          <div className="self-start sm:pt-1">
+            <button
+              type="button"
+              onClick={openConnectWizard}
+              disabled={pages.length === 0 || isPreviewSession}
+              className="acn-btn-primary !w-auto shrink-0 px-5 py-2.5 sm:px-6 sm:py-3 text-sm sm:text-base shadow-lg shadow-indigo-500/30"
+              title={
+                pages.length === 0
+                  ? "Publish a bio page first"
+                  : isPreviewSession
+                    ? "Sign in with a full account to connect domains"
+                    : undefined
+              }
+            >
+              <Globe className="h-4 w-4 shrink-0" />
+              Connect Domain
+            </button>
+          </div>
         }
       />
 
@@ -288,6 +370,37 @@ export default function CustomDomainsScreen({
           <button type="button" onClick={() => void onReload()} className="font-bold underline">
             Retry
           </button>
+        </div>
+      )}
+
+      {isPreviewSession && (
+        <div className="acn-banner-info">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span>
+            Preview mode is active — custom domains need a full sign-in. Go to{" "}
+            <button
+              type="button"
+              className="font-bold underline"
+              onClick={() => navigate(screenToPath(ScreenId.ACCOUNT))}
+            >
+              Account
+            </button>{" "}
+            to sign out, then log in with your email and password.
+          </span>
+        </div>
+      )}
+
+      {platformConfig && !platformConfig.cloudflareEnvConfigured && !platformConfigLoading && (
+        <div className="acn-banner-error mb-4">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span>
+            <strong>SSL auto-setup is off on this server.</strong> Customer domains cannot go Live until you add{" "}
+            <code className="rounded bg-rose-100 px-1 text-xs">CLOUDFLARE_ZONE_ID</code> and{" "}
+            <code className="rounded bg-rose-100 px-1 text-xs">CLOUDFLARE_API_TOKEN</code> on{" "}
+            <strong>Railway</strong> (project hosting <strong>acnlink.mindflo.today</strong>), redeploy, then click{" "}
+            <strong>Test Connection</strong> on each domain. Your Cloudflare CNAME at ezysellonline.com is already
+            correct — this step is on the ACN Link server only.
+          </span>
         </div>
       )}
 
@@ -336,10 +449,7 @@ export default function CustomDomainsScreen({
               <CustomDomainSetupGuide
                 config={platformConfig}
                 hasPages={pages.length > 0}
-                onConnect={() => {
-                  setResumeDomain(null);
-                  setWizardOpen(true);
-                }}
+                onConnect={openConnectWizard}
               />
             ) : (
               <ul className="acn-domains-lovable__list">
@@ -347,8 +457,7 @@ export default function CustomDomainsScreen({
                   const dnsSet =
                     platformConfig &&
                     buildDnsRecordSet(domain.domainName, platformConfig.aRecordTarget, {
-                      cnameTarget: platformConfig.cnameTarget,
-                      platformUrl: platformConfig.platformUrl
+                      cnameTarget: platformConfig.cnameTarget
                     });
                   const dnsExpanded = expandedDnsIds.has(domain.id);
                   const publicReady = isCustomDomainPublicReady(domain);
@@ -376,17 +485,52 @@ export default function CustomDomainsScreen({
                           <ConnectionIndicator domain={domain} />
                           {statusBadge(domain)}
                         </div>
-                        <p className="mt-1 text-xs text-slate-500">
-                          Opens: {pageName(domain.pageId)} · {dnsSet?.records.length || 1} DNS record
-                          {(dnsSet?.records.length || 1) === 1 ? "" : "s"} required
+                        <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                          <span>Opens:</span>
+                          <select
+                            value={domain.pageId}
+                            disabled={reassigningId === domain.id || pages.length === 0}
+                            onChange={(event) => void reassignLinkedPage(domain, event.target.value)}
+                            className="max-w-[14rem] truncate rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-700"
+                            aria-label={`Change linked page for ${domain.domainName}`}
+                          >
+                            {pages.map((page) => {
+                              const linkedElsewhere = linkedDomainsByPageId.get(page.id);
+                              const disabled =
+                                Boolean(linkedElsewhere && linkedElsewhere.id !== domain.id);
+                              return (
+                                <option key={page.id} value={page.id} disabled={disabled}>
+                                  {page.title}
+                                  {disabled ? " (in use)" : ""}
+                                </option>
+                              );
+                            })}
+                          </select>
+                          <span>
+                            · {dnsSet?.records.length || 1} DNS record
+                            {(dnsSet?.records.length || 1) === 1 ? "" : "s"} required
+                          </span>
+                          {domain.dnsProviderId &&
+                            domain.dnsProviderName &&
+                            domain.dnsProviderId !== "unknown" && (
+                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                                DNS at{" "}
+                                {getProviderBranding(domain.dnsProviderId, domain.dnsProviderName).displayName}
+                              </span>
+                            )}
                         </p>
                         {(domain.setupHint || domain.errorMessage) && (
                           <p
                             className={`mt-1 text-xs ${
-                              domain.errorMessage && !dnsLinked ? "text-rose-600" : "text-slate-600"
+                              domain.errorMessage && domain.status === "Pending DNS" ? "text-rose-600" : "text-slate-600"
                             }`}
                           >
-                            {domain.setupHint || domain.errorMessage}
+                            {domain.setupHint ||
+                              formatDnsVerifyError(
+                                domain.domainName,
+                                domain.errorMessage,
+                                platformConfig?.aRecordTarget || ""
+                              )}
                           </p>
                         )}
                         {dnsSet && (
@@ -401,7 +545,13 @@ export default function CustomDomainsScreen({
                               {dnsExpanded ? "Hide DNS" : "Show DNS"}
                             </button>
                             {dnsExpanded && (
-                              <DomainDnsPanel records={dnsSet.records} aRecordTarget={platformConfig!.aRecordTarget} />
+                              <DomainDnsPanel
+                                domainName={domain.domainName}
+                                records={dnsSet?.records || []}
+                                aRecordTarget={platformConfig!.aRecordTarget}
+                                cnameTarget={platformConfig!.cnameTarget}
+                                ownershipVerification={domain.ownershipVerification}
+                              />
                             )}
                           </div>
                         )}
@@ -421,6 +571,19 @@ export default function CustomDomainsScreen({
                             <PlugZap className="h-4 w-4" />
                           )}
                         </button>
+                        {!canOpen && (
+                          <button
+                            type="button"
+                            title="Continue DNS setup"
+                            onClick={() => {
+                              setResumeDomain(domain);
+                              setWizardOpen(true);
+                            }}
+                            className="acn-domains-lovable__icon-btn"
+                          >
+                            <Globe className="h-4 w-4" />
+                          </button>
+                        )}
                         {!publicReady && (
                           <button
                             type="button"
@@ -472,26 +635,6 @@ export default function CustomDomainsScreen({
               </ul>
             )}
 
-            <div className="acn-domains-lovable__divider" />
-
-            <div className="acn-domains-lovable__section">
-              <div>
-                <h3 className="acn-domains-lovable__heading">Add existing domain</h3>
-                <p className="acn-domains-lovable__desc">Connect a website address you already own.</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setResumeDomain(null);
-                  setWizardOpen(true);
-                }}
-                disabled={pages.length === 0}
-                className="acn-domains-lovable__outline-btn"
-                title={pages.length === 0 ? "Publish a bio page first" : undefined}
-              >
-                {domains.length > 0 ? "Connect Another Domain" : "Connect Domain"}
-              </button>
-            </div>
           </Workspace>
         </SectionCard>
 
@@ -508,26 +651,22 @@ export default function CustomDomainsScreen({
             </ol>
             <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
               <p>
-                <strong>Root domain</strong> (yourbrand.com): add two A records at your registrar:
+                <strong>Root domain</strong> (yourbrand.com):
               </p>
               <ul className="mt-2 list-disc pl-4 space-y-1">
                 <li>
-                  Host <code>www</code> → <code>{platformConfig.aRecordTarget}</code>
-                </li>
-                <li>
-                  Host <code>@</code> → <code>{platformConfig.aRecordTarget}</code>
+                  A · Host <code>@</code> → <code>{platformConfig.aRecordTarget}</code>
                 </li>
               </ul>
               <p className="mt-3">
-                <strong>Subdomain</strong> (studio.yourbrand.com): add one CNAME record:
+                <strong>Subdomain</strong> (king.yourbrand.com, www.yourbrand.com):
               </p>
               <ul className="mt-2 list-disc pl-4 space-y-1">
                 <li>
-                  Host <code>studio</code> →{" "}
+                  CNAME · Host <code>king</code> (prefix only) →{" "}
                   <code>{platformConfig.cnameTarget || platformConfig.platformUrl}</code>
                 </li>
               </ul>
-              <p className="mt-2">After verification, your connected address opens your bio page.</p>
             </div>
           </aside>
         )}

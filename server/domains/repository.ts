@@ -1,4 +1,5 @@
 import { getSupabase } from "../db/supabase";
+import { resolveRoutableHostnameAlias, getCustomDomainKind } from "./hostname";
 
 export type DomainStatus =
   | "Pending DNS"
@@ -116,40 +117,72 @@ export const ROUTABLE_DOMAIN_STATUSES: DomainStatus[] = ["Verified", "DNS Verifi
 export async function findDomainByHostname(
   hostname: string
 ): Promise<CustomDomainRecord | null> {
+  const normalized = hostname.toLowerCase();
   const { data, error } = await db()
     .from("custom_domains")
     .select("*")
-    .eq("domain_name", hostname.toLowerCase())
+    .eq("domain_name", normalized)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  return data ? mapRow(data as DomainRow) : null;
+  if (data) return mapRow(data as DomainRow);
+
+  const alias = resolveRoutableHostnameAlias(normalized);
+  if (alias === normalized) return null;
+
+  const { data: aliased, error: aliasError } = await db()
+    .from("custom_domains")
+    .select("*")
+    .eq("domain_name", alias)
+    .maybeSingle();
+  if (aliasError) throw new Error(aliasError.message);
+  return aliased ? mapRow(aliased as DomainRow) : null;
+}
+
+async function findRoutableRowByStoredHostname(hostname: string): Promise<DomainRow | null> {
+  const normalized = hostname.toLowerCase();
+  const { data, error } = await db()
+    .from("custom_domains")
+    .select("*")
+    .eq("domain_name", normalized)
+    .in("status", ROUTABLE_DOMAIN_STATUSES)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (data) return data as DomainRow;
+
+  const alias = resolveRoutableHostnameAlias(normalized);
+  if (alias === normalized) return null;
+
+  const { data: aliased, error: aliasError } = await db()
+    .from("custom_domains")
+    .select("*")
+    .eq("domain_name", alias)
+    .in("status", ROUTABLE_DOMAIN_STATUSES)
+    .maybeSingle();
+  if (aliasError) throw new Error(aliasError.message);
+  return (aliased as DomainRow | null) ?? null;
 }
 
 export async function findRoutableDomainByHostname(
   hostname: string
 ): Promise<CustomDomainRecord | null> {
-  const { data, error } = await db()
-    .from("custom_domains")
-    .select("*")
-    .eq("domain_name", hostname.toLowerCase())
-    .in("status", ROUTABLE_DOMAIN_STATUSES)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (data) return mapRow(data as DomainRow);
+  const row = await findRoutableRowByStoredHostname(hostname);
+  if (row) return mapRow(row);
 
   // Keep serving after a successful verify even if status was reset to Pending DNS.
-  const { data: fallback, error: fallbackError } = await db()
-    .from("custom_domains")
-    .select("*")
-    .eq("domain_name", hostname.toLowerCase())
-    .not("dns_verified_at", "is", null)
-    .maybeSingle();
-  if (fallbackError) throw new Error(fallbackError.message);
-  if (fallback) return mapRow(fallback as DomainRow);
+  const normalized = hostname.toLowerCase();
+  const candidates = [normalized, resolveRoutableHostnameAlias(normalized)];
+  for (const candidate of [...new Set(candidates)]) {
+    const { data: fallback, error: fallbackError } = await db()
+      .from("custom_domains")
+      .select("*")
+      .eq("domain_name", candidate)
+      .not("dns_verified_at", "is", null)
+      .maybeSingle();
+    if (fallbackError) throw new Error(fallbackError.message);
+    if (fallback) return mapRow(fallback as DomainRow);
+  }
 
-  // Route branded traffic once the customer connected the hostname in ACN Link.
-  // DNS/Worker already deliver requests here; verify updates the dashboard status.
-  return findDomainByHostname(hostname);
+  return null;
 }
 
 /** @deprecated Use findRoutableDomainByHostname */
@@ -164,6 +197,8 @@ export async function createDomain(input: {
   provider: "cloudflare" | "manual";
 }): Promise<CustomDomainRecord> {
   const now = new Date().toISOString();
+  const kind = getCustomDomainKind(input.domainName);
+  const recordType = kind === "subdomain" ? "A" : "A";
   const { data, error } = await db()
     .from("custom_domains")
     .insert({
@@ -171,7 +206,7 @@ export async function createDomain(input: {
       owner_user_id: input.ownerUserId,
       page_id: input.pageId,
       domain_name: input.domainName,
-      type: "A",
+      type: recordType,
       target_ip: input.dnsTarget,
       status: "Pending DNS",
       dns_target: input.dnsTarget,
@@ -203,11 +238,64 @@ export async function updateDomain(
   return mapRow(data as DomainRow);
 }
 
+/** System updates (SSL poller) without owner scoping on the write path. */
+export async function updateDomainById(
+  id: string,
+  patch: Record<string, unknown>
+): Promise<CustomDomainRecord> {
+  const { data, error } = await db()
+    .from("custom_domains")
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select("*")
+    .single();
+  if (error) throw new Error(error.message);
+  return mapRow(data as DomainRow);
+}
+
+export async function listDomainsForSslPolling(): Promise<CustomDomainRecord[]> {
+  const { data, error } = await db()
+    .from("custom_domains")
+    .select("*")
+    .in("status", ["DNS Verified", "Provisioning SSL", "Pending DNS"])
+    .not("dns_verified_at", "is", null);
+  if (error) throw new Error(error.message);
+  return ((data || []) as DomainRow[]).map(mapRow);
+}
+
 export async function removeDomain(id: string, ownerUserId: string): Promise<void> {
-  const { error } = await db()
+  const { data, error } = await db()
     .from("custom_domains")
     .delete()
     .eq("id", id)
-    .eq("owner_user_id", ownerUserId);
+    .eq("owner_user_id", ownerUserId)
+    .select("id");
   if (error) throw new Error(error.message);
+  if (!data?.length) {
+    throw new Error("Domain not found or you do not have permission to remove it.");
+  }
+}
+
+export async function appendDomainVerificationLog(input: {
+  domainId: string;
+  ownerUserId: string;
+  event: string;
+  status: string;
+  message?: string | null;
+  metadata?: Record<string, unknown>;
+}): Promise<void> {
+  try {
+    const { error } = await db().from("domain_verification_logs").insert({
+      domain_id: input.domainId,
+      owner_user_id: input.ownerUserId,
+      event: input.event,
+      status: input.status,
+      message: input.message ?? null,
+      metadata: input.metadata ?? {},
+      created_at: new Date().toISOString()
+    });
+    if (error) console.warn("[domains] verification log insert failed:", error.message);
+  } catch (error) {
+    console.warn("[domains] verification log unavailable:", error);
+  }
 }

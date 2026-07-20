@@ -20,3 +20,19 @@ create index if not exists custom_domains_owner_idx
 
 -- Remove old demo rows that were never owned by an authenticated account.
 delete from public.custom_domains where owner_user_id is null;
+
+create table if not exists public.domain_verification_logs (
+  id bigserial primary key,
+  domain_id text not null,
+  owner_user_id text not null,
+  event text not null,
+  status text not null,
+  message text,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists domain_verification_logs_domain_idx
+  on public.domain_verification_logs (domain_id, created_at desc);
+
+alter table public.domain_verification_logs enable row level security;

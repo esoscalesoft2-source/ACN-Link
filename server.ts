@@ -15,6 +15,15 @@ import { createDomainsRouter } from "./server/domains/routes";
 import { findRoutableDomainByHostname } from "./server/domains/repository";
 import { isCloudflareForSaasConfigured } from "./server/domains/cloudflare";
 import { resolveCnameTarget, resolveCustomDomainATarget } from "./server/domains/hostname";
+import { clientIp, consumeRateLimit } from "./server/domains/rateLimit";
+import { startSslPollingLoop } from "./server/domains/sslPoller";
+import { createPlatformSubdomainsRouter } from "./server/platformSubdomains/routes";
+import { findPlatformSubdomainBySlug } from "./server/platformSubdomains/repository";
+import {
+  isPlatformApexHostname,
+  isPlatformSubdomainHostname,
+  parsePlatformSubdomainSlug
+} from "./server/platformSubdomains/slug";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -89,6 +98,12 @@ app.get("/api/health", (_req, res) => {
 
 /** Public lookup used by the customer Cloudflare Worker to map hostnames → pages. */
 app.get("/api/public/custom-domain/:hostname", async (req, res) => {
+  const rateKey = `public-domain:${clientIp(req)}`;
+  if (!consumeRateLimit(rateKey, 120, 60_000)) {
+    res.status(429).json({ error: "Too many requests. Try again shortly." });
+    return;
+  }
+
   try {
     const hostname = String(req.params.hostname || "")
       .trim()
@@ -116,8 +131,40 @@ app.get("/api/public/custom-domain/:hostname", async (req, res) => {
   }
 });
 
+/** Public lookup: {slug}.acnlink.mindflo.today → pageId */
+app.get("/api/public/platform-subdomain/:slug", async (req, res) => {
+  const rateKey = `public-psub:${clientIp(req)}`;
+  if (!consumeRateLimit(rateKey, 120, 60_000)) {
+    res.status(429).json({ error: "Too many requests. Try again shortly." });
+    return;
+  }
+
+  try {
+    const slug = String(req.params.slug || "").trim().toLowerCase();
+    if (!slug) {
+      res.status(400).json({ error: "Slug required." });
+      return;
+    }
+    const record = await findPlatformSubdomainBySlug(slug);
+    if (!record) {
+      res.status(404).json({ error: "Address not found.", pageId: null });
+      return;
+    }
+    res.json({
+      pageId: record.pageId,
+      slug: record.slug,
+      hostname: record.hostname,
+      status: record.status
+    });
+  } catch (error) {
+    console.error("Public platform-subdomain lookup failed:", error);
+    res.status(503).json({ error: "Lookup unavailable." });
+  }
+});
+
 app.use("/api/auth", createAuthRouter());
 app.use("/api/domains", createDomainsRouter());
+app.use("/api/platform-subdomains", createPlatformSubdomainsRouter());
 
 /** Pull workspace collections for the signed-in user (cross-device hydration). */
 app.get("/api/workspace/export", requireAuth, (req, res) => {
@@ -481,8 +528,8 @@ function requestHostname(req: express.Request) {
 
 function isPlatformHostname(hostname: string) {
   if (!hostname) return true;
-  if (hostname === "localhost" || hostname === "127.0.0.1") return true;
-  if (hostname.endsWith(".up.railway.app")) return true;
+  if (isPlatformSubdomainHostname(hostname)) return false;
+  if (isPlatformApexHostname(hostname)) return true;
 
   const configured = [
     process.env.APP_URL,
@@ -529,6 +576,28 @@ app.use(async (req, res, next) => {
   }
 
   try {
+    const platformSlug = parsePlatformSubdomainSlug(hostname);
+    if (platformSlug) {
+      const platformSub = await findPlatformSubdomainBySlug(platformSlug);
+      if (!platformSub) {
+        res
+          .status(404)
+          .type("html")
+          .send(
+            "<!doctype html><title>Address not found</title><h1>Address not found</h1><p>This free ACN Link address is not active.</p>"
+          );
+        return;
+      }
+      res.cookie("acn_routed_page", platformSub.pageId, {
+        maxAge: 60 * 60 * 1000,
+        httpOnly: false,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production"
+      });
+      next();
+      return;
+    }
+
     const domain = await findRoutableDomainByHostname(hostname);
     if (!domain) {
       res
@@ -537,6 +606,13 @@ app.use(async (req, res, next) => {
         .send("<!doctype html><title>Domain not connected</title><h1>Domain not connected</h1><p>This hostname is not verified in ACN Link.</p>");
       return;
     }
+
+    res.cookie("acn_routed_page", domain.pageId, {
+      maxAge: 60 * 60 * 1000,
+      httpOnly: false,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production"
+    });
     next();
   } catch (error) {
     console.error("Custom hostname routing failed:", error);
@@ -607,6 +683,7 @@ async function startServer() {
   try {
     await initRootStore();
     console.log("Data store ready:", getDataStoreStatus());
+    startSslPollingLoop();
   } catch (error) {
     console.error("Data store init failed (continuing with file fallback):", error);
   }

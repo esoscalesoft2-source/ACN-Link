@@ -1,4 +1,4 @@
-import type { CustomDomain, CustomDomainPlatformConfig } from "../types";
+import type { CustomDomain, CustomDomainDnsRecordTemplate, CustomDomainPlatformConfig } from "../types";
 import { analyzeDomainClient } from "./detectDnsProvider";
 import { sanitizeARecordTarget } from "./customDomainDns";
 import { apiUrl } from "./apiBase";
@@ -25,7 +25,7 @@ async function domainFetch<T>(path: string, init: RequestInit = {}, retry = true
   const token = getAccessToken();
   if (isPreviewToken(token)) {
     throw new DomainApiError(
-      "Sign in with a real account to manage custom domains.",
+      "Custom domains need a full sign-in. Sign out, then log in with your email and password (not preview/demo mode).",
       401,
       "PREVIEW_SESSION"
     );
@@ -66,31 +66,49 @@ async function domainFetch<T>(path: string, init: RequestInit = {}, retry = true
   return data as T;
 }
 
-export async function fetchCustomDomainPlatformConfig(): Promise<CustomDomainPlatformConfig> {
-  let response: Response;
-  try {
-    response = await fetch(apiUrl("/api/domains/config"), {
-      method: "GET",
-      headers: { Accept: "application/json" }
-    });
-  } catch {
-    throw new DomainApiError("Could not reach the domain service.", 0, "NETWORK_ERROR");
-  }
+let platformConfigCache: CustomDomainPlatformConfig | null = null;
+let platformConfigInflight: Promise<CustomDomainPlatformConfig> | null = null;
 
-  const data = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new DomainApiError(
-      data?.error || "Could not load domain settings.",
-      response.status,
-      data?.code || "DOMAIN_CONFIG_FAILED"
-    );
+export async function fetchCustomDomainPlatformConfig(): Promise<CustomDomainPlatformConfig> {
+  if (platformConfigCache) {
+    return platformConfigCache;
   }
-  const rawTarget = (data as CustomDomainPlatformConfig).aRecordTarget;
-  const sanitizedTarget = sanitizeARecordTarget(rawTarget);
-  return {
-    ...(data as CustomDomainPlatformConfig),
-    aRecordTarget: sanitizedTarget
-  };
+  if (platformConfigInflight) return platformConfigInflight;
+
+  platformConfigInflight = (async () => {
+    let response: Response;
+    try {
+      response = await fetch(apiUrl("/api/domains/config"), {
+        method: "GET",
+        headers: { Accept: "application/json" }
+      });
+    } catch {
+      throw new DomainApiError("Could not reach the domain service.", 0, "NETWORK_ERROR");
+    }
+
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new DomainApiError(
+        data?.error || "Could not load domain settings.",
+        response.status,
+        data?.code || "DOMAIN_CONFIG_FAILED"
+      );
+    }
+    const rawTarget = (data as CustomDomainPlatformConfig).aRecordTarget;
+    const sanitizedTarget = sanitizeARecordTarget(rawTarget);
+    const config = {
+      ...(data as CustomDomainPlatformConfig),
+      aRecordTarget: sanitizedTarget
+    };
+    platformConfigCache = config;
+    return config;
+  })();
+
+  try {
+    return await platformConfigInflight;
+  } finally {
+    platformConfigInflight = null;
+  }
 }
 
 export async function fetchDomains(): Promise<CustomDomain[]> {
@@ -144,12 +162,26 @@ export async function checkDomainDns(domainName: string): Promise<{
   return { verified: result.dns.verified, message: result.dns.message };
 }
 
-export async function connectDomain(domainName: string, pageId: string): Promise<CustomDomain> {
-  const result = await domainFetch<{ domain: CustomDomain }>("/api/domains", {
+export type DomainConnectResult = {
+  domain: CustomDomain;
+  dnsAutoProvisioned?: boolean;
+  dnsProvisionMessage?: string | null;
+};
+
+export async function connectDomain(
+  domainName: string,
+  pageId: string,
+  options?: { cloudflareApiToken?: string }
+): Promise<DomainConnectResult> {
+  const result = await domainFetch<DomainConnectResult>("/api/domains", {
     method: "POST",
-    body: JSON.stringify({ domainName, pageId })
+    body: JSON.stringify({
+      domainName,
+      pageId,
+      cloudflareApiToken: options?.cloudflareApiToken?.trim() || undefined
+    })
   });
-  return result.domain;
+  return result;
 }
 
 export type DomainConnectionTest = {
@@ -171,17 +203,55 @@ export async function testDomainConnection(
   );
 }
 
+export async function repairDomainDns(
+  id: string,
+  cloudflareApiToken: string
+): Promise<DomainConnectResult & { dns?: { verified: boolean; message: string } }> {
+  return domainFetch(`/api/domains/${id}/repair-dns`, {
+    method: "POST",
+    body: JSON.stringify({ cloudflareApiToken: cloudflareApiToken.trim() })
+  });
+}
+
 export async function checkDomainServesAcn(id: string): Promise<{ servesAcn: boolean; message: string | null }> {
   return domainFetch<{ servesAcn: boolean; message: string | null }>(`/api/domains/${id}/serves-acn`);
 }
 
-export async function verifyDomain(id: string): Promise<CustomDomain> {
-  const result = await domainFetch<{ domain: CustomDomain }>(`/api/domains/${id}/verify`, {
+export type DomainVerifyResult = {
+  domain: CustomDomain;
+  dns?: {
+    verified: boolean;
+    message: string;
+  };
+};
+
+export async function verifyDomain(id: string): Promise<DomainVerifyResult> {
+  const result = await domainFetch<{
+    domain: CustomDomain;
+    dns?: { verified: boolean; message: string };
+  }>(`/api/domains/${id}/verify`, {
     method: "POST"
   });
-  return result.domain;
+  return { domain: result.domain, dns: result.dns };
 }
 
 export async function deleteDomain(id: string): Promise<void> {
   await domainFetch<{ success: boolean }>(`/api/domains/${id}`, { method: "DELETE" });
+}
+
+export async function patchDomainPage(id: string, pageId: string): Promise<CustomDomain> {
+  const result = await domainFetch<{ domain: CustomDomain }>(`/api/domains/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ pageId })
+  });
+  return result.domain;
+}
+
+export async function fetchDomainDnsRecords(id: string): Promise<{
+  domainName: string;
+  kind: "root" | "subdomain";
+  records: CustomDomainDnsRecordTemplate[];
+  ownershipVerification: Record<string, unknown> | null;
+}> {
+  return domainFetch(`/api/domains/${id}/dns-records`);
 }

@@ -39,17 +39,18 @@ export function isRootDomain(hostname: string): boolean {
 
 export function isSubdomain(hostname: string): boolean {
   const labels = getLabels(hostname);
-  return labels.length >= 3 && labels[0] !== "www";
+  return labels.length >= 3;
 }
 
 export function getCustomDomainKind(hostname: string): "root" | "subdomain" | null {
-  if (isRootDomain(hostname)) return "root";
   if (isSubdomain(hostname)) return "subdomain";
+  if (isRootDomain(hostname)) return "root";
   return null;
 }
 
+/** Root domain or subdomain (e.g. yourbrand.com or app.yourbrand.com). */
 export function isSupportedCustomDomain(hostname: string): boolean {
-  return getCustomDomainKind(hostname) !== null;
+  return isRootDomain(hostname) || isSubdomain(hostname);
 }
 
 export function getDnsZoneDomain(hostname: string): string {
@@ -62,6 +63,22 @@ export function getSubdomainHostLabel(hostname: string): string {
   const labels = getLabels(hostname);
   if (labels.length <= 2) return "@";
   return labels.slice(0, -2).join(".");
+}
+
+/** Map www.yourbrand.com → yourbrand.com for routing lookups. */
+export function resolveRoutableHostnameAlias(hostname: string): string {
+  const host = normalizeHostname(hostname);
+  const labels = getLabels(host);
+  if (labels.length === 3 && labels[0] === "www" && isRootDomain(labels.slice(1).join("."))) {
+    return labels.slice(1).join(".");
+  }
+  return host;
+}
+
+export function getWwwCompanionHostname(apexHostname: string): string | null {
+  const apex = normalizeHostname(apexHostname);
+  if (!isRootDomain(apex)) return null;
+  return `www.${apex}`;
 }
 
 export function resolveCnameTarget(): string {
@@ -93,32 +110,29 @@ export function resolveCustomDomainATarget(): string {
 }
 
 export const CUSTOM_DOMAIN_PATTERN =
-  /^(?=.{1,253}$)(?!www\.)(?:(?!-)[a-z0-9-]{1,63}(?<!-)\.)+(?!-)[a-z0-9-]{2,63}(?<!-)$/i;
+  /^(?=.{1,253}$)(?:(?!-)[a-z0-9-]{1,63}(?<!-)\.)+(?!-)[a-z0-9-]{2,63}(?<!-)$/i;
 
 export function customDomainValidationError(hostname: string): string | null {
   const host = normalizeHostname(hostname);
   const labels = getLabels(host);
   if (labels.length === 0) {
-    return "Enter your domain or subdomain, for example yourbrand.com or studio.yourbrand.com.";
+    return "Enter your root domain or subdomain, for example yourbrand.com or app.yourbrand.com.";
   }
   if (labels.length === 1) {
-    return "Enter a full domain like yourbrand.com or links.yourbrand.com.";
+    return "Enter a full address like yourbrand.com or app.yourbrand.com.";
   }
   if (labels[0] === "www" && labels.length === 2) {
-    return "Enter yourbrand.com without the www prefix. ACN shows separate A records for @ and www.";
-  }
-  if (labels[0] === "www" && labels.length >= 3) {
-    return "Remove the www prefix and enter the full address you want to connect, for example studio.yourbrand.com.";
+    return "Enter the full domain, for example yourbrand.com (root) or www.yourbrand.com (subdomain).";
   }
   if (!isSupportedCustomDomain(host)) {
-    return "Enter a valid domain or subdomain, for example yourbrand.com or studio.yourbrand.com.";
+    return "Enter a valid root domain (yourbrand.com) or subdomain (app.yourbrand.com).";
   }
   return null;
 }
 
 export function assertSupportedCustomDomain(hostname: string): string | null {
   if (!CUSTOM_DOMAIN_PATTERN.test(hostname)) {
-    return "Enter a valid domain or subdomain, for example yourbrand.com or studio.yourbrand.com.";
+    return "Enter a valid root domain or subdomain, for example yourbrand.com or app.yourbrand.com.";
   }
   return customDomainValidationError(hostname);
 }

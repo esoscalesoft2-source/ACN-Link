@@ -161,6 +161,8 @@ export interface CustomDomain {
   lastCheckedAt: string | null;
   errorMessage: string | null;
   setupHint?: string | null;
+  dnsProviderName?: string | null;
+  dnsProviderId?: string | null;
   selfServeEnabled?: boolean;
   createdAt: string;
   updatedAt: string;
@@ -168,7 +170,7 @@ export interface CustomDomain {
 
 export interface CustomDomainDnsRecordTemplate {
   id: string;
-  type: "A" | "CNAME";
+  type: "A" | "CNAME" | "TXT";
   hostLabel: string;
   hostDisplay: string;
   value: string;
@@ -182,8 +184,21 @@ export interface CustomDomainPlatformConfig {
   selfServeEnabled: boolean;
   sslAutomatic: boolean;
   cloudflareEnvConfigured?: boolean;
+  autoDnsViaCloudflare?: boolean;
   steps: string[];
   registrars: { id: string; name: string; dnsHelpUrl: string }[];
+}
+
+/** Free tier address: {slug}.acnlink.mindflo.today */
+export interface PlatformSubdomain {
+  id: string;
+  slug: string;
+  pageId: string;
+  hostname: string;
+  publicUrl: string;
+  status: "active" | "disabled";
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface HelpArticle {

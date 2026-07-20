@@ -69,13 +69,17 @@ async function cloudflareRequest<T>(path: string, init: RequestInit = {}): Promi
     }
   });
   const body = (await response.json().catch(() => null)) as CloudflareResult<T> | null;
-  if (!response.ok || !body?.success || body.result === undefined) {
+  const method = (init.method || "GET").toUpperCase();
+  const resultOk =
+    method === "DELETE" ? body?.success === true : body?.success === true && body.result !== undefined;
+
+  if (!response.ok || !resultOk) {
     const message =
       body?.errors?.map((error) => error.message || `Cloudflare error ${error.code}`).join("; ") ||
       `Cloudflare request failed (${response.status})`;
     throw new Error(message);
   }
-  return body.result;
+  return body!.result as T;
 }
 
 export async function registerCustomHostname(hostname: string): Promise<ProviderHostname> {
@@ -103,8 +107,87 @@ export async function getCustomHostname(providerId: string): Promise<ProviderHos
 }
 
 export async function deleteCustomHostname(providerId: string): Promise<void> {
-  await cloudflareRequest<Record<string, never>>(
-    `/custom_hostnames/${encodeURIComponent(providerId)}`,
-    { method: "DELETE" }
+  const { token, zoneId, apiBase } = config();
+  if (!token || !zoneId) return;
+
+  const response = await fetch(
+    `${apiBase}/zones/${zoneId}/custom_hostnames/${encodeURIComponent(providerId)}`,
+    {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      }
+    }
   );
+  const body = (await response.json().catch(() => null)) as CloudflareResult<unknown> | null;
+
+  if (response.ok && body?.success) return;
+
+  const message =
+    body?.errors?.map((error) => error.message || `Cloudflare error ${error.code}`).join("; ") ||
+    `Cloudflare request failed (${response.status})`;
+  const notFound =
+    response.status === 404 ||
+    /not found|does not exist|already deleted|invalid identifier/i.test(message);
+
+  if (notFound) return;
+
+  throw new Error(message);
+}
+
+type CloudflareHostnameList = {
+  result?: CloudflareCustomHostname[];
+};
+
+/** Best-effort cleanup for apex + www when removing a connected domain. */
+export async function deleteCustomHostnamesForDomain(
+  domainName: string,
+  providerHostnameId?: string | null
+): Promise<void> {
+  if (!isCloudflareForSaasConfigured()) return;
+
+  const normalized = domainName.trim().toLowerCase();
+  const hostnames = [normalized];
+
+  if (providerHostnameId) {
+    try {
+      await deleteCustomHostname(providerHostnameId);
+    } catch (error) {
+      console.warn(`[cloudflare] Could not delete hostname id ${providerHostnameId}:`, error);
+    }
+  }
+
+  const { token, zoneId, apiBase } = config();
+  for (const hostname of hostnames) {
+    try {
+      const response = await fetch(
+        `${apiBase}/zones/${zoneId}/custom_hostnames?hostname=${encodeURIComponent(hostname)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          }
+        }
+      );
+      const body = (await response.json().catch(() => null)) as CloudflareHostnameList | null;
+      const matches = body?.result || [];
+      for (const item of matches) {
+        if (item?.id) {
+          await deleteCustomHostname(item.id);
+        }
+      }
+    } catch (error) {
+      console.warn(`[cloudflare] Could not delete hostname ${hostname}:`, error);
+    }
+  }
+}
+
+/** Register apex custom hostname for root domains (Cloudflare for SaaS). */
+export async function registerRootDomainHostnames(apexHostname: string): Promise<{
+  apex: ProviderHostname;
+  www: ProviderHostname | null;
+}> {
+  const apex = await registerCustomHostname(apexHostname);
+  return { apex, www: null };
 }

@@ -2,7 +2,7 @@ export function labelCount(hostname: string): number {
   return hostname.trim().toLowerCase().replace(/\.$/, "").split(".").filter(Boolean).length;
 }
 
-/** ACN Link production server IP for root domain A records (@ and www). */
+/** ACN Link production server IP for root domain A records (@). */
 export const ACN_LINK_A_RECORD_TARGET = "69.46.46.90";
 
 /** Lovable/Vercel demo IP copied from reference docs — never show to ACN users. */
@@ -30,20 +30,21 @@ export function isRootDomain(hostname: string): boolean {
   return labels.length === 2 && labels[0] !== "www";
 }
 
-/** Subdomain: studio.yourbrand.com or vickys-trx-fitness-studio.wheree.com */
+/** Subdomain: king.example.com, www.example.com, app.example.com */
 export function isSubdomain(hostname: string): boolean {
   const labels = getLabels(hostname);
-  return labels.length >= 3 && labels[0] !== "www";
+  return labels.length >= 3;
 }
 
 export function getCustomDomainKind(hostname: string): "root" | "subdomain" | null {
-  if (isRootDomain(hostname)) return "root";
   if (isSubdomain(hostname)) return "subdomain";
+  if (isRootDomain(hostname)) return "root";
   return null;
 }
 
+/** Root domain or subdomain (e.g. yourbrand.com or app.yourbrand.com). */
 export function isSupportedCustomDomain(hostname: string): boolean {
-  return getCustomDomainKind(hostname) !== null;
+  return isRootDomain(hostname) || isSubdomain(hostname);
 }
 
 /** DNS zone for provider login (wheree.com for vickys-trx-fitness-studio.wheree.com). */
@@ -64,7 +65,7 @@ export function getDnsRootDomain(hostname: string): string {
   return normalizeCustomHostname(hostname);
 }
 
-export type DnsRecordType = "A" | "CNAME";
+export type DnsRecordType = "A" | "CNAME" | "TXT";
 
 export interface DnsRecordInstruction {
   id: string;
@@ -104,52 +105,50 @@ export function resolveCnameTarget(explicitTarget?: string, platformUrl?: string
   return "acnlink.mindflo.today";
 }
 
-/** Root: A records for www and @. Subdomain: CNAME to platform (with A fallback in verification). */
+/**
+ * DNS rules:
+ * - Root (example.com): A @ → hosting IP
+ * - Subdomain (king.example.com, www.example.com): CNAME → hosting hostname
+ */
 export function buildDnsRecordSet(
   domainName: string,
   aRecordTarget: string,
-  options?: { cnameTarget?: string; platformUrl?: string }
+  options?: { cnameTarget?: string }
 ): DnsInstructionSet {
   const host = normalizeCustomHostname(domainName);
   const kind = getCustomDomainKind(host);
+  const aTarget = sanitizeARecordTarget(aRecordTarget);
+  const cnameTarget = resolveCnameTarget(options?.cnameTarget);
 
-  if (kind === "subdomain") {
-    const hostLabel = getSubdomainHostLabel(host);
-    const cnameTarget = resolveCnameTarget(options?.cnameTarget, options?.platformUrl);
+  if (kind === "root") {
     return {
       domainName: host,
-      rootDomain: getDnsZoneDomain(host),
-      kind: "subdomain",
+      rootDomain: host,
+      kind: "root",
       records: [
         {
-          id: "subdomain-cname",
-          type: "CNAME",
-          hostLabel,
-          hostDisplay: hostLabel,
-          value: cnameTarget
+          id: "root-apex-a",
+          type: "A",
+          hostLabel: "@",
+          hostDisplay: "@ (root)",
+          value: aTarget
         }
       ]
     };
   }
 
+  const hostLabel = getSubdomainHostLabel(host);
   return {
     domainName: host,
-    rootDomain: host,
-    kind: "root",
+    rootDomain: getDnsZoneDomain(host),
+    kind: "subdomain",
     records: [
       {
-        id: "www",
-        type: "A",
-        hostLabel: "www",
-        hostDisplay: "www",
-        value: aRecordTarget
-      },
-      {
-        id: "apex",
-        type: "A",
-        hostLabel: "@",
-        hostDisplay: "@ (root)",
-        value: aRecordTarget
+        id: "subdomain-cname",
+        type: "CNAME",
+        hostLabel,
+        hostDisplay: hostLabel,
+        value: cnameTarget
       }
     ]
   };
@@ -159,24 +158,61 @@ export function customDomainValidationError(hostname: string): string | null {
   const host = normalizeCustomHostname(hostname);
   const labels = getLabels(host);
   if (labels.length === 0) {
-    return "Enter your domain or subdomain, for example yourbrand.com or studio.yourbrand.com.";
+    return "Enter your root domain or subdomain, for example yourbrand.com or app.yourbrand.com.";
   }
   if (labels.length === 1) {
-    return "Enter a full domain like yourbrand.com or links.yourbrand.com.";
+    return "Enter a full address like yourbrand.com or app.yourbrand.com.";
   }
   if (labels[0] === "www" && labels.length === 2) {
-    return "Enter yourbrand.com without the www prefix. ACN shows separate A records for @ and www.";
-  }
-  if (labels[0] === "www" && labels.length >= 3) {
-    return "Remove the www prefix and enter the full address you want to connect, for example studio.yourbrand.com.";
+    return "Enter the full domain, for example yourbrand.com (root) or www.yourbrand.com (subdomain).";
   }
   if (!isSupportedCustomDomain(host)) {
-    return "Enter a valid domain or subdomain, for example yourbrand.com or studio.yourbrand.com.";
+    return "Enter a valid root domain (yourbrand.com) or subdomain (app.yourbrand.com).";
   }
   return null;
 }
 
-/** @deprecated Use customDomainValidationError */
-export function rootDomainValidationError(hostname: string): string | null {
-  return customDomainValidationError(hostname);
+export function formatDnsVerifyError(
+  hostname: string,
+  message: string | null | undefined,
+  _aRecordTarget: string
+): string | null {
+  if (!message?.trim()) return null;
+  const host = normalizeCustomHostname(hostname);
+  const kind = getCustomDomainKind(host);
+  if (kind === "subdomain") {
+    const hostLabel = getSubdomainHostLabel(host);
+    const cnameTarget = resolveCnameTarget();
+    if (/do not use an a record/i.test(message)) return null;
+    if (/dns cname points/i.test(message) || /dns cname configured/i.test(message)) return null;
+    if (
+      new RegExp(`Host ${hostLabel} → \\d+\\.\\d+\\.\\d+\\.\\d+`, "i").test(message) ||
+      /Add an A record/i.test(message)
+    ) {
+      return `Subdomains use CNAME only: Host ${hostLabel} → ${cnameTarget}. Remove any A record for this host.`;
+    }
+  }
+  if (kind === "root" && /cname/i.test(message) && !/@/.test(message)) {
+    const aTarget = sanitizeARecordTarget(_aRecordTarget);
+    return `Root domains use A record only: Host @ → ${aTarget}.`;
+  }
+  return message;
+}
+
+export function parseOwnershipTxtRecord(
+  ownership: Record<string, unknown> | null | undefined
+): DnsRecordInstruction | null {
+  if (!ownership) return null;
+  const type = String(ownership.type || "txt").toLowerCase();
+  if (type !== "txt") return null;
+  const name = String(ownership.name || ownership.host || "").trim();
+  const value = String(ownership.value || "").trim();
+  if (!name || !value) return null;
+  return {
+    id: "ownership-txt",
+    type: "TXT",
+    hostLabel: name,
+    hostDisplay: name,
+    value
+  };
 }

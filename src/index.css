@@ -6748,9 +6748,9 @@ body.acn-editor-open header.acn-glass-header {
 .acn-domains-lovable__dns-mini-head,
 .acn-domains-lovable__dns-mini-row {
   display: grid;
-  grid-template-columns: 3.5rem 4.5rem 1fr;
-  gap: 0.5rem;
-  align-items: center;
+  grid-template-columns: 3.5rem minmax(0, 1fr) minmax(0, 1.25fr);
+  gap: 0.65rem;
+  align-items: stretch;
   font-size: 0.75rem;
 }
 
@@ -6851,8 +6851,10 @@ body.acn-editor-open header.acn-glass-header {
 
 .acn-domain-wizard {
   width: min(100%, 32rem);
-  max-height: min(90vh, 44rem);
-  overflow-y: auto;
+  max-height: min(92vh, 42rem);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   border-radius: 1.25rem;
   background: #fff;
   box-shadow: 0 24px 64px rgba(15, 23, 42, 0.18);
@@ -6864,6 +6866,7 @@ body.acn-editor-open header.acn-glass-header {
   grid-template-columns: 2.5rem 1fr 2.5rem;
   align-items: center;
   padding: 1rem 1rem 0.5rem;
+  flex-shrink: 0;
 }
 
 .acn-domain-wizard__back,
@@ -6906,7 +6909,10 @@ body.acn-editor-open header.acn-glass-header {
 }
 
 .acn-domain-wizard__body {
-  padding: 0.5rem 1.5rem 1.5rem;
+  padding: 0.35rem 1.25rem 1.25rem;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
 }
 
 .acn-domain-wizard__body--center {
@@ -6917,19 +6923,19 @@ body.acn-editor-open header.acn-glass-header {
 
 .acn-domain-wizard__hero {
   text-align: center;
-  margin-bottom: 1.25rem;
+  margin-bottom: 0.75rem;
 }
 
 .acn-domain-wizard__hero-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 3.5rem;
-  height: 3.5rem;
+  width: 3rem;
+  height: 3rem;
   border-radius: 999px;
   background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(236, 72, 153, 0.1));
   color: #4f46e5;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
 }
 
 .acn-domain-wizard__title {
@@ -6939,10 +6945,10 @@ body.acn-editor-open header.acn-glass-header {
 }
 
 .acn-domain-wizard__lead {
-  margin-top: 0.5rem;
-  font-size: 0.875rem;
+  margin-top: 0.35rem;
+  font-size: 0.8125rem;
   color: #64748b;
-  line-height: 1.5;
+  line-height: 1.45;
 }
 
 .acn-domain-wizard__label {
@@ -7183,9 +7189,9 @@ body.acn-editor-open header.acn-glass-header {
 .acn-domain-wizard__dns-head,
 .acn-domain-wizard__dns-row {
   display: grid;
-  grid-template-columns: 3.5rem 1fr 1.2fr;
-  gap: 0.5rem;
-  align-items: center;
+  grid-template-columns: 3.5rem minmax(0, 1fr) minmax(0, 1.25fr);
+  gap: 0.65rem;
+  align-items: stretch;
   padding: 0.65rem 0.75rem;
 }
 
@@ -7200,6 +7206,51 @@ body.acn-editor-open header.acn-glass-header {
 
 .acn-domain-wizard__dns-row + .acn-domain-wizard__dns-row {
   border-top: 1px solid rgba(226, 232, 240, 0.85);
+}
+
+.acn-dns-copy-field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.acn-dns-copy-field__value {
+  display: block;
+  padding: 0.45rem 0.55rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: #fff;
+  color: #0f172a;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  line-height: 1.35;
+  word-break: break-all;
+}
+
+.acn-dns-copy-field__btn {
+  align-self: flex-start;
+  padding: 0.25rem 0.55rem;
+  border-radius: 0.45rem;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.acn-dns-copy-field__btn:hover {
+  background: #e0e7ff;
+}
+
+.acn-dns-copy-field__btn.is-copied {
+  border-color: rgba(16, 185, 129, 0.45);
+  background: #ecfdf5;
+  color: #047857;
 }
 
 .acn-domain-wizard__copy {

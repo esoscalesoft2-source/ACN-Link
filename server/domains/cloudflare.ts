@@ -40,6 +40,22 @@ export function isCloudflareForSaasConfigured() {
   return Boolean(token && zoneId);
 }
 
+/**
+ * When true, Connect/Test Connection registers hostnames on mindflo.today
+ * (Cloudflare for SaaS). That sends Host: customer-domain to Railway.
+ *
+ * Railway free plans only accept acnlink.mindflo.today → "train not arrived" 404
+ * unless each hostname is also added on Railway (plan limit).
+ *
+ * Default OFF: rely on customer-zone Worker (Host rewrite) + live /api/health.
+ * Set CLOUDFLARE_REGISTER_CUSTOM_HOSTNAMES=true only if origin accepts any Host.
+ */
+export function shouldRegisterCloudflareCustomHostnames() {
+  if (!isCloudflareForSaasConfigured()) return false;
+  const flag = (process.env.CLOUDFLARE_REGISTER_CUSTOM_HOSTNAMES || "").trim().toLowerCase();
+  return flag === "1" || flag === "true" || flag === "yes" || flag === "on";
+}
+
 function normalizeResult(item: CloudflareCustomHostname): ProviderHostname {
   return {
     id: item.id,

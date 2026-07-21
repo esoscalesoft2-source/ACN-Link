@@ -21,16 +21,12 @@ function providerPatch(provider: ProviderHostname) {
 async function resolveStatus(
   record: CustomDomainRecord,
   dnsVerified: boolean,
-  provider?: ProviderHostname
+  _provider?: ProviderHostname
 ): Promise<DomainStatus> {
   if (!dnsVerified) return "Pending DNS";
-  if (provider) {
-    if (provider.status === "active" && provider.sslStatus === "active") return "Verified";
-    if (await domainServesAcnBio(record.domainName)) return "Verified";
-    return "Provisioning SSL";
-  }
+  // Verified only when the hostname actually serves ACN (not merely Cloudflare SaaS "active").
   if (await domainServesAcnBio(record.domainName)) return "Verified";
-  return record.status === "Verified" ? "Verified" : "DNS Verified";
+  return "DNS Verified";
 }
 
 async function refreshDomain(record: CustomDomainRecord): Promise<boolean> {

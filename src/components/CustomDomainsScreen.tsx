@@ -89,17 +89,15 @@ function ConnectionTestResult({ test }: { test: DomainConnectionTest }) {
         <li className={test.servesAcn ? "is-ok" : test.dnsVerified ? "is-warn" : "is-bad"}>
           ACN Link {test.servesAcn ? "reachable" : "not reachable yet"}
         </li>
-        {!test.sslAutomatic && test.dnsVerified && !test.servesAcn && (
+        {test.dnsVerified && !test.servesAcn && (
           <li className="is-warn">
-            Server SSL auto-setup is off — set{" "}
-            <code className="rounded bg-amber-100 px-1 text-[11px]">CLOUDFLARE_ZONE_ID</code> and{" "}
-            <code className="rounded bg-amber-100 px-1 text-[11px]">CLOUDFLARE_API_TOKEN</code> on{" "}
-            <strong>Railway</strong> (where <code className="rounded bg-amber-100 px-1 text-[11px]">acnlink.mindflo.today</code>{" "}
-            runs), redeploy, then Test Connection again.
+            Routing not ready — on this domain&apos;s Cloudflare zone set Worker route{" "}
+            <code className="rounded bg-amber-100 px-1 text-[11px]">*.yourdomain.com/*</code> →{" "}
+            <code className="rounded bg-amber-100 px-1 text-[11px]">acnlink-custom-domain-proxy</code>, keep CNAME{" "}
+            <strong>Proxied</strong>, and do not add this hostname under{" "}
+            <code className="rounded bg-amber-100 px-1 text-[11px]">mindflo.today</code> Custom Hostnames. Then Test
+            Connection again.
           </li>
-        )}
-        {test.sslAutomatic && test.dnsVerified && !test.servesAcn && (
-          <li className="is-warn">SSL certificate is still provisioning — wait a few minutes and Test Connection again.</li>
         )}
       </ul>
       {test.nextStep && <p className="acn-domains-lovable__test-result-next">{test.nextStep}</p>}

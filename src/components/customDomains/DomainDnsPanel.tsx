@@ -8,6 +8,7 @@ interface DomainDnsPanelProps {
   records: CustomDomainDnsRecordTemplate[];
   aRecordTarget: string;
   cnameTarget?: string;
+  /** @deprecated Ownership TXT is not shown — users only add A (root) or CNAME (subdomain). */
   ownershipVerification?: Record<string, unknown> | null;
 }
 
@@ -15,34 +16,17 @@ export default function DomainDnsPanel({
   domainName,
   records,
   aRecordTarget,
-  cnameTarget,
-  ownershipVerification
+  cnameTarget
 }: DomainDnsPanelProps) {
   const [copiedIds, setCopiedIds] = useState<Set<string>>(new Set());
   const kind = getCustomDomainKind(domainName);
 
-  const ownershipRecord =
-    ownershipVerification &&
-    (() => {
-      const type = String(ownershipVerification.type || "txt").toLowerCase();
-      if (type !== "txt") return null;
-      const name = String(ownershipVerification.name || ownershipVerification.host || "").trim();
-      const value = String(ownershipVerification.value || "").trim();
-      if (!name || !value) return null;
-      return {
-        id: "ownership-txt",
-        type: "TXT" as const,
-        hostLabel: name,
-        hostDisplay: name,
-        value
-      };
-    })();
-
   const displayRecords = useMemo(() => {
-    const fromProps =
-      records.length > 0 ? records : buildDnsRecordSet(domainName, aRecordTarget, { cnameTarget }).records;
-    return ownershipRecord ? [...fromProps, ownershipRecord] : fromProps;
-  }, [records, domainName, aRecordTarget, cnameTarget, ownershipRecord]);
+    if (records.length > 0) {
+      return records.filter((record) => record.type === "A" || record.type === "CNAME");
+    }
+    return buildDnsRecordSet(domainName, aRecordTarget, { cnameTarget }).records;
+  }, [records, domainName, aRecordTarget, cnameTarget]);
 
   const copyValue = async (copyId: string, value: string) => {
     try {
@@ -73,11 +57,6 @@ export default function DomainDnsPanel({
         onCopy={(copyId, value) => void copyValue(copyId, value)}
         compact
       />
-      {ownershipRecord && (
-        <p className="mt-2 text-xs text-amber-800">
-          Cloudflare ownership TXT — add this if SSL stays on &quot;Provisioning&quot; after your records are correct.
-        </p>
-      )}
     </div>
   );
 }

@@ -30,6 +30,9 @@ Value: <hosting provider hostname>   (ACN: acnlink.mindflo.today)
 
 Do **not** show or accept A records for subdomains.
 
+Do **not** show Cloudflare ownership TXT (or any TXT) in Connect Domain / Show DNS.
+Users only add A (root) or CNAME (subdomain). SSL ownership is handled by the platform.
+
 ---
 
 ## Implementation map

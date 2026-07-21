@@ -8,6 +8,7 @@ import {
   isCloudflareForSaasConfigured,
   registerCustomHostname,
   registerRootDomainHostnames,
+  shouldRegisterCloudflareCustomHostnames,
   type ProviderHostname
 } from "./cloudflare";
 import { provisionCloudflareDnsRecords } from "./cloudflareDns";
@@ -240,8 +241,27 @@ function providerPatch(provider: ProviderHostname) {
 async function resolveCloudflareProviderState(record: CustomDomainRecord): Promise<{
   provider?: ProviderHostname;
   providerError?: string;
+  /** SaaS hostname removed because registration mode is off (Worker / live-check path). */
+  clearedSaasHostname?: boolean;
 }> {
   if (!isCloudflareForSaasConfigured()) return {};
+
+  // Worker + Railway path: never create SaaS hostnames; remove leftovers that break Host routing.
+  if (!shouldRegisterCloudflareCustomHostnames()) {
+    if (record.providerHostnameId || record.provider === "cloudflare") {
+      try {
+        await deleteCustomHostnamesForDomain(record.domainName, record.providerHostnameId);
+      } catch (error) {
+        console.warn(
+          `[domains] Could not clear SaaS hostname for ${record.domainName}:`,
+          errorMessage(error)
+        );
+      }
+      return { clearedSaasHostname: true };
+    }
+    return {};
+  }
+
   try {
     if (record.providerHostnameId) {
       return { provider: await getCustomHostname(record.providerHostnameId) };
@@ -252,14 +272,20 @@ async function resolveCloudflareProviderState(record: CustomDomainRecord): Promi
   }
 }
 
-function connectionReachable(
-  domainName: string,
-  servesAcn: boolean,
-  provider?: ProviderHostname
-): boolean {
-  if (servesAcn) return true;
-  if (provider?.status === "active" && provider.sslStatus === "active") return true;
-  return false;
+function clearSaasProviderPatch() {
+  return {
+    provider: "manual" as const,
+    provider_hostname_id: null,
+    provider_status: "worker_edge",
+    ssl_status: "edge",
+    ownership_verification: null,
+    error_message: null
+  };
+}
+
+/** Live only when the hostname actually serves ACN (/api/health). SaaS "active" alone is not enough on Railway. */
+function connectionReachable(_domainName: string, servesAcn: boolean, _provider?: ProviderHostname): boolean {
+  return servesAcn;
 }
 
 async function resolveFinalStatus(
@@ -268,12 +294,10 @@ async function resolveFinalStatus(
   provider?: ProviderHostname
 ): Promise<DomainStatus> {
   if (!dnsVerified) return "Pending DNS";
-  if (provider) {
-    if (provider.status === "active" && provider.sslStatus === "active") return "Verified";
-    if (await domainServesAcnBio(domainName)) return "Verified";
+  if (await domainServesAcnBio(domainName)) return "Verified";
+  if (provider && shouldRegisterCloudflareCustomHostnames()) {
     return "Provisioning SSL";
   }
-  if (await domainServesAcnBio(domainName)) return "Verified";
   return "DNS Verified";
 }
 
@@ -292,7 +316,8 @@ async function runConnectionTest(
   provider?: ProviderHostname
 ): Promise<DomainConnectionTest & { checkedAt: string }> {
   const dns = await verifyDomainDns(domainName);
-  const sslAutomatic = isCloudflareForSaasConfigured();
+  const registerSaas = shouldRegisterCloudflareCustomHostnames();
+  const sslAutomatic = true;
   const kind = getCustomDomainKind(domainName);
   const checkedAt = dns.checkedAt;
 
@@ -300,13 +325,9 @@ async function runConnectionTest(
   if (!dnsVerified) {
     dnsVerified = await verifyHostnameReachability(domainName);
   }
-  if (!dnsVerified && provider?.status === "active") {
-    dnsVerified = true;
-  }
 
-  let servesAcn = await domainServesAcnBio(domainName);
+  const servesAcn = await domainServesAcnBio(domainName);
   const live = connectionReachable(domainName, servesAcn, provider);
-  if (!servesAcn && live) servesAcn = true;
 
   const dnsMessage = dnsVerified
     ? kind === "subdomain"
@@ -335,17 +356,15 @@ async function runConnectionTest(
       servesAcn: false,
       sslAutomatic,
       connectionState: "connecting",
-      summary: "DNS is correct. ACN Link is still registering SSL and routing for this address.",
+      summary: registerSaas
+        ? "DNS is correct. SSL/routing is still finishing for this address."
+        : "DNS is correct, but this hostname is not reaching ACN Link yet (check Cloudflare Worker route + Proxied CNAME).",
       nextStep:
         kind === "subdomain"
-          ? sslAutomatic
-            ? provider?.sslStatus === "active"
-              ? "SSL is active but routing is still updating — wait 2–5 minutes and Test Connection again."
-              : "DNS is correct at Cloudflare. Click Test Connection — ACN Link registers SSL and routing (usually 2–5 minutes)."
-            : "DNS CNAME is correct. Ensure CLOUDFLARE_* is configured on the server, then Test Connection again."
-          : sslAutomatic
-            ? "SSL is still provisioning. Wait a few minutes, then Test Connection again."
-            : "Root domain needs A record @ → platform IP. Open Show DNS, then Test Connection again."
+          ? registerSaas
+            ? "Wait 2–5 minutes for SSL, then Test Connection again."
+            : `Confirm CNAME ${getSubdomainHostLabel(domainName)} → ${resolveCnameTarget()} is Proxied, Worker route *.yourdomain.com/* is active, and mindflo.today Custom Hostnames does not list this hostname.`
+          : "Root domain needs A record @ → platform IP. Open Show DNS, then Test Connection again."
     };
   }
 
@@ -369,17 +388,21 @@ export function createDomainsRouter() {
 
   router.get("/config", (_req, res: Response) => {
     const saasConfigured = isCloudflareForSaasConfigured();
+    const registerSaasHostnames = shouldRegisterCloudflareCustomHostnames();
     const aRecordTarget = sanitizeARecordTarget(resolveCustomDomainATarget());
     const platformUrl = resolvePlatformHostname();
     const cnameTarget = resolveCnameTarget();
+    // Edge SSL via customer Cloudflare / Worker is automatic without SaaS hostname registration.
+    const sslAutomatic = true;
     res.json({
-      provider: saasConfigured ? "cloudflare" : "manual",
+      provider: registerSaasHostnames ? "cloudflare" : "manual",
       platformUrl,
       aRecordTarget,
       cnameTarget,
-      selfServeEnabled: saasConfigured,
-      sslAutomatic: saasConfigured,
+      selfServeEnabled: true,
+      sslAutomatic,
       cloudflareEnvConfigured: saasConfigured,
+      registerCloudflareCustomHostnames: registerSaasHostnames,
       autoDnsViaCloudflare: true,
       registrars: [
         { id: "godaddy", name: "GoDaddy", dnsHelpUrl: "https://www.godaddy.com/help/manage-dns-records-680" },
@@ -390,19 +413,12 @@ export function createDomainsRouter() {
         { id: "dynadot", name: "Dynadot", dnsHelpUrl: "https://www.dynadot.com/community/help/question/set-DNS-settings" },
         { id: "namecom", name: "Name.com", dnsHelpUrl: "https://www.name.com/support/articles/205934547-Managing-DNS-records" }
       ],
-      steps: saasConfigured
-        ? [
-            "Enter your domain and choose which bio page should open.",
-            "Connect — ACN registers SSL and can update Cloudflare DNS automatically.",
-            "We verify in the background. No double setup at your provider and ACN.",
-            "Your bio page opens on your address with HTTPS."
-          ]
-        : [
-            "Enter your domain and choose which bio page should open.",
-            "Connect — ACN handles registration on our side automatically.",
-            "For Cloudflare domains, paste an API token once and ACN updates DNS for you.",
-            "We verify in the background until your address is live."
-          ]
+      steps: [
+        "Enter your domain and choose which bio page should open.",
+        "Add the CNAME (subdomain) or A record (root) at your DNS provider.",
+        "We verify DNS and live reachability until your address opens with HTTPS.",
+        "Your bio page opens on your address."
+      ]
     });
   });
 
@@ -468,7 +484,11 @@ export function createDomainsRouter() {
         return;
       }
 
-      const { provider: providerState, providerError } = await resolveCloudflareProviderState(record);
+      const {
+        provider: providerState,
+        providerError,
+        clearedSaasHostname
+      } = await resolveCloudflareProviderState(record);
       const test = await runConnectionTest(record.domainName, providerState);
       const status =
         test.connectionState === "live"
@@ -479,7 +499,11 @@ export function createDomainsRouter() {
         status,
         dns_verified_at: test.dnsVerified ? test.checkedAt : null,
         last_checked_at: test.checkedAt,
-        ...(providerState ? providerPatch(providerState) : {}),
+        ...(clearedSaasHostname
+          ? clearSaasProviderPatch()
+          : providerState
+            ? providerPatch(providerState)
+            : {}),
         error_message: test.connectionState === "offline" ? test.dnsMessage : null
       });
 
@@ -558,7 +582,8 @@ export function createDomainsRouter() {
       return;
     }
 
-    const provider = isCloudflareForSaasConfigured() ? "cloudflare" : "manual";
+    const registerSaas = shouldRegisterCloudflareCustomHostnames();
+    const provider = registerSaas ? "cloudflare" : "manual";
     const kind = getCustomDomainKind(domainName);
     const dnsTarget = resolveCustomDomainATarget();
 
@@ -572,7 +597,7 @@ export function createDomainsRouter() {
         provider
       });
 
-      if (provider === "cloudflare") {
+      if (registerSaas) {
         try {
           const registered =
             kind === "subdomain"
@@ -604,8 +629,17 @@ export function createDomainsRouter() {
         }
       } else {
         record = await updateDomain(record.id, req.authUser!.id, {
-          provider_status: "configuration_required",
+          provider_status: "worker_edge",
+          ssl_status: "edge",
           error_message: null
+        });
+        await appendDomainVerificationLog({
+          domainId: record.id,
+          ownerUserId: req.authUser!.id,
+          event: "cloudflare_register",
+          status: "skipped",
+          message:
+            "Skipped Cloudflare for SaaS hostname registration (CLOUDFLARE_REGISTER_CUSTOM_HOSTNAMES off). Use DNS CNAME + customer-zone Worker."
         });
       }
 
@@ -665,7 +699,11 @@ export function createDomainsRouter() {
       }
 
       const dns = await verifyDomainDns(record.domainName);
-      const { provider: providerState, providerError } = await resolveCloudflareProviderState(record);
+      const {
+        provider: providerState,
+        providerError,
+        clearedSaasHostname
+      } = await resolveCloudflareProviderState(record);
 
       if (providerError && !dns.verified) {
         record = await updateDomain(record.id, req.authUser!.id, {
@@ -705,16 +743,17 @@ export function createDomainsRouter() {
       if (!dnsVerified) {
         dnsVerified = await verifyHostnameReachability(record.domainName);
       }
-      if (!dnsVerified && providerState?.status === "active") {
-        dnsVerified = true;
-      }
 
       const status = await resolveFinalStatus(dnsVerified, record.domainName, providerState);
       record = await updateDomain(record.id, req.authUser!.id, {
         status,
         dns_verified_at: dnsVerified ? dns.checkedAt : null,
         last_checked_at: dns.checkedAt,
-        ...(providerState ? providerPatch(providerState) : {}),
+        ...(clearedSaasHostname
+          ? clearSaasProviderPatch()
+          : providerState
+            ? providerPatch(providerState)
+            : {}),
         error_message: dnsVerified ? null : dns.message
       });
 

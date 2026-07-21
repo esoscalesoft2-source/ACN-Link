@@ -6,8 +6,7 @@ import {
   customDomainValidationError,
   formatDnsVerifyError,
   getCustomDomainKind,
-  getDnsZoneDomain,
-  parseOwnershipTxtRecord
+  getDnsZoneDomain
 } from "../../lib/customDomainDns";
 import { isValidHostname, normaliseHostname } from "../../storage/publishStorage";
 import SearchablePagePicker from "./SearchablePagePicker";
@@ -164,15 +163,8 @@ export default function ConnectDomainWizard({
     inputPreview.providerId === "cloudflare" || analysis?.providerId === "cloudflare";
   const autoDnsEnabled = Boolean(platformConfig?.autoDnsViaCloudflare);
 
-  const ownershipRecord = useMemo(
-    () => parseOwnershipTxtRecord(connectedDomain?.ownershipVerification),
-    [connectedDomain?.ownershipVerification]
-  );
-
-  const dnsRecords = useMemo(() => {
-    if (!dnsSet) return [];
-    return ownershipRecord ? [...dnsSet.records, ownershipRecord] : dnsSet.records;
-  }, [dnsSet, ownershipRecord]);
+  // Users only add A (root) or CNAME (subdomain). Ownership TXT is never shown.
+  const dnsRecords = useMemo(() => (dnsSet ? dnsSet.records : []), [dnsSet]);
 
   const providerBranding = getProviderBranding(
     analysis?.providerId || inputPreview.providerId || "unknown",

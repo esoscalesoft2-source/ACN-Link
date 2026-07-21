@@ -15,6 +15,8 @@ CUSTOM_DOMAIN_CNAME_TARGET=acnlink.mindflo.today
 CLOUDFLARE_ZONE_ID=<mindflo.today zone ID>
 CLOUDFLARE_API_TOKEN=<scoped token>
 CLOUDFLARE_SSL_VALIDATION_METHOD=http
+# Leave OFF on Railway free (1 custom domain). SaaS hostnames send Host: customer-domain → Railway 404.
+# CLOUDFLARE_REGISTER_CUSTOM_HOSTNAMES=true
 ```
 
 | Variable | Purpose |
@@ -22,17 +24,22 @@ CLOUDFLARE_SSL_VALIDATION_METHOD=http
 | `APP_URL` / `API_URL` | ACN Link platform hostname on Railway |
 | `CUSTOM_DOMAIN_A_TARGET` | IP shown for root domain A record (`@`) |
 | `CUSTOM_DOMAIN_CNAME_TARGET` | Hostname shown for subdomain CNAME records (defaults to `APP_URL` host) |
-| `CLOUDFLARE_*` | Cloudflare for SaaS — automatic HTTPS per customer hostname |
+| `CLOUDFLARE_*` | Optional: cleanup / future SaaS; registration is **off by default** |
+| `CLOUDFLARE_REGISTER_CUSTOM_HOSTNAMES` | Set `true` only if origin accepts any Host (not Railway free) |
 
-## One-time Cloudflare for SaaS setup
+## Recommended path (Railway free + Cloudflare Worker)
 
-1. Cloudflare → **mindflo.today** zone → **SSL/TLS** → **Custom Hostnames**.
-2. Enable Cloudflare for SaaS if prompted.
-3. Set **Fallback Origin** to `acnlink.mindflo.today` (your Railway custom domain).
-4. Create API token with Custom Hostnames + SSL edit on `mindflo.today`.
-5. Run `supabase/custom-domains-migration.sql` in Supabase SQL Editor.
+1. Customer DNS: `CNAME subdomain → acnlink.mindflo.today` (Proxied).
+2. On the **customer Cloudflare zone**: Worker `acnlink-custom-domain-proxy` with route `*.customer.com/*` (rewrites `Host` to `acnlink.mindflo.today`).
+3. Do **not** add those hostnames under `mindflo.today` → Custom Hostnames (SaaS).
+4. ACN verifies with DNS + live `/api/health` only (`Verified` = actually reachable).
 
-See earlier sections in git history for detailed Cloudflare token steps, or copy Zone ID / token from Cloudflare dashboard.
+## Optional Cloudflare for SaaS (not for Railway free)
+
+1. Cloudflare → **mindflo.today** → **SSL/TLS** → **Custom Hostnames**.
+2. Enable Cloudflare for SaaS; Fallback Origin = `acnlink.mindflo.today`.
+3. Set `CLOUDFLARE_REGISTER_CUSTOM_HOSTNAMES=true` on Railway **only** if Railway/origin accepts customer Host headers (or you rewrite Host at the edge).
+4. Run `supabase/custom-domains-migration.sql` in Supabase SQL Editor.
 
 ## Wildcard DNS (Phase 3 — one-time in Cloudflare)
 

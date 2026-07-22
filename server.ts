@@ -17,6 +17,8 @@ import { isCloudflareForSaasConfigured } from "./server/domains/cloudflare";
 import { resolveCnameTarget, resolveCustomDomainATarget } from "./server/domains/hostname";
 import { clientIp, consumeRateLimit } from "./server/domains/rateLimit";
 import { startSslPollingLoop } from "./server/domains/sslPoller";
+import { ensurePlatformOriginHostRewrite } from "./server/domains/originHostRewrite";
+import { shouldRegisterCloudflareCustomHostnames } from "./server/domains/saasConfig";
 import { createPlatformSubdomainsRouter } from "./server/platformSubdomains/routes";
 import { findPlatformSubdomainBySlug } from "./server/platformSubdomains/repository";
 import {
@@ -683,6 +685,10 @@ async function startServer() {
   try {
     await initRootStore();
     console.log("Data store ready:", getDataStoreStatus());
+    if (shouldRegisterCloudflareCustomHostnames()) {
+      const origin = await ensurePlatformOriginHostRewrite();
+      console.log(`[custom-domains] ${origin.message}`);
+    }
     startSslPollingLoop();
   } catch (error) {
     console.error("Data store init failed (continuing with file fallback):", error);

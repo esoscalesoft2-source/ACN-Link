@@ -1,5 +1,12 @@
-import { getCustomHostname, isCloudflareForSaasConfigured, type ProviderHostname } from "./cloudflare";
-import { domainServesAcnBio, verifyDomainDns } from "./dns";
+import {
+  getCustomHostname,
+  isCloudflareForSaasConfigured,
+  registerCustomHostname,
+  shouldRegisterCloudflareCustomHostnames,
+  type ProviderHostname
+} from "./cloudflare";
+import { resolveDomainLifecycleStatus } from "./domainLifecycle";
+import { verifyDomainDns } from "./dns";
 import {
   appendDomainVerificationLog,
   listDomainsForSslPolling,
@@ -10,6 +17,8 @@ import {
 
 function providerPatch(provider: ProviderHostname) {
   return {
+    provider: "cloudflare" as const,
+    provider_hostname_id: provider.id,
     provider_status: provider.status,
     ssl_status: provider.sslStatus,
     ownership_verification:
@@ -21,12 +30,14 @@ function providerPatch(provider: ProviderHostname) {
 async function resolveStatus(
   record: CustomDomainRecord,
   dnsVerified: boolean,
-  _provider?: ProviderHostname
+  provider?: ProviderHostname
 ): Promise<DomainStatus> {
-  if (!dnsVerified) return "Pending DNS";
-  // Verified only when the hostname actually serves ACN (not merely Cloudflare SaaS "active").
-  if (await domainServesAcnBio(record.domainName)) return "Verified";
-  return "DNS Verified";
+  return resolveDomainLifecycleStatus({
+    dnsVerified,
+    domainName: record.domainName,
+    provider,
+    previousStatus: record.status
+  });
 }
 
 async function refreshDomain(record: CustomDomainRecord): Promise<boolean> {
@@ -34,9 +45,13 @@ async function refreshDomain(record: CustomDomainRecord): Promise<boolean> {
   let dnsVerified = dns.verified || Boolean(record.dnsVerifiedAt);
 
   let providerState: ProviderHostname | undefined;
-  if (isCloudflareForSaasConfigured() && record.providerHostnameId) {
+  if (shouldRegisterCloudflareCustomHostnames() && isCloudflareForSaasConfigured()) {
     try {
-      providerState = await getCustomHostname(record.providerHostnameId);
+      if (record.providerHostnameId) {
+        providerState = await getCustomHostname(record.providerHostnameId);
+      } else if (dnsVerified) {
+        providerState = await registerCustomHostname(record.domainName);
+      }
     } catch (error) {
       console.warn(`[ssl-poller] Cloudflare status failed for ${record.domainName}:`, error);
     }

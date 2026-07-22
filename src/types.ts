@@ -184,6 +184,8 @@ export interface CustomDomainPlatformConfig {
   selfServeEnabled: boolean;
   sslAutomatic: boolean;
   cloudflareEnvConfigured?: boolean;
+  registerCloudflareCustomHostnames?: boolean;
+  customHostnameEnabled?: boolean;
   autoDnsViaCloudflare?: boolean;
   steps: string[];
   registrars: { id: string; name: string; dnsHelpUrl: string }[];

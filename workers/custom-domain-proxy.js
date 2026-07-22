@@ -10,8 +10,11 @@
  * Forwards traffic to the ACN Link platform host and preserves the customer
  * hostname so ACN can resolve the correct bio page.
  *
- * Prefer CNAME → acnlink.mindflo.today (Cloudflare for SaaS) when possible.
- * Use this Worker only when you must keep A records at the customer zone.
+ * LEGACY / optional: production SaaS path uses Cloudflare for SaaS + a one-time
+ * Origin Rule on mindflo.today (Host rewrite). Do NOT add per-customer Worker
+ * routes for normal ACN Link customers.
+ *
+ * Keep this Worker only for special zones that cannot use Cloudflare for SaaS.
  */
 const PLATFORM_HOST = "acnlink.mindflo.today";
 

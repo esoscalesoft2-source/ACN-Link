@@ -91,12 +91,9 @@ function ConnectionTestResult({ test }: { test: DomainConnectionTest }) {
         </li>
         {test.dnsVerified && !test.servesAcn && (
           <li className="is-warn">
-            Routing not ready — on this domain&apos;s Cloudflare zone set Worker route{" "}
-            <code className="rounded bg-amber-100 px-1 text-[11px]">*.yourdomain.com/*</code> →{" "}
-            <code className="rounded bg-amber-100 px-1 text-[11px]">acnlink-custom-domain-proxy</code>, keep CNAME{" "}
-            <strong>Proxied</strong>, and do not add this hostname under{" "}
-            <code className="rounded bg-amber-100 px-1 text-[11px]">mindflo.today</code> Custom Hostnames. Then Test
-            Connection again.
+            {test.sslAutomatic
+              ? "Waiting for Cloudflare SSL / routing — usually 2–15 minutes. Click Retry / Test Connection again."
+              : "Hostname not reaching ACN Link yet. Confirm DNS, wait a few minutes, then Retry."}
           </li>
         )}
       </ul>
@@ -517,6 +514,26 @@ export default function CustomDomainsScreen({
                               </span>
                             )}
                         </p>
+                        <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+                          {domain.sslStatus && (
+                            <span>
+                              SSL: <span className="font-medium text-slate-700">{domain.sslStatus}</span>
+                            </span>
+                          )}
+                          {domain.providerStatus && (
+                            <span>
+                              Hostname: <span className="font-medium text-slate-700">{domain.providerStatus}</span>
+                            </span>
+                          )}
+                          {domain.lastCheckedAt && (
+                            <span>
+                              Last checked:{" "}
+                              <span className="font-medium text-slate-700">
+                                {new Date(domain.lastCheckedAt).toLocaleString()}
+                              </span>
+                            </span>
+                          )}
+                        </p>
                         {(domain.setupHint || domain.errorMessage) && (
                           <p
                             className={`mt-1 text-xs ${
@@ -558,7 +575,7 @@ export default function CustomDomainsScreen({
                       <div className="flex shrink-0 items-center gap-1">
                         <button
                           type="button"
-                          title="Test connection"
+                          title="Retry / Test connection"
                           disabled={testingId === domain.id || verifyingId === domain.id}
                           onClick={() => void testConnection(domain)}
                           className="acn-domains-lovable__icon-btn"

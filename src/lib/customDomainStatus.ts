@@ -32,7 +32,17 @@ export function getDomainConnectionLabel(domain: CustomDomain): string {
 
 export function getDomainStatusLabel(domain: CustomDomain): string {
   if (domain.status === "DNS Verified") return "DNS OK";
-  if (domain.status === "Provisioning SSL") return "SSL pending";
+  if (domain.status === "Provisioning SSL") {
+    const ssl = (domain.sslStatus || "").toLowerCase();
+    if (ssl === "active" || ssl === "active_redeploying") return "Waiting SSL";
+    if (ssl.includes("pending") || ssl.includes("initializing") || ssl.includes("validation")) {
+      return "Provisioning";
+    }
+    return "Provisioning";
+  }
+  if (domain.status === "Verified") return "Verified";
+  if (domain.status === "Pending DNS") return "Connecting";
+  if (domain.status === "Error") return "Failed";
   return domain.status;
 }
 

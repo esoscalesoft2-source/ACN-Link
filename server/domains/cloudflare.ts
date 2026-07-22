@@ -40,21 +40,11 @@ export function isCloudflareForSaasConfigured() {
   return Boolean(token && zoneId);
 }
 
-/**
- * When true, Connect/Test Connection registers hostnames on mindflo.today
- * (Cloudflare for SaaS). That sends Host: customer-domain to Railway.
- *
- * Railway free plans only accept acnlink.mindflo.today → "train not arrived" 404
- * unless each hostname is also added on Railway (plan limit).
- *
- * Default OFF: rely on customer-zone Worker (Host rewrite) + live /api/health.
- * Set CLOUDFLARE_REGISTER_CUSTOM_HOSTNAMES=true only if origin accepts any Host.
- */
-export function shouldRegisterCloudflareCustomHostnames() {
-  if (!isCloudflareForSaasConfigured()) return false;
-  const flag = (process.env.CLOUDFLARE_REGISTER_CUSTOM_HOSTNAMES || "").trim().toLowerCase();
-  return flag === "1" || flag === "true" || flag === "yes" || flag === "on";
-}
+export { shouldRegisterCloudflareCustomHostnames } from "./saasConfig";
+
+type CloudflareHostnameList = {
+  result?: CloudflareCustomHostname[];
+};
 
 function normalizeResult(item: CloudflareCustomHostname): ProviderHostname {
   return {
@@ -98,21 +88,55 @@ async function cloudflareRequest<T>(path: string, init: RequestInit = {}): Promi
   return body!.result as T;
 }
 
-export async function registerCustomHostname(hostname: string): Promise<ProviderHostname> {
-  const result = await cloudflareRequest<CloudflareCustomHostname>("/custom_hostnames", {
-    method: "POST",
-    body: JSON.stringify({
-      hostname,
-      ssl: {
-        method: process.env.CLOUDFLARE_SSL_VALIDATION_METHOD || "http",
-        type: "dv",
-        settings: {
-          min_tls_version: "1.2"
-        }
+export async function findCustomHostnameByName(hostname: string): Promise<ProviderHostname | null> {
+  const { token, zoneId, apiBase } = config();
+  if (!token || !zoneId) return null;
+  const normalized = hostname.trim().toLowerCase();
+  const response = await fetch(
+    `${apiBase}/zones/${zoneId}/custom_hostnames?hostname=${encodeURIComponent(normalized)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
       }
-    })
-  });
-  return normalizeResult(result);
+    }
+  );
+  const body = (await response.json().catch(() => null)) as CloudflareHostnameList & {
+    success?: boolean;
+  } | null;
+  const match = (body?.result || []).find(
+    (item) => (item.hostname || "").toLowerCase() === normalized
+  );
+  return match ? normalizeResult(match) : null;
+}
+
+export async function registerCustomHostname(hostname: string): Promise<ProviderHostname> {
+  const existing = await findCustomHostnameByName(hostname);
+  if (existing) return existing;
+
+  try {
+    const result = await cloudflareRequest<CloudflareCustomHostname>("/custom_hostnames", {
+      method: "POST",
+      body: JSON.stringify({
+        hostname,
+        ssl: {
+          method: process.env.CLOUDFLARE_SSL_VALIDATION_METHOD || "http",
+          type: "dv",
+          settings: {
+            min_tls_version: "1.2"
+          }
+        }
+      })
+    });
+    return normalizeResult(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/already exists|duplicate|taken/i.test(message)) {
+      const again = await findCustomHostnameByName(hostname);
+      if (again) return again;
+    }
+    throw error;
+  }
 }
 
 export async function getCustomHostname(providerId: string): Promise<ProviderHostname> {
@@ -151,10 +175,6 @@ export async function deleteCustomHostname(providerId: string): Promise<void> {
 
   throw new Error(message);
 }
-
-type CloudflareHostnameList = {
-  result?: CloudflareCustomHostname[];
-};
 
 /** Best-effort cleanup for apex + www when removing a connected domain. */
 export async function deleteCustomHostnamesForDomain(

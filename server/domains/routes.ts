@@ -11,6 +11,7 @@ import {
   shouldRegisterCloudflareCustomHostnames,
   type ProviderHostname
 } from "./cloudflare";
+import { resolveDomainLifecycleStatus } from "./domainLifecycle";
 import { provisionCloudflareDnsRecords } from "./cloudflareDns";
 import {
   detectDnsProvider,
@@ -293,12 +294,7 @@ async function resolveFinalStatus(
   domainName: string,
   provider?: ProviderHostname
 ): Promise<DomainStatus> {
-  if (!dnsVerified) return "Pending DNS";
-  if (await domainServesAcnBio(domainName)) return "Verified";
-  if (provider && shouldRegisterCloudflareCustomHostnames()) {
-    return "Provisioning SSL";
-  }
-  return "DNS Verified";
+  return resolveDomainLifecycleStatus({ dnsVerified, domainName, provider });
 }
 
 export type DomainConnectionTest = {
@@ -357,13 +353,13 @@ async function runConnectionTest(
       sslAutomatic,
       connectionState: "connecting",
       summary: registerSaas
-        ? "DNS is correct. SSL/routing is still finishing for this address."
-        : "DNS is correct, but this hostname is not reaching ACN Link yet (check Cloudflare Worker route + Proxied CNAME).",
+        ? "DNS is correct. Cloudflare is provisioning SSL and routing — usually 2–15 minutes."
+        : "DNS is correct, but this hostname is not reaching ACN Link yet.",
       nextStep:
         kind === "subdomain"
           ? registerSaas
-            ? "Wait 2–5 minutes for SSL, then Test Connection again."
-            : `Confirm CNAME ${getSubdomainHostLabel(domainName)} → ${resolveCnameTarget()} is Proxied, Worker route *.yourdomain.com/* is active, and mindflo.today Custom Hostnames does not list this hostname.`
+            ? "Wait a few minutes, then click Test Connection / Retry. Ensure CNAME is Proxied (or DNS-only is fine for SaaS)."
+            : `Confirm CNAME ${getSubdomainHostLabel(domainName)} → ${resolveCnameTarget()} is set, then Test Connection again.`
           : "Root domain needs A record @ → platform IP. Open Show DNS, then Test Connection again."
     };
   }
@@ -392,8 +388,7 @@ export function createDomainsRouter() {
     const aRecordTarget = sanitizeARecordTarget(resolveCustomDomainATarget());
     const platformUrl = resolvePlatformHostname();
     const cnameTarget = resolveCnameTarget();
-    // Edge SSL via customer Cloudflare / Worker is automatic without SaaS hostname registration.
-    const sslAutomatic = true;
+    const sslAutomatic = registerSaasHostnames || saasConfigured;
     res.json({
       provider: registerSaasHostnames ? "cloudflare" : "manual",
       platformUrl,
@@ -403,6 +398,7 @@ export function createDomainsRouter() {
       sslAutomatic,
       cloudflareEnvConfigured: saasConfigured,
       registerCloudflareCustomHostnames: registerSaasHostnames,
+      customHostnameEnabled: registerSaasHostnames,
       autoDnsViaCloudflare: true,
       registrars: [
         { id: "godaddy", name: "GoDaddy", dnsHelpUrl: "https://www.godaddy.com/help/manage-dns-records-680" },
@@ -413,12 +409,19 @@ export function createDomainsRouter() {
         { id: "dynadot", name: "Dynadot", dnsHelpUrl: "https://www.dynadot.com/community/help/question/set-DNS-settings" },
         { id: "namecom", name: "Name.com", dnsHelpUrl: "https://www.name.com/support/articles/205934547-Managing-DNS-records" }
       ],
-      steps: [
-        "Enter your domain and choose which bio page should open.",
-        "Add the CNAME (subdomain) or A record (root) at your DNS provider.",
-        "We verify DNS and live reachability until your address opens with HTTPS.",
-        "Your bio page opens on your address."
-      ]
+      steps: registerSaasHostnames
+        ? [
+            "Enter your domain and choose which bio page should open.",
+            "Add the CNAME (subdomain) or A record (root) at your DNS provider.",
+            "ACN registers SSL on Cloudflare for SaaS and verifies automatically.",
+            "When status is LIVE, your bio page opens on your address with HTTPS."
+          ]
+        : [
+            "Enter your domain and choose which bio page should open.",
+            "Add the CNAME (subdomain) or A record (root) at your DNS provider.",
+            "We verify DNS and live reachability until your address opens with HTTPS.",
+            "Your bio page opens on your address."
+          ]
     });
   });
 
@@ -639,7 +642,7 @@ export function createDomainsRouter() {
           event: "cloudflare_register",
           status: "skipped",
           message:
-            "Skipped Cloudflare for SaaS hostname registration (CLOUDFLARE_REGISTER_CUSTOM_HOSTNAMES off). Use DNS CNAME + customer-zone Worker."
+            "Skipped Cloudflare for SaaS hostname registration (CLOUDFLARE_CUSTOM_HOSTNAME_ENABLED=false)."
         });
       }
 

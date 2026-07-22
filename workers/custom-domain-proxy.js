@@ -1,39 +1,65 @@
 /**
- * ACN Link — customer Cloudflare Worker for custom domains on Railway.
+ * ACN Link — Cloudflare Worker for Cloudflare for SaaS (FREE plan).
  *
- * Deploy in the customer's Cloudflare zone (e.g. ezysellonline.com).
- * Routes (add all that apply):
- *   yourdomain.com/*
- *   www.yourdomain.com/*
- *   *.yourdomain.com/*          ← subdomains (king.ezysellonline.com, etc.)
+ * Deploy once on the PLATFORM zone: mindflo.today
  *
- * Forwards traffic to the ACN Link platform host and preserves the customer
- * hostname so ACN can resolve the correct bio page.
+ * Required Worker route on zone mindflo.today:
+ *   match ALL hosts and paths  (pattern: star / star)
  *
- * LEGACY / optional: production SaaS path uses Cloudflare for SaaS + a one-time
- * Origin Rule on mindflo.today (Host rewrite). Do NOT add per-customer Worker
- * routes for normal ACN Link customers.
+ * Why that route?
+ * Custom hostnames (tree.ezysellonline.com, …) arrive with Host = customer domain.
+ * A route like only cf-saas-origin.mindflo.today does NOT match them, so traffic
+ * hits Railway with the wrong Host → "train has not arrived" 404.
  *
- * Keep this Worker only for special zones that cannot use Cloudflare for SaaS.
+ * This Worker:
+ * - Platform hosts (*.mindflo.today): pass through to Railway (no Host rewrite loop)
+ * - Customer custom hostnames: rewrite Host → acnlink.mindflo.today + preserve
+ *   acn-customer-host / X-Forwarded-Host for Express routing
+ *
+ * Fallback Origin in Cloudflare for SaaS should remain:
+ *   cf-saas-origin.mindflo.today
  */
 const PLATFORM_HOST = "acnlink.mindflo.today";
+/** CNAME target of acnlink.mindflo.today — avoids Worker loops on a catch-all route */
+const RAILWAY_HOST = "uewsld8v.up.railway.app";
+
+function isPlatformZoneHost(host) {
+  return (
+    host === PLATFORM_HOST ||
+    host === "cf-saas-origin.mindflo.today" ||
+    host === "mindflo.today" ||
+    host === "www.mindflo.today" ||
+    host.endsWith(".mindflo.today")
+  );
+}
 
 export default {
   async fetch(request) {
-    const customerHost = new URL(request.url).hostname.toLowerCase();
+    const url = new URL(request.url);
+    const host = url.hostname.toLowerCase();
+
+    // Own zone hostnames → Railway directly (keep original Host)
+    if (isPlatformZoneHost(host)) {
+      return fetch(request, {
+        cf: { resolveOverride: RAILWAY_HOST }
+      });
+    }
+
+    // Cloudflare for SaaS custom hostname → Railway with platform Host
     const upstreamUrl = new URL(request.url);
     upstreamUrl.protocol = "https:";
     upstreamUrl.hostname = PLATFORM_HOST;
 
     const headers = new Headers(request.headers);
     headers.set("Host", PLATFORM_HOST);
-    headers.set("X-Forwarded-Host", customerHost);
-    headers.set("acn-customer-host", customerHost);
+    headers.set("X-Forwarded-Host", host);
+    headers.set("acn-customer-host", host);
 
     const init = {
       method: request.method,
       headers,
-      redirect: "follow"
+      redirect: "follow",
+      cf: { resolveOverride: RAILWAY_HOST }
     };
 
     if (request.method !== "GET" && request.method !== "HEAD") {

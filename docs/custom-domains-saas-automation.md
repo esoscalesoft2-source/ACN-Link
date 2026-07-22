@@ -69,7 +69,32 @@ Token needs at least:
 
 SSL poller retries every ~2 minutes for pending domains.
 
-## Optional legacy Worker path
+## Free-plan Host rewrite (no Enterprise Origin Rules)
 
-`workers/custom-domain-proxy.js` remains for special zones.  
-With SaaS + Origin Rule enabled, **do not** create per-customer Worker routes.
+Host Header rewrite in Origin Rules is **Enterprise-only**.
+
+Use this instead (one-time):
+
+1. DNS: `cf-saas-origin` → CNAME → `acnlink.mindflo.today` (Proxied)
+2. Fallback Origin = `cf-saas-origin.mindflo.today` (Active)
+3. Worker `acnlink-custom-domain-proxy` with code from `workers/custom-domain-proxy.js`
+4. Worker route on **mindflo.today**:
+
+```text
+*/*
+```
+
+   (Not only `cf-saas-origin…/*` — SaaS requests use the **customer** Host header.)
+
+5. Custom Hostnames auto-register via API when users Connect Domain.
+
+Traffic:
+
+```text
+tree.customer.com
+  → Cloudflare for SaaS (SSL Active)
+  → Worker */* on mindflo.today (Host → acnlink.mindflo.today)
+  → Railway
+  → ACN bio page
+```
+

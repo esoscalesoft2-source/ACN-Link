@@ -123,12 +123,16 @@ async function upsertRecord(
   }
 
   const existing = await listExistingRecords(apiToken, zoneId, zoneDomain, record);
+  // Default DNS-only (gray cloud). Orange-cloud CNAMEs to another CF zone often
+  // break Host/SSL for CF-for-SaaS. Opt in with CLOUDFLARE_CUSTOMER_CNAME_PROXIED=true.
+  const proxied =
+    process.env.CLOUDFLARE_CUSTOMER_CNAME_PROXIED === "true" && record.type === "CNAME";
   const payload = {
     type: record.type,
     name,
     content: record.value,
     ttl: 1,
-    proxied: record.type === "A" || record.type === "CNAME"
+    proxied
   };
 
   if (existing[0]?.id) {

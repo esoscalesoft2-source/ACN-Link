@@ -80,6 +80,11 @@ const BRANDING: Record<string, Omit<ProviderBranding, "id">> = {
     displayName: "IONOS",
     logoUrl: "/dns-providers/ionos.svg",
     accentColor: "#003366"
+  },
+  other: {
+    displayName: "Other",
+    logoUrl: "/dns-providers/default.svg",
+    accentColor: "#64748b"
   }
 };
 

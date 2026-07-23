@@ -15,9 +15,15 @@ export default function CustomDomainSetupGuide({
     <div className="acn-custom-domain-guide">
       <h3 className="acn-custom-domain-guide__title">Connect your first domain</h3>
       <p className="acn-custom-domain-guide__intro">
-        Own a domain from GoDaddy, Namecheap, Cloudflare, Hostinger, or anywhere else? Connect it here so visitors
-        open your bio page on your brand address instead of the default ACN Link URL.
+        Use an address you already own. We&apos;ll ask where your domain is managed, then either connect it
+        for you (Cloudflare) or show simple copy steps. No hosting panel. No server setup.
       </p>
+      <ol className="acn-custom-domain-guide__steps">
+        <li>Enter your domain</li>
+        <li>Choose Cloudflare, GoDaddy, Hostinger, or Other</li>
+        <li>Connect automatically or copy one DNS record</li>
+        <li>We verify until you&apos;re LIVE</li>
+      </ol>
       <button
         type="button"
         onClick={onConnect}
@@ -29,10 +35,10 @@ export default function CustomDomainSetupGuide({
       {!hasPages && (
         <p className="acn-custom-domain-guide__hint">Publish a bio page first, then return here.</p>
       )}
-      {config?.aRecordTarget && (
+      {config?.cnameTarget && (
         <p className="acn-custom-domain-guide__dns mt-3">
-          Root domain: A for <code>@</code> → <code>{config.aRecordTarget}</code>.
-          Subdomain: CNAME → <code>{config.cnameTarget || config.platformUrl || "acnlink.mindflo.today"}</code> only.
+          Tip: most people connect a subdomain like <code>link.yourbrand.com</code> pointing to{" "}
+          <code>{config.cnameTarget}</code>.
         </p>
       )}
     </div>

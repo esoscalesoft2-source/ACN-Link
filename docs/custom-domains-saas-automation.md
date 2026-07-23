@@ -4,14 +4,66 @@
 
 1. Login → create bio page  
 2. Connect Domain → enter `tree.example.com`  
-3. Copy DNS (CNAME only for subdomains)  
-4. Add DNS at registrar  
-5. Click Verify / Test Connection  
-6. Status → **LIVE**
+3. Choose where the domain is managed (Cloudflare, GoDaddy, …)  
+4. **Cloudflare:** click **Connect Cloudflare** → approve in Cloudflare → DNS created automatically (no API token)  
+5. **Other providers:** guided copy steps (manual fallback)  
+6. Progress: Checking DNS → SSL → **LIVE**
+
+### Cloudflare one-click (admin once)
+
+1. Cloudflare Dashboard → **Manage Account → OAuth clients** → Create public client  
+2. Redirect URI: `https://acnlink.mindflo.today/api/domains/providers/cloudflare/oauth/callback`  
+3. Scopes: **Zone DNS Write**, **Zone Read**, offline access  
+4. Railway env:
+
+```text
+CLOUDFLARE_OAUTH_CLIENT_ID=...
+CLOUDFLARE_OAUTH_CLIENT_SECRET=...
+CLOUDFLARE_OAUTH_REDIRECT_URI=https://acnlink.mindflo.today/api/domains/providers/cloudflare/oauth/callback
+```
+
+### Cloudflare DNS must be DNS-only (gray cloud)
+
+Auto-DNS creates CNAMEs with **Proxied = off**. If a customer record is orange-cloud (Proxied), HTTPS can redirect-loop and LIVE checks fail randomly.
+
+In Cloudflare DNS for the subdomain: cloud icon must be **gray** (DNS only), value `acnlink.mindflo.today`.
+
+## Multi-tenant rule (critical)
+
+Customer DNS is written **only** with that customer’s OAuth token (stored encrypted per user in `dns_provider_connections`).
+
+- `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ZONE_ID` → **your** zone only (Cloudflare for SaaS custom hostnames + SSL).
+- Never use the platform token to modify Customer A/B/C zones (default).
+- Legacy same-account testing only: `ALLOW_PLATFORM_CUSTOMER_DNS=true` (not for production SaaS).
+
+### Fix “We couldn't update DNS automatically”
+
+Cause: the customer has not connected **their** Cloudflare account yet, or OAuth scopes/zone missing.
+
+**Option A — Connect Cloudflare (correct for SaaS):**
+
+Customer clicks **Connect Cloudflare** → OAuth → DNS auto-created in **their** account.
+
+**Option A-legacy — same Cloudflare account (NOT multi-tenant):**
+
+1. Cloudflare → My Profile → **API Tokens** → Create Token  
+2. Permissions: **Zone → DNS → Edit**, **Zone → Zone → Read**  
+3. Zone Resources: **Include → All zones** (or add each shop zone)  
+4. Railway / `.env` with `ALLOW_PLATFORM_CUSTOMER_DNS=true`:
+
+```text
+CLOUDFLARE_DNS_API_TOKEN=paste_new_token_here
+```
+
+Redeploy / restart. Connect Cloudflare should auto-add CNAME.
+
+**Option B — other customers’ Cloudflare accounts:** finish OAuth client setup (`CLOUDFLARE_OAUTH_*`) so Connect Cloudflare opens Approve → then DNS is written with their token.
 
 No Worker routes per customer.  
 No Railway custom domains per customer.  
 Railway keeps **only** `acnlink.mindflo.today`.
+
+Run once: `supabase/dns-provider-onboarding-migration.sql` for preferred provider + connection storage.
 
 ## Architecture
 
@@ -97,4 +149,33 @@ tree.customer.com
   → Railway
   → ACN bio page
 ```
+
+## Fix intermittent Chrome 403 (“Access denied”)
+
+Chrome text like **“Access to … was denied / HTTP ERROR 403”** (then works after refresh
+or a few minutes) is almost never ACN app code. ACN Express returns **404/503** for
+domain routing problems, not that Chrome interstitial.
+
+Usual cause: **Cloudflare Bot Fight / WAF** on `mindflo.today` (or on the customer zone
+if their CNAME is Proxied/orange). HTML may load while `/assets/*.js` is blocked → blank
+or broken UI until refresh.
+
+### One-time checks on `mindflo.today`
+
+1. **Security → Bots** → turn **Bot Fight Mode** OFF (or add a skip rule for Custom Hostnames).
+2. **Security → Settings** → **Browser Integrity Check** OFF (or Low impact).
+3. **Security → Settings** → Security Level **Essentially Off** or **Low**.
+4. **Security → Events** → filter status `403` → confirm rule name / Ray ID.
+5. **SSL/TLS → Custom Hostnames** → hostname **Active** + certificate **Active**.
+
+### Customer DNS (e.g. `rog` on ezysellonline.com)
+
+- CNAME → `acnlink.mindflo.today` is correct.
+- If 403 persists only on that brand domain, check **that zone’s** Bot Fight / WAF too
+  (orange-cloud CNAME runs customer-zone security first).
+
+### Deploy Worker after code changes
+
+Cloudflare Dashboard → Workers → `acnlink-custom-domain-proxy` → paste
+`workers/custom-domain-proxy.js` → Save & Deploy. Route must stay `*/*` on `mindflo.today`.
 

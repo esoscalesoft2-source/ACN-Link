@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { screenToPath } from "../navigation";
 import { ScreenId } from "../types";
 import {
@@ -37,7 +37,10 @@ import {
   isCustomDomainPublicReady,
   isDomainDnsLinked
 } from "../lib/customDomainStatus";
-import ConnectDomainWizard from "./customDomains/ConnectDomainWizard";
+import ConnectDomainWizard, {
+  type CloudflareOAuthBootstrap
+} from "./customDomains/ConnectDomainWizard";
+import CloudflareConnectionCard from "./customDomains/CloudflareConnectionCard";
 import CustomDomainSetupGuide from "./customDomains/CustomDomainSetupGuide";
 import DomainDnsPanel from "./customDomains/DomainDnsPanel";
 import RemoveDomainDialog from "./customDomains/RemoveDomainDialog";
@@ -52,7 +55,12 @@ interface CustomDomainsScreenProps {
   onConnectDomain: (
     domainName: string,
     pageId: string,
-    options?: { cloudflareApiToken?: string }
+    options?: {
+      cloudflareApiToken?: string;
+      accessToken?: string;
+      dnsProviderId?: string;
+      rememberProvider?: boolean;
+    }
   ) => Promise<import("../lib/domainApi").DomainConnectResult>;
   onVerifyDomain: (
     id: string,
@@ -61,6 +69,10 @@ interface CustomDomainsScreenProps {
   onReassignDomain: (id: string, pageId: string) => Promise<CustomDomain>;
   onDeleteDomain: (id: string) => Promise<void>;
   onEditPage: (pageId: string, options?: { fromCustomDomain?: boolean }) => void;
+}
+
+function isLiveHistoryDomain(domain: CustomDomain) {
+  return domain.status === "Verified";
 }
 
 function ConnectionIndicator({ domain }: { domain: CustomDomain }) {
@@ -131,9 +143,11 @@ export default function CustomDomainsScreen({
   onEditPage
 }: CustomDomainsScreenProps) {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isPreviewSession = isPreviewToken(getAccessToken());
   const [wizardOpen, setWizardOpen] = useState(false);
   const [resumeDomain, setResumeDomain] = useState<CustomDomain | null>(null);
+  const [oauthBootstrap, setOauthBootstrap] = useState<CloudflareOAuthBootstrap | null>(null);
   const [removeTarget, setRemoveTarget] = useState<CustomDomain | null>(null);
   const [verifyingId, setVerifyingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -167,13 +181,18 @@ export default function CustomDomainsScreen({
     return () => document.body.classList.remove("acn-connect-domain-modal-open");
   }, [wizardOpen]);
 
+  const historyDomains = useMemo(
+    () => domains.filter(isLiveHistoryDomain),
+    [domains]
+  );
+
   const linkedDomainsByPageId = useMemo(() => {
     const map = new Map<string, CustomDomain>();
-    for (const domain of domains) {
+    for (const domain of historyDomains) {
       if (domain.pageId) map.set(domain.pageId, domain);
     }
     return map;
-  }, [domains]);
+  }, [historyDomains]);
 
   const platformUrl = platformConfig?.platformUrl || "acnlink.mindflo.today";
 
@@ -182,18 +201,35 @@ export default function CustomDomainsScreen({
     window.setTimeout(() => setToast(null), 4000);
   };
 
-  const domainStats = useMemo(() => {
-    let live = 0;
-    let connecting = 0;
-    let offline = 0;
-    for (const domain of domains) {
-      const state = getDomainConnectionState(domain);
-      if (state === "live") live += 1;
-      else if (state === "connecting") connecting += 1;
-      else offline += 1;
+  useEffect(() => {
+    const cfOauth = searchParams.get("cf_oauth");
+    if (cfOauth === null) return;
+    const domainName = (searchParams.get("domain") || "").trim();
+    const pageId = (searchParams.get("pageId") || "").trim();
+    const error = (searchParams.get("cf_oauth_error") || "").trim();
+    if (domainName && pageId) {
+      setOauthBootstrap({
+        domainName,
+        pageId,
+        connected: cfOauth === "1",
+        error: error || undefined
+      });
+      setResumeDomain(null);
+      setWizardOpen(true);
+      if (cfOauth === "1") {
+        triggerToast("Cloudflare connected — finishing DNS setup…", "ok");
+      } else if (error) {
+        triggerToast(error, "error");
+      }
     }
-    return { total: domains.length, live, connecting, offline };
-  }, [domains]);
+    const next = new URLSearchParams(searchParams);
+    next.delete("cf_oauth");
+    next.delete("cf_oauth_error");
+    next.delete("domain");
+    next.delete("pageId");
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const toggleDnsPanel = (domainId: string) => {
     setExpandedDnsIds((current) => {
@@ -389,13 +425,19 @@ export default function CustomDomainsScreen({
         <div className="acn-banner-error mb-4">
           <AlertCircle className="h-4 w-4 shrink-0" />
           <span>
-            <strong>SSL auto-setup is off on this server.</strong> Customer domains cannot go Live until you add{" "}
-            <code className="rounded bg-rose-100 px-1 text-xs">CLOUDFLARE_ZONE_ID</code> and{" "}
-            <code className="rounded bg-rose-100 px-1 text-xs">CLOUDFLARE_API_TOKEN</code> on{" "}
-            <strong>Railway</strong> (project hosting <strong>acnlink.mindflo.today</strong>), redeploy, then click{" "}
-            <strong>Test Connection</strong> on each domain. Your Cloudflare CNAME at ezysellonline.com is already
-            correct — this step is on the ACN Link server only.
+            <strong>SSL auto-setup is temporarily unavailable.</strong> Please try again later, or contact ACN Link
+            support. You do not need to change anything in a hosting panel — only your domain DNS (CNAME/A) and{" "}
+            <strong>Test Connection</strong> in ACN Link.
           </span>
+        </div>
+      )}
+
+      {!isPreviewSession && (
+        <div className="mb-4">
+          <CloudflareConnectionCard
+            sampleDomain={domains[0]?.domainName}
+            samplePageId={pages[0]?.id}
+          />
         </div>
       )}
 
@@ -424,13 +466,12 @@ export default function CustomDomainsScreen({
             <div className="acn-domains-lovable__section">
               <div>
                 <h3 className="acn-domains-lovable__heading">Connected domains</h3>
-                <p className="acn-domains-lovable__desc">View, verify, or remove domains linked to your bio pages.</p>
-                {domains.length > 0 && (
+                <p className="acn-domains-lovable__desc">
+                  Domain, provider, DNS, SSL, and connection status — refresh anytime.
+                </p>
+                {historyDomains.length > 0 && (
                   <p className="acn-domains-lovable__stats">
-                    {domainStats.total} domain{domainStats.total === 1 ? "" : "s"} ·{" "}
-                    <span className="acn-domains-lovable__stats-live">{domainStats.live} live</span> ·{" "}
-                    <span className="acn-domains-lovable__stats-connecting">{domainStats.connecting} connecting</span> ·{" "}
-                    <span className="acn-domains-lovable__stats-offline">{domainStats.offline} offline</span>
+                    {historyDomains.length} live domain{historyDomains.length === 1 ? "" : "s"}
                   </p>
                 )}
               </div>
@@ -440,7 +481,7 @@ export default function CustomDomainsScreen({
               <div className="flex items-center justify-center gap-2 py-8 text-sm text-slate-500">
                 <Loader2 className="h-4 w-4 animate-spin" /> Loading domains…
               </div>
-            ) : domains.length === 0 ? (
+            ) : historyDomains.length === 0 ? (
               <CustomDomainSetupGuide
                 config={platformConfig}
                 hasPages={pages.length > 0}
@@ -448,7 +489,7 @@ export default function CustomDomainsScreen({
               />
             ) : (
               <ul className="acn-domains-lovable__list">
-                {domains.map((domain) => {
+                {historyDomains.map((domain) => {
                   const dnsSet =
                     platformConfig &&
                     buildDnsRecordSet(domain.domainName, platformConfig.aRecordTarget, {
@@ -459,10 +500,32 @@ export default function CustomDomainsScreen({
                   const canOpen = canOpenCustomDomainInBrowser(domain);
                   const dnsLinked = isDomainDnsLinked(domain);
                   const connectionTest = connectionTests[domain.id];
+                  const providerBrand =
+                    domain.dnsProviderId || domain.dnsProviderName
+                      ? getProviderBranding(
+                          domain.dnsProviderId || "other",
+                          domain.dnsProviderName || undefined
+                        )
+                      : null;
                   return (
                     <li key={domain.id} className="acn-domains-lovable__row">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
+                          {providerBrand && (
+                            <span
+                              className="acn-domains-lovable__provider-chip"
+                              title={`DNS at ${providerBrand.displayName}`}
+                            >
+                              <img
+                                src={providerBrand.logoUrl}
+                                alt=""
+                                className="acn-domains-lovable__provider-chip-logo"
+                                width={18}
+                                height={18}
+                              />
+                              <span>{providerBrand.displayName}</span>
+                            </span>
+                          )}
                           {canOpen ? (
                             <button
                               type="button"
@@ -505,35 +568,47 @@ export default function CustomDomainsScreen({
                             · {dnsSet?.records.length || 1} DNS record
                             {(dnsSet?.records.length || 1) === 1 ? "" : "s"} required
                           </span>
-                          {domain.dnsProviderId &&
-                            domain.dnsProviderName &&
-                            domain.dnsProviderId !== "unknown" && (
-                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                                DNS at{" "}
-                                {getProviderBranding(domain.dnsProviderId, domain.dnsProviderName).displayName}
+                        </p>
+                        <div className="acn-domains-lovable__meta-grid">
+                          <div>
+                            <span className="acn-domains-lovable__meta-label">Provider</span>
+                            {providerBrand ? (
+                              <span className="acn-domains-lovable__meta-provider">
+                                <img
+                                  src={providerBrand.logoUrl}
+                                  alt={`${providerBrand.displayName} logo`}
+                                  className="acn-domains-lovable__meta-provider-logo"
+                                  width={72}
+                                  height={22}
+                                />
+                                <span className="acn-domains-lovable__meta-value">
+                                  {providerBrand.displayName}
+                                  {domain.providerConnected ? " · Connected" : ""}
+                                </span>
                               </span>
+                            ) : (
+                              <span className="acn-domains-lovable__meta-value">—</span>
                             )}
-                        </p>
-                        <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
-                          {domain.sslStatus && (
-                            <span>
-                              SSL: <span className="font-medium text-slate-700">{domain.sslStatus}</span>
+                          </div>
+                          <div>
+                            <span className="acn-domains-lovable__meta-label">DNS</span>
+                            <span className="acn-domains-lovable__meta-value">
+                              {domain.dnsVerifiedAt || domain.dnsLastVerified ? "Verified" : "Pending"}
                             </span>
-                          )}
-                          {domain.providerStatus && (
-                            <span>
-                              Hostname: <span className="font-medium text-slate-700">{domain.providerStatus}</span>
+                          </div>
+                          <div>
+                            <span className="acn-domains-lovable__meta-label">SSL</span>
+                            <span className="acn-domains-lovable__meta-value">{domain.sslStatus || "pending"}</span>
+                          </div>
+                          <div>
+                            <span className="acn-domains-lovable__meta-label">Last checked</span>
+                            <span className="acn-domains-lovable__meta-value">
+                              {domain.lastCheckedAt
+                                ? new Date(domain.lastCheckedAt).toLocaleString()
+                                : "—"}
                             </span>
-                          )}
-                          {domain.lastCheckedAt && (
-                            <span>
-                              Last checked:{" "}
-                              <span className="font-medium text-slate-700">
-                                {new Date(domain.lastCheckedAt).toLocaleString()}
-                              </span>
-                            </span>
-                          )}
-                        </p>
+                          </div>
+                        </div>
                         {(domain.setupHint || domain.errorMessage) && (
                           <p
                             className={`mt-1 text-xs ${
@@ -575,7 +650,7 @@ export default function CustomDomainsScreen({
                       <div className="flex shrink-0 items-center gap-1">
                         <button
                           type="button"
-                          title="Retry / Test connection"
+                          title="Refresh / Test connection"
                           disabled={testingId === domain.id || verifyingId === domain.id}
                           onClick={() => void testConnection(domain)}
                           className="acn-domains-lovable__icon-btn"
@@ -586,30 +661,26 @@ export default function CustomDomainsScreen({
                             <PlugZap className="h-4 w-4" />
                           )}
                         </button>
-                        {!canOpen && (
-                          <button
-                            type="button"
-                            title="Continue DNS setup"
-                            onClick={() => {
-                              setResumeDomain(domain);
-                              setWizardOpen(true);
-                            }}
-                            className="acn-domains-lovable__icon-btn"
-                          >
-                            <Globe className="h-4 w-4" />
-                          </button>
-                        )}
-                        {!publicReady && (
-                          <button
-                            type="button"
-                            title="Verify DNS"
-                            disabled={verifyingId === domain.id}
-                            onClick={() => void verifyDomain(domain)}
-                            className="acn-domains-lovable__icon-btn"
-                          >
-                            <RefreshCw className={`h-4 w-4 ${verifyingId === domain.id ? "animate-spin" : ""}`} />
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          title="Reconnect / continue setup"
+                          onClick={() => {
+                            setResumeDomain(domain);
+                            setWizardOpen(true);
+                          }}
+                          className="acn-domains-lovable__icon-btn"
+                        >
+                          <Globe className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          title="Verify again"
+                          disabled={verifyingId === domain.id}
+                          onClick={() => void verifyDomain(domain)}
+                          className="acn-domains-lovable__icon-btn"
+                        >
+                          <RefreshCw className={`h-4 w-4 ${verifyingId === domain.id ? "animate-spin" : ""}`} />
+                        </button>
                         {dnsLinked && (
                           <button
                             type="button"
@@ -695,28 +766,26 @@ export default function CustomDomainsScreen({
             linkedDomainsByPageId={linkedDomainsByPageId}
             platformConfig={platformConfig}
             resumeDomain={resumeDomain}
+            oauthBootstrap={oauthBootstrap}
             onClose={() => {
               setWizardOpen(false);
               setResumeDomain(null);
+              setOauthBootstrap(null);
             }}
             onVerify={onVerifyDomain}
             onConnectDomain={onConnectDomain}
-            onFinished={({ domain, connected, pending }) => {
-              if (pending) {
-                setWizardOpen(false);
-                setResumeDomain(null);
-                return;
-              }
-
+            onDiscardIncomplete={async (domainId) => {
+              await onDeleteDomain(domainId);
+            }}
+            onFinished={({ domain, connected }) => {
               setWizardOpen(false);
               setResumeDomain(null);
+              setOauthBootstrap(null);
               void onReload();
 
               window.setTimeout(() => {
                 if (connected) {
-                  triggerToast(`${domain.domainName} connected successfully.`, "ok");
-                } else {
-                  triggerToast("Connection failed.", "error");
+                  triggerToast(`${domain.domainName} is LIVE.`, "ok");
                 }
               }, 100);
             }}

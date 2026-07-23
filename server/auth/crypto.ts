@@ -128,6 +128,7 @@ export function publicUser(user: AuthUserRecord) {
     status: user.status,
     mfaEnabled: user.mfaEnabled,
     newsletterOptIn: user.newsletterOptIn,
+    preferredDnsProvider: user.preferredDnsProvider || null,
     createdAt: user.createdAt,
     lastLoginAt: user.lastLoginAt
   };
@@ -153,6 +154,8 @@ export interface AuthUserRecord {
   status: UserStatus;
   mfaEnabled: boolean;
   newsletterOptIn: boolean;
+  /** Remembered DNS host for custom-domain onboarding (cloudflare, godaddy, other, …). */
+  preferredDnsProvider?: string | null;
   failedLoginAttempts: number;
   lockedUntil: string | null;
   createdAt: string;

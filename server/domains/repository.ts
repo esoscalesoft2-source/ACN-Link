@@ -23,6 +23,10 @@ export type CustomDomainRecord = {
   ownershipVerification: Record<string, unknown> | null;
   lastCheckedAt: string | null;
   errorMessage: string | null;
+  dnsProviderId: string | null;
+  providerConnected: boolean;
+  providerAccountId: string | null;
+  dnsLastVerified: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -42,6 +46,10 @@ type DomainRow = {
   ownership_verification: Record<string, unknown> | null;
   last_checked_at: string | null;
   error_message: string | null;
+  dns_provider_id?: string | null;
+  provider_connected?: boolean | null;
+  provider_account_id?: string | null;
+  dns_last_verified?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -68,6 +76,10 @@ function mapRow(row: DomainRow): CustomDomainRecord {
     ownershipVerification: row.ownership_verification,
     lastCheckedAt: row.last_checked_at,
     errorMessage: row.error_message,
+    dnsProviderId: row.dns_provider_id ?? null,
+    providerConnected: Boolean(row.provider_connected),
+    providerAccountId: row.provider_account_id ?? null,
+    dnsLastVerified: row.dns_last_verified ?? row.dns_verified_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

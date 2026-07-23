@@ -166,22 +166,82 @@ export type DomainConnectResult = {
   domain: CustomDomain;
   dnsAutoProvisioned?: boolean;
   dnsProvisionMessage?: string | null;
+  dnsProviderId?: string;
+  providerConnected?: boolean;
+  needsOAuth?: boolean;
+  oauthAuthorizeUrl?: string | null;
+  fallbackManual?: boolean;
 };
 
 export async function connectDomain(
   domainName: string,
   pageId: string,
-  options?: { cloudflareApiToken?: string }
+  options?: {
+    cloudflareApiToken?: string;
+    accessToken?: string;
+    dnsProviderId?: string;
+    rememberProvider?: boolean;
+  }
 ): Promise<DomainConnectResult> {
   const result = await domainFetch<DomainConnectResult>("/api/domains", {
     method: "POST",
     body: JSON.stringify({
       domainName,
       pageId,
-      cloudflareApiToken: options?.cloudflareApiToken?.trim() || undefined
+      cloudflareApiToken: options?.cloudflareApiToken?.trim() || options?.accessToken?.trim() || undefined,
+      accessToken: options?.accessToken?.trim() || options?.cloudflareApiToken?.trim() || undefined,
+      dnsProviderId: options?.dnsProviderId || undefined,
+      rememberProvider: options?.rememberProvider
     })
   });
   return result;
+}
+
+export async function fetchDomainPreferences() {
+  return domainFetch<{
+    preferredDnsProvider: string | null;
+    cloudflareOAuthEnabled?: boolean;
+    connections: Array<{
+      id: string;
+      providerId: string;
+      providerAccountId?: string | null;
+      connected: boolean;
+      hasToken: boolean;
+      hasRefreshToken?: boolean;
+      tokenExpiresAt?: string | null;
+      connectedAt?: string | null;
+      updatedAt?: string;
+      providerName?: string;
+    }>;
+    providers: import("../types").DnsProviderCapability[];
+  }>("/api/domains/preferences");
+}
+
+export async function disconnectCloudflareConnection() {
+  return domainFetch<{ success: boolean; connected: boolean; message: string }>(
+    "/api/domains/providers/cloudflare/connection",
+    { method: "DELETE" }
+  );
+}
+
+export async function saveDomainPreferences(preferredDnsProvider: string) {
+  return domainFetch<{ success: boolean; preferredDnsProvider: string }>("/api/domains/preferences", {
+    method: "PUT",
+    body: JSON.stringify({ preferredDnsProvider })
+  });
+}
+
+export type CloudflareBeginResult =
+  | { mode: "ready"; reason: "saved_connection" }
+  | { mode: "oauth"; authorizeUrl: string }
+  | { mode: "manual"; message: string };
+
+/** One-click Cloudflare connect — never asks the customer for an API token. */
+export async function beginCloudflareConnect(domainName: string, pageId: string) {
+  return domainFetch<CloudflareBeginResult>("/api/domains/providers/cloudflare/begin", {
+    method: "POST",
+    body: JSON.stringify({ domainName, pageId })
+  });
 }
 
 export type DomainConnectionTest = {

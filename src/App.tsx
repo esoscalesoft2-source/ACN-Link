@@ -703,10 +703,11 @@ export default function App() {
     setDomainsLoadError(null);
     try {
       const list = await fetchDomains();
-      setDomains(list);
+      // Only LIVE domains belong on the Custom Domains page — hide in-progress setup.
       const verified = list
         .filter((domain) => domain.status === "Verified")
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      setDomains(verified);
       if (verified[0]) {
         const synced = syncPublishPrimaryUrlForVerifiedDomain(verified[0]);
         if (synced) savePublishSettings(synced);
@@ -1241,12 +1242,17 @@ export default function App() {
   const handleConnectDomain = async (
     domainName: string,
     pageId: string,
-    options?: { cloudflareApiToken?: string }
+    options?: {
+      cloudflareApiToken?: string;
+      accessToken?: string;
+      dnsProviderId?: string;
+      rememberProvider?: boolean;
+    }
   ) => {
     const page = pages.find((item) => item.id === pageId);
     await syncLocalPageDocumentToServer(pageId, page?.slug);
     const result = await connectDomain(domainName, pageId, options);
-    setDomains((current) => [result.domain, ...current.filter((domain) => domain.id !== result.domain.id)]);
+    // Do not add to Custom Domains history until status is Verified (LIVE).
     return result;
   };
 
@@ -1257,10 +1263,16 @@ export default function App() {
       await syncLocalPageDocumentToServer(domain.pageId, page?.slug);
     }
     const result = await verifyDomain(id);
-    setDomains((current) =>
-      current.map((domain) => (domain.id === result.domain.id ? result.domain : domain))
-    );
-    applyVerifiedDomainPublishSync(result.domain);
+    if (result.domain.status === "Verified") {
+      setDomains((current) => [
+        result.domain,
+        ...current.filter((item) => item.id !== result.domain.id)
+      ]);
+      applyVerifiedDomainPublishSync(result.domain);
+    } else {
+      // Keep incomplete setups out of the history list.
+      setDomains((current) => current.filter((item) => item.id !== result.domain.id));
+    }
     return result;
   };
 

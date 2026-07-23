@@ -163,9 +163,31 @@ export interface CustomDomain {
   setupHint?: string | null;
   dnsProviderName?: string | null;
   dnsProviderId?: string | null;
+  providerConnected?: boolean;
+  providerAccountId?: string | null;
+  dnsLastVerified?: string | null;
   selfServeEnabled?: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export type DnsProviderId =
+  | "cloudflare"
+  | "godaddy"
+  | "hostinger"
+  | "namecheap"
+  | "porkbun"
+  | "squarespace"
+  | "other";
+
+export interface DnsProviderCapability {
+  id: DnsProviderId;
+  name: string;
+  supportsAutoDns: boolean;
+  supportsOAuth: boolean;
+  logoUrl: string;
+  helpUrl: string;
+  blurb: string;
 }
 
 export interface CustomDomainDnsRecordTemplate {
@@ -187,6 +209,8 @@ export interface CustomDomainPlatformConfig {
   registerCloudflareCustomHostnames?: boolean;
   customHostnameEnabled?: boolean;
   autoDnsViaCloudflare?: boolean;
+  cloudflareOAuthEnabled?: boolean;
+  dnsProviders?: DnsProviderCapability[];
   steps: string[];
   registrars: { id: string; name: string; dnsHelpUrl: string }[];
 }

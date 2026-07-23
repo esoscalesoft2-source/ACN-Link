@@ -18,6 +18,7 @@ export interface AuthUser {
   status: string;
   mfaEnabled?: boolean;
   newsletterOptIn?: boolean;
+  preferredDnsProvider?: string | null;
   createdAt?: string;
   lastLoginAt?: string | null;
 }

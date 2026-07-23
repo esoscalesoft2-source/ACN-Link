@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { BioPage } from "../types";
+import type { BioPage } from "../../types";
 import { checkPlatformSlugAvailability, createPlatformSubdomain } from "../../lib/platformSubdomainApi";
 import {
   buildPlatformSubdomainHostname,

@@ -1,6 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import { randomBytes } from "node:crypto";
 import { requireAuth } from "../auth/routes";
+import { findUserById, readAuthStore, writeAuthStore } from "../auth/store";
+import { publicUser } from "../auth/crypto";
 import { getRootStore } from "../db/rootStore";
 import {
   deleteCustomHostnamesForDomain,
@@ -32,6 +34,27 @@ import {
   resolvePlatformHostname,
   sanitizeARecordTarget
 } from "./hostname";
+import { beginCloudflareAutoSetup } from "./providers/cloudflareAuto";
+import {
+  disconnectDnsProviderConnection,
+  getDnsProviderConnection,
+  listDnsProviderConnections,
+  upsertDnsProviderConnection
+} from "./providers/connections";
+import {
+  createCloudflareOAuthAuthorizeUrl,
+  exchangeCloudflareOAuthCode,
+  isCloudflareOAuthConfigured,
+  oauthReturnAppUrl,
+  takeOAuthStateAsync
+} from "./providers/cloudflareOAuth";
+import { resolveCustomerDnsTokens } from "./cloudflare/CloudflareTokenService";
+import { fetchCloudflareAccountId } from "./cloudflare/CloudflareZoneService";
+import {
+  getDnsProvider,
+  listDnsProviderCapabilities,
+  normalizeDnsProviderId
+} from "./providers/registry";
 import {
   createDomain,
   findDomainById,
@@ -219,8 +242,13 @@ async function publicDomain(record: CustomDomainRecord) {
         ? null
         : sanitizeStoredErrorMessage(record.domainName, record.errorMessage),
     setupHint: hint,
-    dnsProviderName,
-    dnsProviderId,
+    dnsProviderName: record.dnsProviderId
+      ? getDnsProvider(record.dnsProviderId).capability.name
+      : dnsProviderName,
+    dnsProviderId: record.dnsProviderId || dnsProviderId,
+    providerConnected: record.providerConnected,
+    providerAccountId: record.providerAccountId,
+    dnsLastVerified: record.dnsLastVerified || record.dnsVerifiedAt,
     selfServeEnabled: saasConfigured,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt
@@ -400,28 +428,23 @@ export function createDomainsRouter() {
       registerCloudflareCustomHostnames: registerSaasHostnames,
       customHostnameEnabled: registerSaasHostnames,
       autoDnsViaCloudflare: true,
-      registrars: [
-        { id: "godaddy", name: "GoDaddy", dnsHelpUrl: "https://www.godaddy.com/help/manage-dns-records-680" },
-        { id: "namecheap", name: "Namecheap", dnsHelpUrl: "https://www.namecheap.com/support/knowledgebase/article.aspx/319/2237/how-can-i-set-up-an-a-address-record-for-my-domain/" },
-        { id: "cloudflare", name: "Cloudflare", dnsHelpUrl: "https://developers.cloudflare.com/dns/manage-dns-records/how-to/create-dns-records/" },
-        { id: "hostinger", name: "Hostinger", dnsHelpUrl: "https://support.hostinger.com/en/articles/1583249-how-to-manage-dns-records" },
-        { id: "porkbun", name: "Porkbun", dnsHelpUrl: "https://kb.porkbun.com/article/68-how-to-edit-dns-records" },
-        { id: "dynadot", name: "Dynadot", dnsHelpUrl: "https://www.dynadot.com/community/help/question/set-DNS-settings" },
-        { id: "namecom", name: "Name.com", dnsHelpUrl: "https://www.name.com/support/articles/205934547-Managing-DNS-records" }
-      ],
-      steps: registerSaasHostnames
-        ? [
-            "Enter your domain and choose which bio page should open.",
-            "Add the CNAME (subdomain) or A record (root) at your DNS provider.",
-            "ACN registers SSL on Cloudflare for SaaS and verifies automatically.",
-            "When status is LIVE, your bio page opens on your address with HTTPS."
-          ]
-        : [
-            "Enter your domain and choose which bio page should open.",
-            "Add the CNAME (subdomain) or A record (root) at your DNS provider.",
-            "We verify DNS and live reachability until your address opens with HTTPS.",
-            "Your bio page opens on your address."
-          ]
+      cloudflareOAuthEnabled: isCloudflareOAuthConfigured(),
+      dnsProviders: listDnsProviderCapabilities().map((provider) =>
+        provider.id === "cloudflare"
+          ? { ...provider, supportsOAuth: isCloudflareOAuthConfigured() }
+          : provider
+      ),
+      registrars: listDnsProviderCapabilities().map((provider) => ({
+        id: provider.id,
+        name: provider.name,
+        dnsHelpUrl: provider.helpUrl
+      })),
+      steps: [
+        "Enter your domain and choose which bio page should open.",
+        "Tell us where your domain is managed (Cloudflare, GoDaddy, …).",
+        "Connect for automatic DNS, or follow simple copy steps.",
+        "We verify until your address is LIVE with HTTPS."
+      ]
     });
   });
 
@@ -437,6 +460,81 @@ export function createDomainsRouter() {
       res.json({ analysis: { ...analysis, domainName } });
     } catch (error) {
       res.status(500).json({ error: errorMessage(error), code: "DOMAIN_ANALYZE_FAILED" });
+    }
+  });
+
+  /** Cloudflare OAuth callback — public; validated via one-time state (DB + memory). */
+  router.get("/providers/cloudflare/oauth/callback", async (req, res: Response) => {
+    const code = String(req.query.code || "").trim();
+    const state = String(req.query.state || "").trim();
+    const oauthError = String(req.query.error_description || req.query.error || "").trim();
+    const pending = state ? await takeOAuthStateAsync(state) : null;
+
+    if (!pending) {
+      res.redirect(
+        oauthReturnAppUrl({
+          domainName: "",
+          pageId: "",
+          ok: false,
+          error: "Cloudflare connection expired. Please try Connect Cloudflare again."
+        })
+      );
+      return;
+    }
+
+    if (oauthError || !code) {
+      res.redirect(
+        oauthReturnAppUrl({
+          domainName: pending.domainName,
+          pageId: pending.pageId,
+          ok: false,
+          error: oauthError || "Cloudflare authorization was cancelled."
+        })
+      );
+      return;
+    }
+
+    try {
+      const tokens = await exchangeCloudflareOAuthCode({
+        code,
+        codeVerifier: pending.codeVerifier
+      });
+      const accountId = await fetchCloudflareAccountId(tokens.accessToken);
+      await upsertDnsProviderConnection({
+        ownerUserId: pending.userId,
+        providerId: "cloudflare",
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken || null,
+        tokenExpiresAt: tokens.expiresIn
+          ? new Date(Date.now() + tokens.expiresIn * 1000).toISOString()
+          : null,
+        providerAccountId: accountId,
+        connected: true,
+        metadata: { provider_name: "cloudflare", source: "oauth" }
+      });
+      const store = readAuthStore();
+      const user = findUserById(store, pending.userId);
+      if (user) {
+        user.preferredDnsProvider = "cloudflare";
+        user.updatedAt = new Date().toISOString();
+        writeAuthStore(store);
+      }
+      res.redirect(
+        oauthReturnAppUrl({
+          domainName: pending.domainName,
+          pageId: pending.pageId,
+          ok: true
+        })
+      );
+    } catch (error) {
+      res.redirect(
+        oauthReturnAppUrl({
+          domainName: pending.domainName,
+          pageId: pending.pageId,
+          ok: false,
+          error: errorMessage(error)
+        })
+      );
     }
   });
 
@@ -467,6 +565,131 @@ export function createDomainsRouter() {
       res.json({ dns });
     } catch (error) {
       res.status(500).json({ error: errorMessage(error), code: "DOMAIN_DNS_CHECK_FAILED" });
+    }
+  });
+
+  router.get("/preferences", async (req: AuthedRequest, res: Response) => {
+    try {
+      const store = readAuthStore();
+      const user = findUserById(store, req.authUser!.id);
+      const connections = await listDnsProviderConnections(req.authUser!.id);
+      // Never expose encrypted tokens or raw secrets to the browser.
+      const publicConnections = connections.map((c) => ({
+        id: c.id,
+        providerId: c.providerId,
+        providerAccountId: c.providerAccountId,
+        connected: c.connected,
+        hasToken: c.hasToken,
+        hasRefreshToken: c.hasRefreshToken,
+        tokenExpiresAt: c.tokenExpiresAt,
+        connectedAt: c.connectedAt,
+        updatedAt: c.updatedAt,
+        providerName: "cloudflare"
+      }));
+      res.json({
+        preferredDnsProvider: user?.preferredDnsProvider || null,
+        connections: publicConnections,
+        cloudflareOAuthEnabled: isCloudflareOAuthConfigured(),
+        providers: listDnsProviderCapabilities()
+      });
+    } catch (error) {
+      res.status(500).json({ error: errorMessage(error), code: "DOMAIN_PREFS_FAILED" });
+    }
+  });
+
+  /** Disconnect customer's Cloudflare OAuth — does not touch platform SaaS credentials. */
+  router.delete("/providers/cloudflare/connection", async (req: AuthedRequest, res: Response) => {
+    try {
+      const ok = await disconnectDnsProviderConnection(req.authUser!.id, "cloudflare");
+      res.json({
+        success: ok,
+        connected: false,
+        message: ok
+          ? "Cloudflare disconnected. You can reconnect anytime, or use manual DNS."
+          : "No Cloudflare connection found."
+      });
+    } catch (error) {
+      res.status(500).json({ error: errorMessage(error), code: "CF_DISCONNECT_FAILED" });
+    }
+  });
+
+  router.put("/preferences", async (req: AuthedRequest, res: Response) => {
+    try {
+      const preferred = normalizeDnsProviderId(String(req.body?.preferredDnsProvider || ""));
+      const store = readAuthStore();
+      const user = findUserById(store, req.authUser!.id);
+      if (!user) {
+        res.status(404).json({ error: "User not found." });
+        return;
+      }
+      user.preferredDnsProvider = preferred;
+      user.updatedAt = new Date().toISOString();
+      writeAuthStore(store);
+      res.json({ success: true, preferredDnsProvider: preferred, user: publicUser(user) });
+    } catch (error) {
+      res.status(500).json({ error: errorMessage(error), code: "DOMAIN_PREFS_SAVE_FAILED" });
+    }
+  });
+
+  /**
+   * Customer-facing Cloudflare connect — never asks for an API token.
+   * Returns ready | oauth redirect | manual fallback.
+   */
+  router.post("/providers/cloudflare/begin", async (req: AuthedRequest, res: Response) => {
+    try {
+      const domainName = normalizeHostname(req.body?.domainName);
+      const pageId = String(req.body?.pageId || "").trim();
+      const validationError = assertSupportedCustomDomain(domainName);
+      if (validationError) {
+        res.status(400).json({ error: validationError, mode: "manual" });
+        return;
+      }
+      if (!pageId) {
+        res.status(400).json({ error: "Select a page for this domain.", mode: "manual" });
+        return;
+      }
+
+      const result = await beginCloudflareAutoSetup({
+        ownerUserId: req.authUser!.id,
+        domainName,
+        pageId
+      });
+      // Always 200 — client must never block on this probe.
+      res.json(result);
+    } catch (error) {
+      console.warn("[domains] cloudflare begin failed:", errorMessage(error));
+      res.json({
+        mode: "manual",
+        message: "Continue setup — we'll add DNS automatically when possible."
+      });
+    }
+  });
+
+  router.get("/providers/cloudflare/oauth/start", async (req: AuthedRequest, res: Response) => {
+    try {
+      if (!isCloudflareOAuthConfigured()) {
+        res.status(503).json({
+          error: "Cloudflare one-click connect is not configured yet.",
+          code: "OAUTH_NOT_CONFIGURED",
+          mode: "manual"
+        });
+        return;
+      }
+      const domainName = normalizeHostname(req.query.domainName);
+      const pageId = String(req.query.pageId || "").trim();
+      const validationError = assertSupportedCustomDomain(domainName);
+      if (validationError || !pageId) {
+        res.status(400).json({ error: validationError || "Missing page." });
+        return;
+      }
+      const { authorizeUrl } = await createCloudflareOAuthAuthorizeUrl({
+        userId: req.authUser!.id,
+        domainName,
+        pageId
+      });
+      res.json({ authorizeUrl });
+    } catch (error) {
+      res.status(500).json({ error: errorMessage(error), code: "OAUTH_START_FAILED" });
     }
   });
 
@@ -552,7 +775,11 @@ export function createDomainsRouter() {
   router.post("/", async (req: AuthedRequest, res: Response) => {
     const domainName = normalizeHostname(req.body?.domainName);
     const pageId = String(req.body?.pageId || "").trim();
-    const cloudflareApiToken = String(req.body?.cloudflareApiToken || "").trim();
+    const cloudflareApiToken = String(req.body?.cloudflareApiToken || req.body?.accessToken || "").trim();
+    const dnsProviderId = normalizeDnsProviderId(
+      String(req.body?.dnsProviderId || req.body?.preferredDnsProvider || "")
+    );
+    const rememberProvider = req.body?.rememberProvider !== false;
     const validationError = assertSupportedCustomDomain(domainName);
     if (validationError) {
       res.status(400).json({ error: validationError });
@@ -648,22 +875,99 @@ export function createDomainsRouter() {
 
       let dnsAutoProvisioned = false;
       let dnsProvisionMessage: string | null = null;
+      let providerConnected = false;
+      let providerAccountId: string | null = null;
+      let needsOAuth = false;
+      let oauthAuthorizeUrl: string | null = null;
 
-      if (cloudflareApiToken) {
+      const adapter = getDnsProvider(dnsProviderId);
+      // Multi-tenant: use this user's saved OAuth token only (never platform CF token).
+      let accessToken = cloudflareApiToken;
+      if (!accessToken && adapter.capability.supportsAutoDns) {
+        const saved = await getDnsProviderConnection(req.authUser!.id, dnsProviderId);
+        if (saved?.accessToken) accessToken = saved.accessToken;
+      }
+
+      try {
+        record = await updateDomain(record.id, req.authUser!.id, {
+          dns_provider_id: dnsProviderId
+        });
+      } catch (metaError) {
+        console.warn("[domains] dns_provider_id column missing — run dns-provider-onboarding-migration.sql", metaError);
+      }
+
+      if (rememberProvider) {
+        try {
+          const store = readAuthStore();
+          const user = findUserById(store, req.authUser!.id);
+          if (user) {
+            user.preferredDnsProvider = dnsProviderId;
+            user.updatedAt = new Date().toISOString();
+            writeAuthStore(store);
+          }
+        } catch {
+          /* ignore preference save failures */
+        }
+      }
+
+      const canAttemptAutoDns =
+        adapter.capability.supportsAutoDns &&
+        (Boolean(accessToken) || dnsProviderId === "cloudflare");
+
+      if (canAttemptAutoDns) {
         try {
           const dnsRecords = buildDnsRecordSet(domainName).records;
-          const provision = await provisionCloudflareDnsRecords(
-            cloudflareApiToken,
+          const provision = await adapter.provisionDns({
             domainName,
-            dnsRecords
-          );
+            records: dnsRecords,
+            ownerUserId: req.authUser!.id,
+            accessToken: accessToken || undefined
+          });
           dnsAutoProvisioned = provision.success;
           dnsProvisionMessage = provision.message;
+          providerConnected = provision.success;
+          providerAccountId = provision.providerAccountId || null;
+          needsOAuth = Boolean(provision.needsOAuth && !provision.success);
+
+          if (!provision.success && needsOAuth) {
+            try {
+              const started = await createCloudflareOAuthAuthorizeUrl({
+                userId: req.authUser!.id,
+                domainName,
+                pageId
+              });
+              oauthAuthorizeUrl = started.authorizeUrl;
+            } catch (oauthError) {
+              console.warn("[domains] oauth url after dns fail:", errorMessage(oauthError));
+            }
+          }
+
+          // Do not persist raw pasted tokens as the user's OAuth connection unless rememberProvider.
+          if (rememberProvider && accessToken && dnsProviderId !== "cloudflare") {
+            await upsertDnsProviderConnection({
+              ownerUserId: req.authUser!.id,
+              providerId: dnsProviderId,
+              accessToken,
+              providerAccountId,
+              connected: provision.success
+            });
+          }
+
+          try {
+            record = await updateDomain(record.id, req.authUser!.id, {
+              provider_connected: provision.success,
+              provider_account_id: providerAccountId,
+              dns_provider_id: dnsProviderId
+            });
+          } catch {
+            /* columns optional until migration */
+          }
+
           await appendDomainVerificationLog({
             domainId: record.id,
             ownerUserId: req.authUser!.id,
             event: "auto_dns",
-            status: "success",
+            status: provision.success ? "success" : "fallback_manual",
             message: provision.message
           });
         } catch (provisionError) {
@@ -676,12 +980,21 @@ export function createDomainsRouter() {
             message: dnsProvisionMessage
           });
         }
+      } else if (dnsProviderId !== "cloudflare") {
+        dnsProvisionMessage = adapter.capability.supportsAutoDns
+          ? null
+          : `${adapter.capability.name} guided setup — add the DNS record below, then we verify automatically.`;
       }
 
       res.status(201).json({
         domain: await publicDomain(record),
         dnsAutoProvisioned,
-        dnsProvisionMessage
+        dnsProvisionMessage,
+        dnsProviderId,
+        providerConnected,
+        needsOAuth,
+        oauthAuthorizeUrl,
+        fallbackManual: !dnsAutoProvisioned && !oauthAuthorizeUrl
       });
     } catch (error) {
       const message = errorMessage(error);
@@ -697,11 +1010,41 @@ export function createDomainsRouter() {
     try {
       let record = await findDomainById(req.params.id, req.authUser!.id);
       if (!record) {
-        res.status(404).json({ error: "Domain not found." });
+        res.status(404).json({
+          error: "This setup was removed or expired. Close and use Connect Domain again.",
+          code: "DOMAIN_NOT_FOUND"
+        });
         return;
       }
 
-      const dns = await verifyDomainDns(record.domainName);
+      let dns = await verifyDomainDns(record.domainName);
+
+      // Orange-cloud CNAMEs (proxied) often break HTTPS. Re-apply DNS-only when needed.
+      const looksOrangeCloud = dns.cnames.length === 0 && dns.addresses.length > 0;
+      const shouldRepairDns =
+        record.dnsProviderId === "cloudflare" &&
+        (!dns.verified || looksOrangeCloud) &&
+        !(await domainServesAcnBio(record.domainName));
+
+      if (shouldRepairDns) {
+        // Multi-tenant: repair using THIS customer's OAuth token only.
+        const { tokens } = await resolveCustomerDnsTokens({
+          ownerUserId: req.authUser!.id
+        });
+        const instructions = buildDnsRecordSet(record.domainName).records;
+        for (const token of tokens) {
+          try {
+            const repaired = await provisionCloudflareDnsRecords(token, record.domainName, instructions);
+            if (repaired.success) {
+              dns = await verifyDomainDns(record.domainName);
+              break;
+            }
+          } catch (repairError) {
+            console.warn("[domains] dns repair:", errorMessage(repairError));
+          }
+        }
+      }
+
       const {
         provider: providerState,
         providerError,

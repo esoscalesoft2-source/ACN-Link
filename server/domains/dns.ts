@@ -393,10 +393,17 @@ export async function verifyHostnameReachability(hostname: string): Promise<bool
   return fetchHealthJsonNode(hostname);
 }
 
+async function readHealthOk(response: Response): Promise<boolean> {
+  if (!response.ok) return false;
+  const data = (await response.json().catch(() => null)) as { status?: string } | null;
+  return data?.status === "ok";
+}
+
 async function fetchHealthJson(hostname: string): Promise<boolean> {
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15_000);
+    const timeout = setTimeout(() => controller.abort(), 12_000);
+    // Manual redirects — "follow" can throw on Cloudflare/Railway same-URL loops.
     const response = await fetch(`https://${hostname}/api/health`, {
       method: "GET",
       headers: {
@@ -404,12 +411,25 @@ async function fetchHealthJson(hostname: string): Promise<boolean> {
         "User-Agent": "ACN-Link-DNS-Verify/1.0"
       },
       signal: controller.signal,
-      redirect: "follow"
+      redirect: "manual"
     });
     clearTimeout(timeout);
-    if (!response.ok) return false;
-    const data = (await response.json().catch(() => null)) as { status?: string } | null;
-    return data?.status === "ok";
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location") || "";
+      try {
+        const loc = new URL(location, `https://${hostname}/api/health`);
+        // Same-path bounce (common with orange-cloud CNAMEs) — not live yet.
+        if (loc.hostname === hostname && loc.pathname === "/api/health") {
+          return false;
+        }
+      } catch {
+        return false;
+      }
+      return false;
+    }
+
+    return readHealthOk(response);
   } catch {
     return false;
   }

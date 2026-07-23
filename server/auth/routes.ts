@@ -582,6 +582,9 @@ export function createAuthRouter() {
       if (typeof req.body?.country === "string") user.country = req.body.country.trim();
       if (typeof req.body?.avatarUrl === "string") user.avatarUrl = req.body.avatarUrl;
       if (typeof req.body?.newsletterOptIn === "boolean") user.newsletterOptIn = req.body.newsletterOptIn;
+      if (typeof req.body?.preferredDnsProvider === "string") {
+        user.preferredDnsProvider = req.body.preferredDnsProvider.trim().toLowerCase() || null;
+      }
       user.updatedAt = new Date().toISOString();
       audit(store, "user.profile_update", user.id, {});
       writeAuthStore(store);

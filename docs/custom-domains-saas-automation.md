@@ -13,13 +13,15 @@
 
 1. Cloudflare Dashboard → **Manage Account → OAuth clients** → Create public client  
 2. Redirect URI: `https://acnlink.mindflo.today/api/domains/providers/cloudflare/oauth/callback`  
-3. Scopes: **Zone DNS Write**, **Zone Read**, offline access  
+3. Scopes on the client: **Zone Read** + **DNS Write** (enable `refresh_token` grant; do not invent `zone.dns.write`)  
 4. Railway env:
 
 ```text
 CLOUDFLARE_OAUTH_CLIENT_ID=...
 CLOUDFLARE_OAUTH_CLIENT_SECRET=...
 CLOUDFLARE_OAUTH_REDIRECT_URI=https://acnlink.mindflo.today/api/domains/providers/cloudflare/oauth/callback
+# Optional; defaults are correct:
+# CLOUDFLARE_OAUTH_SCOPES=zone.read dns.write
 ```
 
 ### Cloudflare DNS must be DNS-only (gray cloud)

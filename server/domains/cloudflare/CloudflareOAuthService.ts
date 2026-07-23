@@ -39,10 +39,16 @@ export function cloudflareOAuthRedirectUri() {
   return `${base}/api/domains/providers/cloudflare/oauth/callback`;
 }
 
+/**
+ * Cloudflare OAuth scope IDs use dot notation matching API permissions.
+ * Correct IDs: `zone.read` + `dns.write` (NOT `zone.dns.write`).
+ * Do not request `offline_access` here — Cloudflare adds/removes protocol
+ * scopes automatically from the client's grant_types (include refresh_token).
+ */
 function oauthScopes() {
   const fromEnv = (process.env.CLOUDFLARE_OAUTH_SCOPES || "").trim();
   if (fromEnv) return fromEnv.split(/[\s,]+/).filter(Boolean);
-  return ["zone.dns.write", "zone.read", "offline_access"];
+  return ["zone.read", "dns.write"];
 }
 
 function base64Url(buffer: Buffer) {

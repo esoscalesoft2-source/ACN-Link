@@ -295,8 +295,19 @@ export async function verifyDomain(id: string): Promise<DomainVerifyResult> {
   return { domain: result.domain, dns: result.dns };
 }
 
-export async function deleteDomain(id: string): Promise<void> {
-  await domainFetch<{ success: boolean }>(`/api/domains/${id}`, { method: "DELETE" });
+export type DeleteDomainResult = {
+  success: boolean;
+  domainName: string;
+  dnsCleanup?: {
+    success: boolean;
+    attempted: boolean;
+    removed: number;
+    message: string;
+  };
+};
+
+export async function deleteDomain(id: string): Promise<DeleteDomainResult> {
+  return domainFetch<DeleteDomainResult>(`/api/domains/${id}`, { method: "DELETE" });
 }
 
 export async function patchDomainPage(id: string, pageId: string): Promise<CustomDomain> {

@@ -35,7 +35,10 @@ import {
   sanitizeARecordTarget
 } from "./hostname";
 import { beginCloudflareAutoSetup } from "./providers/cloudflareAuto";
-import { cloudflareProvider } from "./providers/cloudflareProvider";
+import {
+  cloudflareProvider,
+  deprovisionCustomerCloudflareDns
+} from "./providers/cloudflareProvider";
 import {
   disconnectDnsProviderConnection,
   getDnsProviderConnection,
@@ -1271,26 +1274,75 @@ export function createDomainsRouter() {
         return;
       }
 
+      // 1) Customer Cloudflare zone: remove ACN-managed CNAME/A (best-effort).
+      let dnsCleanup: {
+        success: boolean;
+        attempted: boolean;
+        removed: number;
+        message: string;
+      } = {
+        success: false,
+        attempted: false,
+        removed: 0,
+        message: "DNS cleanup skipped."
+      };
+      const shouldCleanCustomerDns =
+        !record.dnsProviderId ||
+        record.dnsProviderId === "cloudflare" ||
+        record.providerConnected;
+      if (shouldCleanCustomerDns) {
+        try {
+          dnsCleanup = await deprovisionCustomerCloudflareDns({
+            ownerUserId: req.authUser!.id,
+            domainName: record.domainName
+          });
+        } catch (dnsError) {
+          dnsCleanup = {
+            success: false,
+            attempted: true,
+            removed: 0,
+            message: errorMessage(dnsError)
+          };
+          console.warn(
+            `[domains] customer DNS cleanup failed for ${record.domainName}:`,
+            dnsCleanup.message
+          );
+        }
+      }
+
+      // 2) Platform Cloudflare for SaaS custom hostname (ACN zone), if any.
       try {
         await deleteCustomHostnamesForDomain(record.domainName, record.providerHostnameId);
       } catch (providerError) {
         console.warn(
-          `[domains] Cloudflare cleanup failed for ${record.domainName}, removing from ACN anyway:`,
+          `[domains] Cloudflare SaaS cleanup failed for ${record.domainName}, removing from ACN anyway:`,
           providerError
         );
       }
 
+      // 3) Always remove from ACN Link even if Cloudflare DNS cleanup failed.
       await removeDomain(record.id, req.authUser!.id);
 
       await appendDomainVerificationLog({
         domainId: record.id,
         ownerUserId: req.authUser!.id,
         event: "delete",
-        status: "removed",
-        message: `Removed ${record.domainName} from ACN Link.`
+        status: dnsCleanup.success ? "removed_with_dns" : "removed",
+        message: dnsCleanup.attempted
+          ? `Removed ${record.domainName} from ACN Link. ${dnsCleanup.message}`
+          : `Removed ${record.domainName} from ACN Link.`
       });
 
-      res.json({ success: true, domainName: record.domainName });
+      res.json({
+        success: true,
+        domainName: record.domainName,
+        dnsCleanup: {
+          success: dnsCleanup.success,
+          attempted: dnsCleanup.attempted,
+          removed: dnsCleanup.removed,
+          message: dnsCleanup.message
+        }
+      });
     } catch (error) {
       res.status(502).json({ error: errorMessage(error), code: "DOMAIN_DELETE_FAILED" });
     }

@@ -177,3 +177,46 @@ export async function provisionCloudflareDnsRecords(
     changes
   };
 }
+
+/**
+ * Remove ACN-managed DNS records from the customer's Cloudflare zone
+ * (same type+name set we create on Connect Domain).
+ */
+export async function removeCloudflareDnsRecords(
+  apiToken: string,
+  domainName: string,
+  records: DnsRecordInstruction[]
+): Promise<{ success: boolean; message: string; removed: number }> {
+  const host = normalizeHostname(domainName);
+  const zoneDomain = getDnsZoneDomain(host);
+  const token = apiToken.trim();
+  if (!token) {
+    return { success: false, message: "Cloudflare API token is required to remove DNS.", removed: 0 };
+  }
+  if (!records.length) {
+    return { success: true, message: "No DNS records to remove.", removed: 0 };
+  }
+
+  const zoneId = await findCustomerZoneId(token, zoneDomain);
+  let removed = 0;
+
+  for (const record of records) {
+    const fqdn = cloudflareRecordName(zoneDomain, record.hostLabel);
+    removed += await deleteRecordsAtName(token, zoneId, fqdn, record.type);
+    // Clean conflicting opposite type at the same name (A vs CNAME) left from older setups.
+    if (record.type === "CNAME") {
+      removed += await deleteRecordsAtName(token, zoneId, fqdn, "A");
+    } else if (record.type === "A") {
+      removed += await deleteRecordsAtName(token, zoneId, fqdn, "CNAME");
+    }
+  }
+
+  return {
+    success: true,
+    message:
+      removed > 0
+        ? `Removed ${removed} DNS record${removed === 1 ? "" : "s"} from Cloudflare for ${host}.`
+        : `No matching DNS records found in Cloudflare for ${host}.`,
+    removed
+  };
+}

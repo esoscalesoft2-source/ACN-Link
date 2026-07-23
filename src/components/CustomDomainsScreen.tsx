@@ -67,7 +67,15 @@ interface CustomDomainsScreenProps {
     options?: { skipPageSync?: boolean }
   ) => Promise<import("../lib/domainApi").DomainVerifyResult>;
   onReassignDomain: (id: string, pageId: string) => Promise<CustomDomain>;
-  onDeleteDomain: (id: string) => Promise<void>;
+  onDeleteDomain: (id: string) => Promise<{
+    domainName?: string;
+    dnsCleanup?: {
+      success: boolean;
+      attempted: boolean;
+      removed: number;
+      message: string;
+    };
+  } | void>;
   onEditPage: (pageId: string, options?: { fromCustomDomain?: boolean }) => void;
 }
 
@@ -341,8 +349,22 @@ export default function CustomDomainsScreen({
     if (!removeTarget) return;
     setDeletingId(removeTarget.id);
     try {
-      await onDeleteDomain(removeTarget.id);
-      triggerToast(`"${removeTarget.domainName}" removed.`);
+      const result = await onDeleteDomain(removeTarget.id);
+      const cleanup = result && typeof result === "object" ? result.dnsCleanup : undefined;
+      if (cleanup?.attempted && cleanup.success) {
+        triggerToast(
+          cleanup.removed > 0
+            ? `"${removeTarget.domainName}" removed from ACN Link and Cloudflare DNS.`
+            : `"${removeTarget.domainName}" removed. ${cleanup.message}`
+        );
+      } else if (cleanup?.attempted && !cleanup.success) {
+        triggerToast(
+          `"${removeTarget.domainName}" removed from ACN Link. Cloudflare DNS may still exist — ${cleanup.message}`,
+          "error"
+        );
+      } else {
+        triggerToast(`"${removeTarget.domainName}" removed.`);
+      }
       setRemoveTarget(null);
       await onReload();
     } catch (error) {

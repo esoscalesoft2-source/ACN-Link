@@ -1286,7 +1286,7 @@ export default function App() {
 
   const handleDeleteDomain = async (id: string) => {
     const removed = domains.find((item) => item.id === id);
-    await deleteDomain(id);
+    const result = await deleteDomain(id);
     setDomains((current) => current.filter((d) => d.id !== id));
 
     if (removed) {
@@ -1309,6 +1309,7 @@ export default function App() {
         });
       }
     }
+    return result;
   };
 
   const handleUpdateUser = (name: string, email: string, avatarUrl: string) => {

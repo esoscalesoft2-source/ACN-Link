@@ -1,6 +1,7 @@
 import { isCloudflareOAuthConfigured } from "../cloudflare/CloudflareOAuthService";
-import { provisionCustomerDns } from "../cloudflare/CloudflareDNSService";
+import { provisionCustomerDns, removeCustomerDns } from "../cloudflare/CloudflareDNSService";
 import { resolveCustomerDnsTokens } from "../cloudflare/CloudflareTokenService";
+import { buildDnsRecordSet } from "../dnsRecords";
 import type { DnsProviderAdapter, ProvisionDnsInput, ProvisionDnsResult } from "./types";
 
 export const cloudflareProvider: DnsProviderAdapter = {
@@ -70,3 +71,50 @@ export const cloudflareProvider: DnsProviderAdapter = {
     };
   }
 };
+
+/**
+ * Best-effort: remove ACN-managed DNS from the customer's Cloudflare zone
+ * using their saved OAuth token (never the platform token).
+ */
+export async function deprovisionCustomerCloudflareDns(input: {
+  ownerUserId: string;
+  domainName: string;
+}): Promise<{ success: boolean; message: string; removed: number; attempted: boolean }> {
+  const { tokens } = await resolveCustomerDnsTokens({ ownerUserId: input.ownerUserId });
+  if (!tokens.length) {
+    return {
+      success: false,
+      attempted: false,
+      removed: 0,
+      message:
+        "Cloudflare is not connected — ACN Link was removed, but DNS may still exist in Cloudflare."
+    };
+  }
+
+  const records = buildDnsRecordSet(input.domainName).records;
+  let lastMessage = "Could not remove DNS from Cloudflare.";
+  for (const token of tokens) {
+    const result = await removeCustomerDns({
+      apiToken: token,
+      domainName: input.domainName,
+      records
+    });
+    if (result.success) {
+      return {
+        success: true,
+        attempted: true,
+        removed: result.removed,
+        message: result.message
+      };
+    }
+    lastMessage = result.message;
+    if (result.code === "PERMISSION_DENIED") continue;
+  }
+
+  return {
+    success: false,
+    attempted: true,
+    removed: 0,
+    message: lastMessage
+  };
+}

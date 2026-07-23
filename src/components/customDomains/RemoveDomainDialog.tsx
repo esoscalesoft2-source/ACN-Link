@@ -16,8 +16,8 @@ export default function RemoveDomainDialog({
       <div className="acn-domain-remove-dialog animate-in fade-in zoom-in-95 duration-200">
         <h3 className="text-lg font-bold text-slate-950">Remove {domainName}?</h3>
         <p className="mt-2 text-sm text-slate-600">
-          This disconnects the domain from your bio page. You will need to configure DNS again if you want to use
-          it here later.
+          This removes the domain from ACN Link and, when Cloudflare is connected, also deletes the matching
+          DNS record (CNAME/A) from your Cloudflare account. You can reconnect later if needed.
         </p>
         <div className="mt-6 flex gap-3">
           <button type="button" onClick={onCancel} disabled={isRemoving} className="acn-domain-remove-dialog__cancel">

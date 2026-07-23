@@ -8020,15 +8020,26 @@ body.acn-editor-open header.acn-glass-header {
   width: min(100%, 40rem);
 }
 
-/* Provider picker: one row per provider (logo + name + blurb), not cube grid */
+/* Provider picker — row list with brand logos (screenshot style) */
 .acn-provider-grid {
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
-  margin-top: 1.1rem;
-  max-height: min(52vh, 26rem);
+  gap: 0.5rem;
+  margin-top: 1rem;
+  max-height: min(48vh, 22rem);
   overflow-y: auto;
-  padding-right: 0.15rem;
+  padding: 0.1rem 0.25rem 0.1rem 0;
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 transparent;
+}
+
+.acn-provider-grid::-webkit-scrollbar {
+  width: 5px;
+}
+
+.acn-provider-grid::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 999px;
 }
 
 .acn-provider-card {
@@ -8036,28 +8047,27 @@ body.acn-editor-open header.acn-glass-header {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 0.85rem;
+  gap: 0.8rem;
   width: 100%;
-  min-height: 3.75rem;
-  padding: 0.7rem 0.85rem;
-  border-radius: 0.9rem;
-  border: 1px solid rgba(226, 232, 240, 0.95);
+  min-height: 3.85rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: 0.95rem;
+  border: 1.5px solid #e2e8f0;
   background: #fff;
   text-align: left;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
 }
 
 .acn-provider-card:hover {
-  border-color: rgba(99, 102, 241, 0.4);
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+  border-color: rgba(99, 102, 241, 0.45);
   background: #fafbff;
 }
 
 .acn-provider-card.is-selected,
 .acn-provider-card.is-suggested {
-  border-color: rgba(79, 70, 229, 0.55);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
-  background: #f8f7ff;
+  border-color: #818cf8;
+  background: #f5f3ff;
+  box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.18);
 }
 
 .acn-provider-card__logo-wrap {
@@ -8065,18 +8075,19 @@ body.acn-editor-open header.acn-glass-header {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 2.75rem;
-  height: 2.75rem;
-  border-radius: 0.7rem;
-  background: #f8fafc;
-  border: 1px solid rgba(226, 232, 240, 0.9);
+  width: 2.65rem;
+  height: 2.65rem;
+  border-radius: 0.75rem;
+  background: transparent;
+  border: none;
   overflow: hidden;
 }
 
 .acn-provider-card__logo {
-  width: 1.85rem;
-  height: 1.85rem;
-  object-fit: contain;
+  width: 2.65rem;
+  height: 2.65rem;
+  object-fit: cover;
+  border-radius: 0.75rem;
 }
 
 .acn-provider-card__text {
@@ -8084,11 +8095,11 @@ body.acn-editor-open header.acn-glass-header {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.12rem;
+  gap: 0.15rem;
 }
 
 .acn-provider-card__name {
-  font-size: 0.92rem;
+  font-size: 0.9375rem;
   font-weight: 800;
   color: #0f172a;
   line-height: 1.2;
@@ -8104,9 +8115,9 @@ body.acn-editor-open header.acn-glass-header {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
-  padding: 0.2rem 0.5rem;
+  padding: 0.22rem 0.55rem;
   border-radius: 999px;
-  background: rgba(16, 185, 129, 0.12);
+  background: #d1fae5;
   color: #047857;
   font-size: 0.625rem;
   font-weight: 800;

@@ -96,11 +96,18 @@ export default function HowItWorksDialog({ open, onClose, cnameTarget, aRecordTa
             <h4>Rules to remember</h4>
             <ul>
               <li>
-                <strong>Many domains per account</strong> — shop., link., tree. on the same root are fine.
+                <strong>Same root, many subdomains</strong> — on any root you own (e.g.{" "}
+                <code>yourbrand.com</code>), you can connect several subdomains like{" "}
+                <code>shop.</code>, <code>link.</code>, <code>team.</code>.
               </li>
               <li>
-                <strong>One custom domain per bio page</strong> — pick another page if you see “already
-                connected”.
+                <strong>One custom domain per bio page</strong> — if a page already opens on another
+                address, pick a different page or remove the old domain first.
+              </li>
+              <li>
+                <strong>Free plan</strong> — up to <strong>3</strong> custom domains{" "}
+                <strong>per root</strong>, for every root domain. A 4th subdomain on that same root
+                needs a paid plan. Other roots each get their own free allowance of 3.
               </li>
               <li>
                 <strong>Other hosts</strong> (GoDaddy, Hostinger, …) — guided copy steps; auto-connect

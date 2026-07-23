@@ -210,6 +210,8 @@ export interface CustomDomainPlatformConfig {
   customHostnameEnabled?: boolean;
   autoDnsViaCloudflare?: boolean;
   cloudflareOAuthEnabled?: boolean;
+  /** Free plan: max custom hostnames per root zone (e.g. ezysellonline.com). */
+  freeCustomDomainsPerRoot?: number;
   dnsProviders?: DnsProviderCapability[];
   steps: string[];
   registrars: { id: string; name: string; dnsHelpUrl: string }[];

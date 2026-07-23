@@ -60,6 +60,12 @@ import {
   normalizeDnsProviderId
 } from "./providers/registry";
 import {
+  countDomainsOnRootZone,
+  FREE_CUSTOM_DOMAINS_PER_ROOT,
+  freeRootDomainLimitMessage,
+  userHasPaidCustomDomains
+} from "./domainPlanLimits";
+import {
   createDomain,
   findDomainById,
   findDomainByPageId,
@@ -72,7 +78,7 @@ import {
 } from "./repository";
 
 type AuthedRequest = Request & {
-  authUser?: { id: string; email: string };
+  authUser?: { id: string; email: string; plan?: string };
 };
 
 function domainId() {
@@ -433,6 +439,7 @@ export function createDomainsRouter() {
       customHostnameEnabled: registerSaasHostnames,
       autoDnsViaCloudflare: true,
       cloudflareOAuthEnabled: isCloudflareOAuthConfigured(),
+      freeCustomDomainsPerRoot: FREE_CUSTOM_DOMAINS_PER_ROOT,
       dnsProviders: listDnsProviderCapabilities().map((provider) =>
         provider.id === "cloudflare"
           ? { ...provider, supportsOAuth: isCloudflareOAuthConfigured() }
@@ -797,7 +804,28 @@ export function createDomainsRouter() {
     const existingForPage = await findDomainByPageId(pageId, req.authUser!.id);
     if (existingForPage) {
       res.status(409).json({
-        error: `This page is already connected to ${existingForPage.domainName}. Each page can only use one custom domain.`
+        error:
+          `This bio page already opens ${existingForPage.domainName}. ` +
+          `Pick a different bio page for ${domainName}, or remove that domain first. ` +
+          `One bio page can only use one custom domain.`,
+        code: "PAGE_DOMAIN_TAKEN"
+      });
+      return;
+    }
+
+    const ownerDomains = await listDomains(req.authUser!.id);
+    const zone = getDnsZoneDomain(domainName);
+    const usedOnRoot = countDomainsOnRootZone(ownerDomains, domainName);
+    const store = readAuthStore();
+    const owner = findUserById(store, req.authUser!.id);
+    const paid = userHasPaidCustomDomains(owner?.plan || req.authUser?.plan);
+    if (!paid && usedOnRoot >= FREE_CUSTOM_DOMAINS_PER_ROOT) {
+      res.status(402).json({
+        error: freeRootDomainLimitMessage(zone, usedOnRoot),
+        code: "DOMAIN_LIMIT_FREE",
+        limit: FREE_CUSTOM_DOMAINS_PER_ROOT,
+        used: usedOnRoot,
+        zone
       });
       return;
     }

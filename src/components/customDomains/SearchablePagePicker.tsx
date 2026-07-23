@@ -54,7 +54,9 @@ export default function SearchablePagePicker({
     const linkedDomain = linkedDomainsByPageId.get(page.id);
     if (linkedDomain) {
       window.alert(
-        `"${page.title}" is already connected to ${linkedDomain.domainName}.\n\nEach bio page can only be linked to one custom domain. Remove it from that domain first, or choose a different page.`
+        `"${page.title}" already opens ${linkedDomain.domainName}.\n\n` +
+          `Each bio page can use only one custom domain.\n` +
+          `For another subdomain on the same root, choose a different bio page — or remove the old domain first.`
       );
       return;
     }

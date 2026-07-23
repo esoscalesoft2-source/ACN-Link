@@ -83,8 +83,8 @@ const DEFAULT_PROVIDERS: DnsProviderCapability[] = [
     supportsAutoDns: true,
     supportsOAuth: false,
     logoUrl: "/dns-providers/cloudflare.svg",
-    helpUrl: "https://developers.cloudflare.com/fundamentals/api/get-started/create-token/",
-    blurb: "One click — we add DNS for you automatically."
+    helpUrl: "https://developers.cloudflare.com/fundamentals/oauth/",
+    blurb: "One click — authorize YOUR Cloudflare account and we add DNS for you."
   },
   {
     id: "godaddy",
@@ -93,7 +93,7 @@ const DEFAULT_PROVIDERS: DnsProviderCapability[] = [
     supportsOAuth: false,
     logoUrl: "/dns-providers/godaddy.svg",
     helpUrl: "https://www.godaddy.com/help/add-a-cname-record-19236",
-    blurb: "Simple copy steps for GoDaddy."
+    blurb: "Guided steps for GoDaddy DNS — auto-connect coming soon."
   },
   {
     id: "hostinger",
@@ -102,7 +102,7 @@ const DEFAULT_PROVIDERS: DnsProviderCapability[] = [
     supportsOAuth: false,
     logoUrl: "/dns-providers/hostinger.svg",
     helpUrl: "https://support.hostinger.com/en/articles/1583227-how-to-manage-dns-records-in-hpanel",
-    blurb: "Simple copy steps for Hostinger."
+    blurb: "Guided steps for Hostinger DNS — auto-connect coming soon."
   },
   {
     id: "namecheap",
@@ -112,7 +112,7 @@ const DEFAULT_PROVIDERS: DnsProviderCapability[] = [
     logoUrl: "/dns-providers/namecheap.svg",
     helpUrl:
       "https://www.namecheap.com/support/knowledgebase/article.aspx/9646/2237/how-to-create-a-cname-record-for-your-domain/",
-    blurb: "Simple copy steps for Namecheap."
+    blurb: "Guided steps for Namecheap DNS — auto-connect coming soon."
   },
   {
     id: "porkbun",
@@ -121,7 +121,7 @@ const DEFAULT_PROVIDERS: DnsProviderCapability[] = [
     supportsOAuth: false,
     logoUrl: "/dns-providers/porkbun.svg",
     helpUrl: "https://kb.porkbun.com/article/22-how-to-edit-dns-records",
-    blurb: "Simple copy steps for Porkbun."
+    blurb: "Guided steps for Porkbun DNS — auto-connect coming soon."
   },
   {
     id: "squarespace",
@@ -130,7 +130,7 @@ const DEFAULT_PROVIDERS: DnsProviderCapability[] = [
     supportsOAuth: false,
     logoUrl: "/dns-providers/squarespace.svg",
     helpUrl: "https://support.squarespace.com/hc/en-us/articles/360002101888",
-    blurb: "Simple copy steps for Squarespace Domains."
+    blurb: "Guided steps for Squarespace Domains — auto-connect coming soon."
   },
   {
     id: "other",
@@ -139,7 +139,7 @@ const DEFAULT_PROVIDERS: DnsProviderCapability[] = [
     supportsOAuth: false,
     logoUrl: "/dns-providers/default.svg",
     helpUrl: "https://www.google.com/search?q=how+to+add+CNAME+DNS+record",
-    blurb: "We'll show easy copy-and-paste steps."
+    blurb: "We'll show simple copy-and-paste steps for your DNS host."
   }
 ];
 
@@ -572,7 +572,10 @@ export default function ConnectDomainWizard({
     }
     const linkedDomain = linkedDomainsByPageId.get(pageId);
     if (linkedDomain) {
-      setFormError(`That page is already connected to ${linkedDomain.domainName}.`);
+      setFormError(
+        `This bio page already opens ${linkedDomain.domainName}. Pick a different page for ${hostname}, ` +
+          `or remove that domain first. One bio page can only use one custom domain.`
+      );
       return;
     }
 
@@ -773,6 +776,12 @@ export default function ConnectDomainWizard({
                 linkedDomainsByPageId={linkedDomainsByPageId}
                 onSelectAttempt={requestPageSelection}
               />
+              <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                Tip: Each bio page can open on only <strong>one</strong> custom domain. To connect
+                another subdomain on the same root, pick a page that is not already linked. Free plan:
+                up to {platformConfig?.freeCustomDomainsPerRoot ?? 3} custom domains{" "}
+                <strong>per root</strong> (applies to every domain you own — not just one brand).
+              </p>
             </div>
 
             {formError && <p className="acn-domain-wizard__error">{formError}</p>}
@@ -831,8 +840,8 @@ export default function ConnectDomainWizard({
                         src={provider.logoUrl}
                         alt=""
                         className="acn-provider-card__logo"
-                        width={32}
-                        height={32}
+                        width={42}
+                        height={42}
                       />
                     </span>
                     <span className="acn-provider-card__text">

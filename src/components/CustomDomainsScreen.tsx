@@ -494,6 +494,9 @@ export default function CustomDomainsScreen({
                 {historyDomains.length > 0 && (
                   <p className="acn-domains-lovable__stats">
                     {historyDomains.length} live domain{historyDomains.length === 1 ? "" : "s"}
+                    {platformConfig?.freeCustomDomainsPerRoot
+                      ? ` · Free: up to ${platformConfig.freeCustomDomainsPerRoot} per root domain`
+                      : ""}
                   </p>
                 )}
               </div>

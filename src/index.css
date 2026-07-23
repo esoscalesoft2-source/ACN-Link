@@ -6483,6 +6483,208 @@ body.acn-editor-open header.acn-glass-header {
   gap: 0;
 }
 
+.acn-domains-lovable__accordion-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+}
+
+.acn-domains-lovable__accordion {
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 0.9rem;
+  background: #fff;
+  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.acn-domains-lovable__accordion.is-open {
+  border-color: rgba(99, 102, 241, 0.28);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+}
+
+.acn-domains-lovable__accordion-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.55rem 0.55rem 0.35rem;
+}
+
+.acn-domains-lovable__accordion-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.35rem 0.45rem;
+  border: none;
+  background: transparent;
+  text-align: left;
+  border-radius: 0.65rem;
+  cursor: pointer;
+}
+
+.acn-domains-lovable__accordion-trigger:hover {
+  background: rgba(248, 250, 252, 0.95);
+}
+
+.acn-domains-lovable__accordion-trigger .acn-domains-lovable__domain-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acn-domains-lovable__accordion-chevron {
+  flex-shrink: 0;
+  width: 1.1rem;
+  height: 1.1rem;
+  color: #94a3b8;
+  transition: transform 0.18s ease;
+}
+
+.acn-domains-lovable__accordion-chevron.is-open {
+  transform: rotate(180deg);
+  color: #6366f1;
+}
+
+.acn-domains-lovable__accordion-badges {
+  display: inline-flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  margin-left: auto;
+  margin-right: 0.35rem;
+}
+
+.acn-domains-lovable__accordion-controls {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.1rem;
+  padding-right: 0.2rem;
+  border-left: 1px solid rgba(226, 232, 240, 0.9);
+  padding-left: 0.55rem;
+  margin-left: 0.15rem;
+}
+
+.acn-domains-lovable__accordion-body {
+  padding: 0 1rem 1rem;
+  border-top: 1px solid rgba(226, 232, 240, 0.85);
+  background: linear-gradient(180deg, #fafbfc 0%, #fff 40%);
+}
+
+.acn-domains-lovable__opens-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.65rem;
+  margin: 0.85rem 0 0;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.acn-domains-lovable__page-select {
+  max-width: 14rem;
+  border-radius: 0.4rem;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.75rem;
+  color: #334155;
+}
+
+.acn-domains-lovable__opens-meta {
+  color: #94a3b8;
+}
+
+.acn-domains-lovable__hint {
+  margin: 0.65rem 0 0;
+  font-size: 0.75rem;
+  color: #475569;
+  line-height: 1.45;
+}
+
+.acn-domains-lovable__hint.is-error {
+  color: #e11d48;
+}
+
+.acn-domains-lovable__dns-block {
+  margin-top: 0.75rem;
+}
+
+@media (max-width: 720px) {
+  .acn-domains-lovable__accordion-head {
+    flex-wrap: wrap;
+    row-gap: 0.45rem;
+  }
+
+  .acn-domains-lovable__accordion-trigger {
+    flex: 1 1 100%;
+  }
+
+  .acn-domains-lovable__accordion-badges {
+    margin-left: 1.6rem;
+    margin-right: 0;
+  }
+
+  .acn-domains-lovable__accordion-controls {
+    margin-left: auto;
+    border-left: none;
+    padding-left: 0;
+    padding-right: 0.35rem;
+  }
+}
+
+.acn-domains-lovable__how-steps {
+  margin: 0.9rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.acn-domains-lovable__how-steps li {
+  display: flex;
+  gap: 0.65rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: #475569;
+}
+
+.acn-domains-lovable__how-steps li span:first-child {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.1);
+  color: #4f46e5;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.acn-domains-lovable__how-note {
+  margin-top: 1rem;
+  border-radius: 0.85rem;
+  background: #f8fafc;
+  padding: 0.85rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: #64748b;
+}
+
+.acn-domains-lovable__how-note code {
+  font-size: 0.7rem;
+  color: #0f172a;
+  word-break: break-all;
+}
+
 .acn-domains-lovable__row {
   display: flex;
   flex-wrap: wrap;

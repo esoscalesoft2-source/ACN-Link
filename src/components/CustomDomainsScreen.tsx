@@ -162,6 +162,7 @@ export default function CustomDomainsScreen({
   const [toast, setToast] = useState<{ message: string; tone?: "ok" | "error" } | null>(null);
   const [platformConfig, setPlatformConfig] = useState<CustomDomainPlatformConfig | null>(null);
   const [platformConfigLoading, setPlatformConfigLoading] = useState(true);
+  const [expandedDomainIds, setExpandedDomainIds] = useState<Set<string>>(new Set());
   const [expandedDnsIds, setExpandedDnsIds] = useState<Set<string>>(new Set());
   const [testingId, setTestingId] = useState<string | null>(null);
   const [reassigningId, setReassigningId] = useState<string | null>(null);
@@ -202,8 +203,6 @@ export default function CustomDomainsScreen({
     return map;
   }, [historyDomains]);
 
-  const platformUrl = platformConfig?.platformUrl || "acnlink.mindflo.today";
-
   const triggerToast = (message: string, tone: "ok" | "error" = "ok") => {
     setToast({ message, tone });
     window.setTimeout(() => setToast(null), 4000);
@@ -238,6 +237,15 @@ export default function CustomDomainsScreen({
     setSearchParams(next, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
+
+  const toggleDomainAccordion = (domainId: string) => {
+    setExpandedDomainIds((current) => {
+      const next = new Set(current);
+      if (next.has(domainId)) next.delete(domainId);
+      else next.add(domainId);
+      return next;
+    });
+  };
 
   const toggleDnsPanel = (domainId: string) => {
     setExpandedDnsIds((current) => {
@@ -468,28 +476,9 @@ export default function CustomDomainsScreen({
           <Workspace>
             <div className="acn-domains-lovable__section">
               <div>
-                <h3 className="acn-domains-lovable__heading">Default ACN Link address</h3>
-                <p className="acn-domains-lovable__desc">Your platform URL before adding a custom domain.</p>
-              </div>
-              <a
-                href={`https://${platformUrl}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="acn-domains-lovable__domain-link"
-              >
-                <Globe className="h-4 w-4" />
-                {platformUrl}
-                <ExternalLink className="h-3.5 w-3.5 opacity-60" />
-              </a>
-            </div>
-
-            <div className="acn-domains-lovable__divider" />
-
-            <div className="acn-domains-lovable__section">
-              <div>
                 <h3 className="acn-domains-lovable__heading">Connected domains</h3>
                 <p className="acn-domains-lovable__desc">
-                  Domain, provider, DNS, SSL, and connection status — refresh anytime.
+                  Open a domain for provider, DNS, SSL details, and DNS records.
                 </p>
                 {historyDomains.length > 0 && (
                   <p className="acn-domains-lovable__stats">
@@ -510,13 +499,14 @@ export default function CustomDomainsScreen({
                 onConnect={openConnectWizard}
               />
             ) : (
-              <ul className="acn-domains-lovable__list">
+              <ul className="acn-domains-lovable__accordion-list">
                 {historyDomains.map((domain) => {
                   const dnsSet =
                     platformConfig &&
                     buildDnsRecordSet(domain.domainName, platformConfig.aRecordTarget, {
                       cnameTarget: platformConfig.cnameTarget
                     });
+                  const isOpen = expandedDomainIds.has(domain.id);
                   const dnsExpanded = expandedDnsIds.has(domain.id);
                   const publicReady = isCustomDomainPublicReady(domain);
                   const canOpen = canOpenCustomDomainInBrowser(domain);
@@ -530,251 +520,273 @@ export default function CustomDomainsScreen({
                         )
                       : null;
                   return (
-                    <li key={domain.id} className="acn-domains-lovable__row">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          {providerBrand && (
-                            <span
-                              className="acn-domains-lovable__provider-chip"
-                              title={`DNS at ${providerBrand.displayName}`}
-                            >
-                              <img
-                                src={providerBrand.logoUrl}
-                                alt=""
-                                className="acn-domains-lovable__provider-chip-logo"
-                                width={18}
-                                height={18}
-                              />
-                              <span>{providerBrand.displayName}</span>
-                            </span>
-                          )}
-                          {canOpen ? (
-                            <button
-                              type="button"
-                              onClick={() => void openLiveWebsite(domain)}
-                              className={`acn-domains-lovable__domain-name ${
-                                publicReady ? "acn-domains-lovable__domain-name--live" : "acn-domains-lovable__domain-name--open"
-                              }`}
-                              title="Open website in new tab"
-                            >
-                              {domain.domainName}
-                            </button>
-                          ) : (
-                            <span className="acn-domains-lovable__domain-name">{domain.domainName}</span>
-                          )}
+                    <li
+                      key={domain.id}
+                      className={`acn-domains-lovable__accordion ${isOpen ? "is-open" : ""}`}
+                    >
+                      <div className="acn-domains-lovable__accordion-head">
+                        <button
+                          type="button"
+                          className="acn-domains-lovable__accordion-trigger"
+                          aria-expanded={isOpen}
+                          onClick={() => toggleDomainAccordion(domain.id)}
+                        >
+                          <ChevronDown
+                            className={`acn-domains-lovable__accordion-chevron ${isOpen ? "is-open" : ""}`}
+                            aria-hidden
+                          />
+                          <span className="acn-domains-lovable__domain-name">{domain.domainName}</span>
+                        </button>
+                        <div className="acn-domains-lovable__accordion-badges">
                           <ConnectionIndicator domain={domain} />
                           {statusBadge(domain)}
                         </div>
-                        <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                          <span>Opens:</span>
-                          <select
-                            value={domain.pageId}
-                            disabled={reassigningId === domain.id || pages.length === 0}
-                            onChange={(event) => void reassignLinkedPage(domain, event.target.value)}
-                            className="max-w-[14rem] truncate rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs text-slate-700"
-                            aria-label={`Change linked page for ${domain.domainName}`}
-                          >
-                            {pages.map((page) => {
-                              const linkedElsewhere = linkedDomainsByPageId.get(page.id);
-                              const disabled =
-                                Boolean(linkedElsewhere && linkedElsewhere.id !== domain.id);
-                              return (
-                                <option key={page.id} value={page.id} disabled={disabled}>
-                                  {page.title}
-                                  {disabled ? " (in use)" : ""}
-                                </option>
-                              );
-                            })}
-                          </select>
-                          <span>
-                            · {dnsSet?.records.length || 1} DNS record
-                            {(dnsSet?.records.length || 1) === 1 ? "" : "s"} required
-                          </span>
-                        </p>
-                        <div className="acn-domains-lovable__meta-grid">
-                          <div>
-                            <span className="acn-domains-lovable__meta-label">Provider</span>
-                            {providerBrand ? (
-                              <span className="acn-domains-lovable__meta-provider">
-                                <img
-                                  src={providerBrand.logoUrl}
-                                  alt={`${providerBrand.displayName} logo`}
-                                  className="acn-domains-lovable__meta-provider-logo"
-                                  width={72}
-                                  height={22}
-                                />
-                                <span className="acn-domains-lovable__meta-value">
-                                  {providerBrand.displayName}
-                                  {domain.providerConnected ? " · Connected" : ""}
-                                </span>
-                              </span>
-                            ) : (
-                              <span className="acn-domains-lovable__meta-value">—</span>
-                            )}
-                          </div>
-                          <div>
-                            <span className="acn-domains-lovable__meta-label">DNS</span>
-                            <span className="acn-domains-lovable__meta-value">
-                              {domain.dnsVerifiedAt || domain.dnsLastVerified ? "Verified" : "Pending"}
-                            </span>
-                          </div>
-                          <div>
-                            <span className="acn-domains-lovable__meta-label">SSL</span>
-                            <span className="acn-domains-lovable__meta-value">{domain.sslStatus || "pending"}</span>
-                          </div>
-                          <div>
-                            <span className="acn-domains-lovable__meta-label">Last checked</span>
-                            <span className="acn-domains-lovable__meta-value">
-                              {domain.lastCheckedAt
-                                ? new Date(domain.lastCheckedAt).toLocaleString()
-                                : "—"}
-                            </span>
-                          </div>
-                        </div>
-                        {(domain.setupHint || domain.errorMessage) && (
-                          <p
-                            className={`mt-1 text-xs ${
-                              domain.errorMessage && domain.status === "Pending DNS" ? "text-rose-600" : "text-slate-600"
-                            }`}
-                          >
-                            {domain.setupHint ||
-                              formatDnsVerifyError(
-                                domain.domainName,
-                                domain.errorMessage,
-                                platformConfig?.aRecordTarget || ""
-                              )}
-                          </p>
-                        )}
-                        {dnsSet && (
-                          <div className="mt-2">
-                            <button
-                              type="button"
-                              onClick={() => toggleDnsPanel(domain.id)}
-                              className="acn-domains-lovable__dns-toggle"
-                              aria-expanded={dnsExpanded}
-                            >
-                              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${dnsExpanded ? "rotate-180" : ""}`} />
-                              {dnsExpanded ? "Hide DNS" : "Show DNS"}
-                            </button>
-                            {dnsExpanded && (
-                              <DomainDnsPanel
-                                domainName={domain.domainName}
-                                records={dnsSet?.records || []}
-                                aRecordTarget={platformConfig!.aRecordTarget}
-                                cnameTarget={platformConfig!.cnameTarget}
-                                ownershipVerification={domain.ownershipVerification}
-                              />
-                            )}
-                          </div>
-                        )}
-                        {connectionTest && <ConnectionTestResult test={connectionTest} />}
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        <button
-                          type="button"
-                          title="Refresh / Test connection"
-                          disabled={testingId === domain.id || verifyingId === domain.id}
-                          onClick={() => void testConnection(domain)}
-                          className="acn-domains-lovable__icon-btn"
+                        <div
+                          className="acn-domains-lovable__accordion-controls"
+                          onClick={(event) => event.stopPropagation()}
                         >
-                          {testingId === domain.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <PlugZap className="h-4 w-4" />
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          title="Reconnect / continue setup"
-                          onClick={() => {
-                            setResumeDomain(domain);
-                            setWizardOpen(true);
-                          }}
-                          className="acn-domains-lovable__icon-btn"
-                        >
-                          <Globe className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          title="Verify again"
-                          disabled={verifyingId === domain.id}
-                          onClick={() => void verifyDomain(domain)}
-                          className="acn-domains-lovable__icon-btn"
-                        >
-                          <RefreshCw className={`h-4 w-4 ${verifyingId === domain.id ? "animate-spin" : ""}`} />
-                        </button>
-                        {dnsLinked && (
                           <button
                             type="button"
-                            title="Edit linked bio page"
-                            onClick={() => editLinkedPage(domain)}
+                            title="Refresh / Test connection"
+                            disabled={testingId === domain.id || verifyingId === domain.id}
+                            onClick={() => void testConnection(domain)}
                             className="acn-domains-lovable__icon-btn"
                           >
-                            <Edit3 className="h-4 w-4" />
+                            {testingId === domain.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <PlugZap className="h-4 w-4" />
+                            )}
                           </button>
-                        )}
-                        {canOpen && (
                           <button
                             type="button"
-                            title="Open website in new tab"
-                            onClick={() => void openLiveWebsite(domain)}
-                            className={`acn-domains-lovable__icon-btn ${
-                              publicReady
-                                ? "acn-domains-lovable__icon-btn--live"
-                                : "acn-domains-lovable__icon-btn--open"
-                            }`}
+                            title="Reconnect / continue setup"
+                            onClick={() => {
+                              setResumeDomain(domain);
+                              setWizardOpen(true);
+                            }}
+                            className="acn-domains-lovable__icon-btn"
                           >
-                            <ExternalLink className="h-4 w-4" />
+                            <Globe className="h-4 w-4" />
                           </button>
-                        )}
-                        <button
-                          type="button"
-                          title="Remove domain"
-                          disabled={deletingId === domain.id}
-                          onClick={() => setRemoveTarget(domain)}
-                          className="acn-domains-lovable__icon-btn acn-domains-lovable__icon-btn--danger"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                          <button
+                            type="button"
+                            title="Verify again"
+                            disabled={verifyingId === domain.id}
+                            onClick={() => void verifyDomain(domain)}
+                            className="acn-domains-lovable__icon-btn"
+                          >
+                            <RefreshCw
+                              className={`h-4 w-4 ${verifyingId === domain.id ? "animate-spin" : ""}`}
+                            />
+                          </button>
+                          {dnsLinked && (
+                            <button
+                              type="button"
+                              title="Edit linked bio page"
+                              onClick={() => editLinkedPage(domain)}
+                              className="acn-domains-lovable__icon-btn"
+                            >
+                              <Edit3 className="h-4 w-4" />
+                            </button>
+                          )}
+                          {canOpen && (
+                            <button
+                              type="button"
+                              title="Open website in new tab"
+                              onClick={() => void openLiveWebsite(domain)}
+                              className={`acn-domains-lovable__icon-btn ${
+                                publicReady
+                                  ? "acn-domains-lovable__icon-btn--live"
+                                  : "acn-domains-lovable__icon-btn--open"
+                              }`}
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            title="Remove domain"
+                            disabled={deletingId === domain.id}
+                            onClick={() => setRemoveTarget(domain)}
+                            className="acn-domains-lovable__icon-btn acn-domains-lovable__icon-btn--danger"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
                       </div>
+
+                      {isOpen && (
+                        <div className="acn-domains-lovable__accordion-body">
+                          <p className="acn-domains-lovable__opens-row">
+                            <span>Opens:</span>
+                            <select
+                              value={domain.pageId}
+                              disabled={reassigningId === domain.id || pages.length === 0}
+                              onChange={(event) => void reassignLinkedPage(domain, event.target.value)}
+                              className="acn-domains-lovable__page-select"
+                              aria-label={`Change linked page for ${domain.domainName}`}
+                            >
+                              {pages.map((page) => {
+                                const linkedElsewhere = linkedDomainsByPageId.get(page.id);
+                                const disabled = Boolean(
+                                  linkedElsewhere && linkedElsewhere.id !== domain.id
+                                );
+                                return (
+                                  <option key={page.id} value={page.id} disabled={disabled}>
+                                    {page.title}
+                                    {disabled ? " (in use)" : ""}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                            <span className="acn-domains-lovable__opens-meta">
+                              {dnsSet?.records.length || 1} DNS record
+                              {(dnsSet?.records.length || 1) === 1 ? "" : "s"} required
+                            </span>
+                          </p>
+
+                          <div className="acn-domains-lovable__meta-grid">
+                            <div>
+                              <span className="acn-domains-lovable__meta-label">Provider</span>
+                              {providerBrand ? (
+                                <span className="acn-domains-lovable__meta-provider">
+                                  <img
+                                    src={providerBrand.logoUrl}
+                                    alt={`${providerBrand.displayName} logo`}
+                                    className="acn-domains-lovable__meta-provider-logo"
+                                    width={72}
+                                    height={22}
+                                  />
+                                  <span className="acn-domains-lovable__meta-value">
+                                    {providerBrand.displayName}
+                                    {domain.providerConnected ? " · Connected" : ""}
+                                  </span>
+                                </span>
+                              ) : (
+                                <span className="acn-domains-lovable__meta-value">—</span>
+                              )}
+                            </div>
+                            <div>
+                              <span className="acn-domains-lovable__meta-label">DNS</span>
+                              <span className="acn-domains-lovable__meta-value">
+                                {domain.dnsVerifiedAt || domain.dnsLastVerified
+                                  ? "Verified"
+                                  : "Pending"}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="acn-domains-lovable__meta-label">SSL</span>
+                              <span className="acn-domains-lovable__meta-value">
+                                {domain.sslStatus || "pending"}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="acn-domains-lovable__meta-label">Last checked</span>
+                              <span className="acn-domains-lovable__meta-value">
+                                {domain.lastCheckedAt
+                                  ? new Date(domain.lastCheckedAt).toLocaleString()
+                                  : "—"}
+                              </span>
+                            </div>
+                          </div>
+
+                          {(domain.setupHint || domain.errorMessage) && (
+                            <p
+                              className={`acn-domains-lovable__hint ${
+                                domain.errorMessage && domain.status === "Pending DNS"
+                                  ? "is-error"
+                                  : ""
+                              }`}
+                            >
+                              {domain.setupHint ||
+                                formatDnsVerifyError(
+                                  domain.domainName,
+                                  domain.errorMessage,
+                                  platformConfig?.aRecordTarget || ""
+                                )}
+                            </p>
+                          )}
+
+                          {dnsSet && (
+                            <div className="acn-domains-lovable__dns-block">
+                              <button
+                                type="button"
+                                onClick={() => toggleDnsPanel(domain.id)}
+                                className="acn-domains-lovable__dns-toggle"
+                                aria-expanded={dnsExpanded}
+                              >
+                                <ChevronDown
+                                  className={`h-3.5 w-3.5 transition-transform ${
+                                    dnsExpanded ? "rotate-180" : ""
+                                  }`}
+                                />
+                                {dnsExpanded ? "Hide DNS" : "Show DNS"}
+                              </button>
+                              {dnsExpanded && (
+                                <DomainDnsPanel
+                                  domainName={domain.domainName}
+                                  records={dnsSet.records}
+                                  aRecordTarget={platformConfig!.aRecordTarget}
+                                  cnameTarget={platformConfig!.cnameTarget}
+                                  ownershipVerification={domain.ownershipVerification}
+                                />
+                              )}
+                            </div>
+                          )}
+
+                          {connectionTest && <ConnectionTestResult test={connectionTest} />}
+                        </div>
+                      )}
                     </li>
                   );
                 })}
               </ul>
             )}
-
           </Workspace>
         </SectionCard>
 
         {!platformConfigLoading && platformConfig && (
           <aside className="acn-domains-lovable__aside">
             <h4 className="font-bold text-slate-900">How it works</h4>
-            <ol className="mt-3 space-y-2 text-sm text-slate-600">
-              {platformConfig.steps.map((step, index) => (
-                <li key={index} className="flex gap-2">
-                  <span className="font-bold text-indigo-600">{index + 1}.</span>
-                  <span>{step}</span>
-                </li>
-              ))}
+            <ol className="acn-domains-lovable__how-steps">
+              <li>
+                <span>1</span>
+                Tap <strong>Connect Domain</strong>, enter your address, and pick which bio page opens.
+              </li>
+              <li>
+                <span>2</span>
+                Choose <strong>Cloudflare</strong> → Connect once. You approve ACN Link on{" "}
+                <em>your</em> Cloudflare account (not ours).
+              </li>
+              <li>
+                <span>3</span>
+                We add DNS automatically (CNAME or A), then check until status is{" "}
+                <strong>LIVE</strong>.
+              </li>
+              <li>
+                <span>4</span>
+                Remove a domain here and we also delete that DNS record from your Cloudflare when
+                connected.
+              </li>
             </ol>
-            <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
+            <div className="acn-domains-lovable__how-note">
               <p>
-                <strong>Root domain</strong> (yourbrand.com):
+                <strong>Other DNS hosts</strong> (GoDaddy, Hostinger, …): use the guided copy steps —
+                auto-connect coming soon.
               </p>
-              <ul className="mt-2 list-disc pl-4 space-y-1">
-                <li>
-                  A · Host <code>@</code> → <code>{platformConfig.aRecordTarget}</code>
-                </li>
-              </ul>
-              <p className="mt-3">
-                <strong>Subdomain</strong> (king.yourbrand.com, www.yourbrand.com):
+              <p className="mt-2">
+                <strong>Subdomain:</strong> CNAME →{" "}
+                <code>{platformConfig.cnameTarget || platformConfig.platformUrl}</code> (DNS only /
+                gray cloud).
               </p>
-              <ul className="mt-2 list-disc pl-4 space-y-1">
-                <li>
-                  CNAME · Host <code>king</code> (prefix only) →{" "}
-                  <code>{platformConfig.cnameTarget || platformConfig.platformUrl}</code>
-                </li>
-              </ul>
+              <p className="mt-1">
+                <strong>Root domain:</strong> A <code>@</code> →{" "}
+                <code>{platformConfig.aRecordTarget}</code>
+              </p>
+              <p className="mt-2 text-slate-500">
+                One bio page can use one custom domain. You can connect many domains on one account.
+              </p>
             </div>
           </aside>
         )}

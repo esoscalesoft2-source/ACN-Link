@@ -9,22 +9,26 @@ import {
 } from "./stubProviders";
 import type { DnsProviderAdapter, DnsProviderCapability, DnsProviderId } from "./types";
 
-const PROVIDERS: DnsProviderAdapter[] = [
-  cloudflareProvider,
+/** Kept for older domain rows that stored a stub provider id — not shown in the picker. */
+const LEGACY_PROVIDERS: DnsProviderAdapter[] = [
   godaddyProvider,
   hostingerProvider,
   namecheapProvider,
   porkbunProvider,
-  squarespaceProvider,
-  manualProvider
+  squarespaceProvider
 ];
 
+/** Customer-facing picker: Cloudflare auto-setup + Manual DNS only. */
+const LISTED_PROVIDERS: DnsProviderAdapter[] = [cloudflareProvider, manualProvider];
+
+const ALL_PROVIDERS: DnsProviderAdapter[] = [...LISTED_PROVIDERS, ...LEGACY_PROVIDERS];
+
 const BY_ID = new Map<DnsProviderId, DnsProviderAdapter>(
-  PROVIDERS.map((provider) => [provider.capability.id, provider])
+  ALL_PROVIDERS.map((provider) => [provider.capability.id, provider])
 );
 
 export function listDnsProviderCapabilities(): DnsProviderCapability[] {
-  return PROVIDERS.map((provider) => provider.capability);
+  return LISTED_PROVIDERS.map((provider) => provider.capability);
 }
 
 export function getDnsProvider(id: string | null | undefined): DnsProviderAdapter {
@@ -34,6 +38,6 @@ export function getDnsProvider(id: string | null | undefined): DnsProviderAdapte
 
 export function normalizeDnsProviderId(id: string | null | undefined): DnsProviderId {
   const key = (id || "").toLowerCase();
-  if (BY_ID.has(key as DnsProviderId)) return key as DnsProviderId;
+  if (key === "cloudflare") return "cloudflare";
   return "other";
 }

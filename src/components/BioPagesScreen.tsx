@@ -21,7 +21,6 @@ import {
   persistPagePreviewLocalOnly,
   syncDraftToServer,
   syncAllDraftsToServer,
-  describeServerSyncFailure,
   syncPagesListToServer,
   readStoredPageTheme,
   readStoredPageDetails,
@@ -1211,12 +1210,11 @@ export default function BioPagesScreen({
 
   const handleSaveDraft = async () => {
     if (!selectedEditPage || !editorTitle.trim()) {
-      triggerToast("⚠️ Add a page title before saving a draft.");
+      triggerToast("Add a page title before saving a draft.");
       return;
     }
 
     if (isSavingDraft) return;
-
     setIsSavingDraft(true);
 
     try {
@@ -1237,45 +1235,45 @@ export default function BioPagesScreen({
       setSavedDrafts(nextDrafts);
 
       const pagesForSync = applyEditingPageUpdate("Draft");
+      const pageId = selectedEditPage.id;
+      const pageSlug = selectedEditPage.slug;
+      const blocksSnapshot = cloneBlocks(state.blocks);
+      const details = buildCurrentPreviewDetails();
 
       setPageBlocksMap((prev) => ({
         ...prev,
-        [selectedEditPage.id]: cloneBlocks(state.blocks)
+        [pageId]: blocksSnapshot
       }));
 
-      const details = buildCurrentPreviewDetails();
-      const [draftSync, previewResult] = await Promise.all([
-        syncDraftToServer(draftRecord),
-        persistAndSyncPagePreview(
-          selectedEditPage.id,
-          selectedEditPage.slug,
-          state.blocks,
-          details,
-          { pages: pagesForSync }
-        ),
-        syncPagesListToServer(pagesForSync)
-      ]);
-      const pageServerOk = previewResult.serverOk;
-      const draftServerOk = draftSync.ok;
+      // Local save finishes immediately — never wait on the network for the button.
+      persistPagePreviewLocalOnly(pageId, pageSlug, blocksSnapshot, details);
+      persistDrafts(nextDrafts);
 
-      if (draftServerOk || pageServerOk) {
-        triggerToast(`💾 Draft for "${editorTitle}" saved to the cloud.`);
-      } else {
-        const reason = pageServerOk ? draftSync.reason : previewResult.sync.reason;
-        triggerToast(`💾 Draft saved in this session. ${describeServerSyncFailure(reason)}`);
-      }
-
+      triggerToast(`Draft saved for "${editorTitle}".`);
       onNotify({
         type: "draft_saved",
         title: "Draft saved",
-        message: draftServerOk || pageServerOk
-          ? `Your edits to "${editorTitle}" were saved to the server.`
-          : `Your edits to "${editorTitle}" were saved in this session.`,
+        message: `Your edits to "${editorTitle}" were saved.`,
         targetScreen: ScreenId.BIO_PAGES
       });
+
+      // Best-effort cloud sync in the background (no error toasts).
+      void (async () => {
+        try {
+          await syncPagesListToServer(pagesForSync);
+          await Promise.all([
+            syncDraftToServer(draftRecord),
+            persistAndSyncPagePreview(pageId, pageSlug, blocksSnapshot, details, {
+              pages: pagesForSync
+            })
+          ]);
+        } catch (error) {
+          console.warn("[bio] background draft sync failed:", error);
+        }
+      })();
     } catch (err) {
       console.error("Failed to save draft:", err);
-      triggerToast("⚠️ Could not save draft. Please try again.");
+      triggerToast("Could not save draft. Please try again.");
     } finally {
       setIsSavingDraft(false);
     }
@@ -1460,14 +1458,29 @@ export default function BioPagesScreen({
 
   const renderBioPagePublicLink = (page: BioPage) => {
     const link = resolvePublicLink(page);
+    const unpublished = page.status !== "Live";
+    const blockedTitle = unpublished
+      ? "Publish this page before visitors can open the link"
+      : link.kind === "custom" && !link.canOpen
+        ? "Verify DNS on Custom Domains before opening this address"
+        : link.shareUrl;
+
     return (
       <div className="mt-1 flex flex-wrap items-center gap-2 min-w-0">
-        {link.kind === "custom" && !link.canOpen ? (
+        {!link.canOpen ? (
           <span
-            title="Verify DNS on Custom Domains before opening this address"
-            className="text-xs font-medium flex items-center gap-1 font-mono min-w-0 max-w-full text-amber-700"
+            title={blockedTitle}
+            className={`text-xs font-medium flex items-center gap-1 font-mono min-w-0 max-w-full ${
+              unpublished ? "text-slate-500" : "text-amber-700"
+            }`}
           >
-            <Globe className="h-3 w-3 shrink-0" />
+            {link.kind === "custom" ? (
+              <Globe className="h-3 w-3 shrink-0" />
+            ) : link.kind === "acn_subdomain" ? (
+              <Sparkles className="h-3 w-3 shrink-0" />
+            ) : (
+              <Link className="h-3 w-3 shrink-0" />
+            )}
             <span className="truncate">{link.displayLabel}</span>
           </span>
         ) : (
@@ -1494,15 +1507,20 @@ export default function BioPagesScreen({
             <span className="truncate">{link.displayLabel}</span>
           </a>
         )}
-        {link.kind === "custom" && (
+        {unpublished && (
+          <span className="acn-bio-page-link-badge shrink-0 acn-bio-page-link-badge--pending">
+            Publish to share
+          </span>
+        )}
+        {!unpublished && link.kind === "custom" && (
           <span className={`acn-bio-page-link-badge shrink-0 ${link.publicReady ? "" : "acn-bio-page-link-badge--pending"}`}>
             {link.publicReady ? "Custom domain" : link.canOpen ? "DNS OK" : "Pending DNS"}
           </span>
         )}
-        {link.kind === "acn_subdomain" && (
+        {!unpublished && link.kind === "acn_subdomain" && (
           <span className="acn-bio-page-link-badge shrink-0">Free ACN URL</span>
         )}
-        {link.kind === "platform" && (
+        {!unpublished && link.kind === "platform" && (
           <button
             type="button"
             onClick={() => setClaimSubdomainPage(page)}
@@ -1658,13 +1676,39 @@ export default function BioPagesScreen({
                 <ExternalLink className="h-4.5 w-4.5" />
               </a>
             )}
+            {!publicLink.canOpen && (
+              <button
+                type="button"
+                disabled
+                title={
+                  page.status !== "Live"
+                    ? "Publish this page before visitors can open it"
+                    : "This link is not ready to open yet"
+                }
+                className="p-2 rounded-lg text-slate-300 cursor-not-allowed flex items-center justify-center"
+              >
+                <ExternalLink className="h-4.5 w-4.5" />
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
-                void copyText(publicLink.shareUrl, "🔗 Public shareable link copied!");
+                if (page.status !== "Live") {
+                  triggerToast("Publish this page before sharing the public link.");
+                  return;
+                }
+                void copyText(publicLink.shareUrl, "Public shareable link copied!");
               }}
-              title="Copy Public Share Link (WhatsApp & Mobile)"
-              className="p-2 hover:bg-white rounded-lg text-slate-500 hover:text-emerald-600 transition-all flex items-center justify-center"
+              title={
+                page.status !== "Live"
+                  ? "Publish this page before sharing"
+                  : "Copy Public Share Link (WhatsApp & Mobile)"
+              }
+              className={`p-2 hover:bg-white rounded-lg transition-all flex items-center justify-center ${
+                page.status !== "Live"
+                  ? "text-slate-300 hover:text-slate-400"
+                  : "text-slate-500 hover:text-emerald-600"
+              }`}
             >
               <Copy className="h-4.5 w-4.5" />
             </button>
@@ -1859,55 +1903,57 @@ export default function BioPagesScreen({
   ]);
 
   const handlePublishEditor = async () => {
-    if (selectedEditPage && !isPublishing) {
-      if (!editorTitle.trim()) {
-        triggerToast("A page title is required before publishing.");
-        return;
-      }
-      setIsPublishing(true);
+    if (!selectedEditPage || isPublishing) return;
+    if (!editorTitle.trim()) {
+      triggerToast("A page title is required before publishing.");
+      return;
+    }
+
+    setIsPublishing(true);
+    try {
+      const pageId = selectedEditPage.id;
+      const pageSlug = selectedEditPage.slug;
+      const blocksSnapshot = cloneBlocks(editorBlocks);
+      const details = buildCurrentPreviewDetails();
       const pagesForSync = applyEditingPageUpdate("Live");
-      
-      // Persist blocks in memory map
-      setPageBlocksMap(prev => ({
+
+      setPageBlocksMap((prev) => ({
         ...prev,
-        [selectedEditPage.id]: [...editorBlocks]
+        [pageId]: blocksSnapshot
       }));
 
-      const details = buildCurrentPreviewDetails();
+      // Local publish finishes immediately — success UI must not wait on the network.
+      persistPagePreviewLocalOnly(pageId, pageSlug, blocksSnapshot, details);
 
-      try {
-        await syncPagesListToServer(pagesForSync);
-        const previewResult = await persistAndSyncPagePreview(
-          selectedEditPage.id,
-          selectedEditPage.slug,
-          editorBlocks,
-          details,
-          { pages: pagesForSync }
-        );
-        const { serverOk, sync } = previewResult;
-        if (!serverOk) {
-          throw new Error(describeServerSyncFailure(sync.reason));
-        }
+      const nextDrafts = deleteDraftByPageId(pageId, savedDrafts);
+      setSavedDrafts(nextDrafts);
+      persistDrafts(nextDrafts);
 
-        const nextDrafts = deleteDraftByPageId(selectedEditPage.id, savedDrafts);
-        setSavedDrafts(nextDrafts);
-        void syncAllDraftsToServer(nextDrafts);
-
-        onNotify({
-          type: "page_published",
-          title: "Page published",
-          message: `"${editorTitle}" is now live on the cloud.`,
-          targetScreen: ScreenId.BIO_PAGES,
-          meta: { pageId: selectedEditPage.id }
+      onNotify({
+        type: "page_published",
+        title: "Page published",
+        message: `"${editorTitle}" is now live.`,
+        targetScreen: ScreenId.BIO_PAGES,
+        meta: { pageId }
       });
-
       setShowPublishSuccess(true);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Could not publish to the server.";
-        triggerToast(message);
-      } finally {
-        setIsPublishing(false);
-      }
+
+      void (async () => {
+        try {
+          await syncPagesListToServer(pagesForSync);
+          await persistAndSyncPagePreview(pageId, pageSlug, blocksSnapshot, details, {
+            pages: pagesForSync
+          });
+          void syncAllDraftsToServer(nextDrafts);
+        } catch (error) {
+          console.warn("[bio] background publish sync failed:", error);
+        }
+      })();
+    } catch (err) {
+      console.error("Failed to publish page:", err);
+      triggerToast("Could not publish. Please try again.");
+    } finally {
+      setIsPublishing(false);
     }
   };
 
@@ -2349,33 +2395,6 @@ export default function BioPagesScreen({
                           )}
                         </div>
                       </div>
-
-                      <div className="acn-platform-search-help">
-                        <p>
-                          <strong>How search works:</strong> Type a{" "}
-                          <span className="acn-platform-search-help__term">page name</span>,{" "}
-                          <span className="acn-platform-search-help__term">slug</span> (URL short name like{" "}
-                          <code>my-shop</code>),{" "}
-                          <span className="acn-platform-search-help__term">page ID</span> (from create page), or{" "}
-                          <span className="acn-platform-search-help__term">status</span> like{" "}
-                    <button
-                            type="button"
-                            className="acn-platform-search-help__chip"
-                            onClick={() => setPlatformSearchQuery("Live")}
-                          >
-                            Live
-                    </button>
-                          /
-                          <button
-                            type="button"
-                            className="acn-platform-search-help__chip"
-                            onClick={() => setPlatformSearchQuery("Draft")}
-                          >
-                            Draft
-                          </button>
-                          .
-                        </p>
-                  </div>
 
                       <p className="acn-platform-bulk-toolbar__meta">
                         Showing {filteredPlatformPages.length} of {platformPages.length} platform links

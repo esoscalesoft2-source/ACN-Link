@@ -222,7 +222,7 @@ function sanitizeStoredErrorMessage(domainName: string, message: string | null):
   }
   if (kind === "root" && /cname.*www/i.test(message)) {
     const aTarget = resolveCustomDomainATarget();
-    return `Root domains use A record only: Host @ → ${aTarget}. Connect www.yourbrand.com separately as a subdomain if needed.`;
+    return `Root domains use A record only: Host @ → ${aTarget}. Connect www.yourdomain.com separately as a subdomain if needed.`;
   }
   return message;
 }

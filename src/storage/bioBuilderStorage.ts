@@ -9,7 +9,13 @@ import {
 } from "../types";
 import { normalizePageTheme } from "../lib/bioPageThemes";
 import { apiUrl } from "../lib/apiBase";
-import { getAccessToken, isPreviewToken } from "../lib/authApi";
+import {
+  clearAuthSession,
+  getAccessToken,
+  getRefreshToken,
+  isPreviewToken,
+  refreshSession
+} from "../lib/authApi";
 
 export type ServerSyncReason =
   | "ok"
@@ -18,7 +24,8 @@ export type ServerSyncReason =
   | "network_error"
   | "unauthorized"
   | "page_not_found"
-  | "server_error";
+  | "server_error"
+  | "timeout";
 
 export interface ServerSyncResult {
   ok: boolean;
@@ -38,9 +45,59 @@ export function describeServerSyncFailure(reason: ServerSyncReason): string {
       return "This page is not registered on the server yet. Try again in a moment.";
     case "network_error":
       return "Could not reach the server. Check your connection.";
+    case "timeout":
+      return "The server took too long to respond.";
     default:
       return "Could not save to the server right now.";
   }
+}
+
+const SYNC_TIMEOUT_MS = 12_000;
+
+/** Timed fetch with one shared refresh retry — prevents Save/Publish from hanging forever. */
+async function bioFetch(path: string, init: RequestInit = {}, retry = true): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS);
+  try {
+    const headers = new Headers(init.headers || {});
+    if (init.body && !headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
+    const token = getAccessToken();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+
+    const response = await fetch(apiUrl(path), {
+      ...init,
+      headers,
+      credentials: "include",
+      signal: controller.signal
+    });
+
+    if (
+      response.status === 401 &&
+      retry &&
+      getRefreshToken() &&
+      !isPreviewToken(getAccessToken())
+    ) {
+      try {
+        await refreshSession();
+        return bioFetch(path, init, false);
+      } catch {
+        clearAuthSession("session_expired");
+      }
+    }
+
+    return response;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof DOMException && error.name === "AbortError") ||
+    (error instanceof Error && error.name === "AbortError")
+  );
 }
 
 export const DRAFTS_STORAGE_KEY = "acnlink_bio_page_drafts";
@@ -203,10 +260,8 @@ export async function syncPagesListToServer(pages: BioPage[]): Promise<boolean> 
   const token = getAccessToken();
   if (!token || isPreviewToken(token)) return false;
   try {
-    const response = await fetch(apiUrl("/api/pages"), {
+    const response = await bioFetch("/api/pages", {
       method: "POST",
-      headers: authJsonHeaders(),
-      credentials: "include",
       body: JSON.stringify({ pages })
     });
     return response.ok;
@@ -657,26 +712,26 @@ export async function syncPageDocumentToServer(
   if (!token) return { ok: false, reason: "no_token" };
   if (isPreviewToken(token)) return { ok: false, reason: "preview_session" };
 
-  const postPage = async () =>
-    fetch(apiUrl(`/api/page/${pageId}`), {
-      method: "POST",
-      headers: authJsonHeaders(),
-      credentials: "include",
-      body: JSON.stringify({
-        blocks,
-        details,
-        updatedAt: new Date().toISOString()
-      })
-    });
+  const postBody = JSON.stringify({
+    blocks,
+    details,
+    updatedAt: new Date().toISOString()
+  });
 
   try {
-    let response = await postPage();
+    let response = await bioFetch(`/api/page/${pageId}`, {
+      method: "POST",
+      body: postBody
+    });
 
     if (response.status === 404) {
       const pages = options?.pages?.length ? options.pages : readLocalPagesList();
       if (pages.length > 0) {
         await syncPagesListToServer(pages);
-        response = await postPage();
+        response = await bioFetch(`/api/page/${pageId}`, {
+          method: "POST",
+          body: postBody
+        });
       }
     }
 
@@ -686,6 +741,7 @@ export async function syncPageDocumentToServer(
     return { ok: false, reason: "server_error", status: response.status };
   } catch (err) {
     console.error("Failed to sync page document to server:", err);
+    if (isAbortError(err)) return { ok: false, reason: "timeout" };
     return { ok: false, reason: "network_error" };
   }
 }
@@ -778,10 +834,8 @@ export async function syncDraftToServer(draft: BioPageDraft): Promise<ServerSync
   if (isPreviewToken(token)) return { ok: false, reason: "preview_session" };
 
   try {
-    const response = await fetch(apiUrl("/api/drafts"), {
+    const response = await bioFetch("/api/drafts", {
       method: "POST",
-      headers: authJsonHeaders(),
-      credentials: "include",
       body: JSON.stringify({ draft })
     });
     if (response.ok) return { ok: true, reason: "ok", status: response.status };
@@ -789,6 +843,7 @@ export async function syncDraftToServer(draft: BioPageDraft): Promise<ServerSync
     return { ok: false, reason: "server_error", status: response.status };
   } catch (err) {
     console.error("Failed to sync draft to server:", err);
+    if (isAbortError(err)) return { ok: false, reason: "timeout" };
     return { ok: false, reason: "network_error" };
   }
 }
@@ -796,11 +851,9 @@ export async function syncDraftToServer(draft: BioPageDraft): Promise<ServerSync
 /** Save all drafts to Railway, then optionally mirror to local cache. */
 export async function syncAllDraftsToServer(drafts: BioPageDraft[]): Promise<boolean> {
   try {
-    if (!getAccessToken()) return false;
-    const response = await fetch(apiUrl("/api/drafts"), {
+    if (!getAccessToken() || isPreviewToken(getAccessToken())) return false;
+    const response = await bioFetch("/api/drafts", {
       method: "POST",
-      headers: authJsonHeaders(),
-      credentials: "include",
       body: JSON.stringify({ drafts })
     });
     return response.ok;

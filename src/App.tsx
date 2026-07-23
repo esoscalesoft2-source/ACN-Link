@@ -799,6 +799,16 @@ export default function App() {
     }
     if (brandedPageId) {
       const pageToPreview = pages.find((p) => p.id === brandedPageId);
+      if (pageToPreview && pageToPreview.status !== "Live") {
+        return (
+          <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 text-center text-sm text-slate-600">
+            <div>
+              <h1 className="text-lg font-bold text-slate-900">Page not published</h1>
+              <p className="mt-2">This bio page is still a draft. Publish it in ACN Link to go live.</p>
+            </div>
+          </div>
+        );
+      }
       return (
         <PublicBioPageView
           pageId={brandedPageId}
@@ -820,16 +830,29 @@ export default function App() {
     );
   }
 
-  // Platform preview while building pages (?previewPageId= on acnlink.mindflo.today)
+  // Platform preview (?previewPageId=) — only Live pages are publicly visitable.
   if (previewPageId) {
     const pageToPreview = pages.find((p) => p.id === previewPageId);
+    if (!pageToPreview || pageToPreview.status !== "Live") {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 px-6">
+          <div className="max-w-md text-center">
+            <h1 className="text-xl font-bold text-slate-900">Page not available</h1>
+            <p className="mt-2 text-sm text-slate-600">
+              This bio page is still a draft. Publish it from Bio Pages before visitors can open the
+              link.
+            </p>
+          </div>
+        </div>
+      );
+    }
     return (
       <PublicBioPageView
         pageId={previewPageId}
-        pageTitle={pageToPreview?.title || "BioLink"}
-        pageSlug={pageToPreview?.slug || "biolink"}
-        pageBio={pageToPreview?.bio}
-        pageCoverPhoto={pageToPreview?.coverPhoto}
+        pageTitle={pageToPreview.title || "BioLink"}
+        pageSlug={pageToPreview.slug || "biolink"}
+        pageBio={pageToPreview.bio}
+        pageCoverPhoto={pageToPreview.coverPhoto}
         mode="preview"
       />
     );

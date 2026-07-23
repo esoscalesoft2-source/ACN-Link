@@ -65,6 +65,7 @@ export function resolveBioPagePublicLink(
   domains: CustomDomain[] = [],
   platformSubdomains: PlatformSubdomain[] = []
 ): BioPagePublicLink {
+  const published = page.status === "Live";
   const linkedDomain = findLiveDomainForPage(page.id, domains);
   const publicReadyDomain = findPublicReadyDomainForPage(page.id, domains);
   const platformOrigin = getPlatformPublicOrigin();
@@ -74,8 +75,8 @@ export function resolveBioPagePublicLink(
 
   if (linkedDomain) {
     const customUrl = `https://${linkedDomain.domainName}`;
-    const publicReady = Boolean(publicReadyDomain);
-    const canOpen = isCustomDomainLinked(linkedDomain);
+    const publicReady = published && Boolean(publicReadyDomain);
+    const canOpen = published && isCustomDomainLinked(linkedDomain);
     return {
       shareUrl: publicReady ? customUrl : previewShareUrl,
       openUrl: canOpen ? customUrl : previewOpenUrl,
@@ -94,8 +95,8 @@ export function resolveBioPagePublicLink(
       openUrl: url,
       displayLabel: platformSub.hostname,
       kind: "acn_subdomain",
-      publicReady: true,
-      canOpen: true
+      publicReady: published,
+      canOpen: published
     };
   }
 
@@ -104,8 +105,8 @@ export function resolveBioPagePublicLink(
     openUrl: previewOpenUrl,
     displayLabel: `${displayHost}/?previewPageId=${page.id}`,
     kind: "platform",
-    publicReady: true,
-    canOpen: true
+    publicReady: published,
+    canOpen: published
   };
 }
 

@@ -24,13 +24,13 @@ export function normalizeCustomHostname(hostname: string): string {
   return hostname.trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0].replace(/\.$/, "");
 }
 
-/** Root domain: yourbrand.com (exactly two labels, not starting with www). */
+/** Root domain: yourdomain.com (exactly two labels, not starting with www). */
 export function isRootDomain(hostname: string): boolean {
   const labels = getLabels(hostname);
   return labels.length === 2 && labels[0] !== "www";
 }
 
-/** Subdomain: king.example.com, www.example.com, app.example.com */
+/** Subdomain: name.yourdomain.com, www.yourdomain.com, shop.yourdomain.com */
 export function isSubdomain(hostname: string): boolean {
   const labels = getLabels(hostname);
   return labels.length >= 3;
@@ -42,12 +42,12 @@ export function getCustomDomainKind(hostname: string): "root" | "subdomain" | nu
   return null;
 }
 
-/** Root domain or subdomain (e.g. yourbrand.com or app.yourbrand.com). */
+/** Root domain or subdomain (e.g. yourdomain.com or name.yourdomain.com). */
 export function isSupportedCustomDomain(hostname: string): boolean {
   return isRootDomain(hostname) || isSubdomain(hostname);
 }
 
-/** DNS zone for provider login (wheree.com for vickys-trx-fitness-studio.wheree.com). */
+/** DNS zone for provider login (yourdomain.com for name.yourdomain.com). */
 export function getDnsZoneDomain(hostname: string): string {
   const labels = getLabels(hostname);
   if (labels.length <= 2) return labels.join(".");
@@ -158,16 +158,16 @@ export function customDomainValidationError(hostname: string): string | null {
   const host = normalizeCustomHostname(hostname);
   const labels = getLabels(host);
   if (labels.length === 0) {
-    return "Enter your root domain or subdomain, for example yourbrand.com or app.yourbrand.com.";
+    return "Enter your root domain or subdomain, for example yourdomain.com or name.yourdomain.com.";
   }
   if (labels.length === 1) {
-    return "Enter a full address like yourbrand.com or app.yourbrand.com.";
+    return "Enter a full address like yourdomain.com or name.yourdomain.com.";
   }
   if (labels[0] === "www" && labels.length === 2) {
-    return "Enter the full domain, for example yourbrand.com (root) or www.yourbrand.com (subdomain).";
+    return "Enter the full domain, for example yourdomain.com (root) or www.yourdomain.com (subdomain).";
   }
   if (!isSupportedCustomDomain(host)) {
-    return "Enter a valid root domain (yourbrand.com) or subdomain (app.yourbrand.com).";
+    return "Enter a valid root domain (yourdomain.com) or subdomain (name.yourdomain.com).";
   }
   return null;
 }

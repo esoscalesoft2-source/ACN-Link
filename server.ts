@@ -4,6 +4,7 @@ import path from "path";
 import fs from "fs";
 import cookieParser from "cookie-parser";
 import { createAuthRouter, requireAuth } from "./server/auth/routes";
+import { verifyAccessToken } from "./server/auth/crypto";
 import { getDataStoreStatus, getRootStore, initRootStore, setRootStore } from "./server/db/rootStore";
 import { getSupabase, isSupabaseConfigured } from "./server/db/supabase";
 import {
@@ -301,11 +302,31 @@ app.get("/api/page/:id", (req, res) => {
     res.status(404).json({ error: "Page not found" });
     return;
   }
+
+  const pages = Array.isArray(store["pages_list"]) ? store["pages_list"] : [];
+  const meta = pages.find((item: any) => item.id === id);
+  const status = String(meta?.status || "Draft");
+  if (status !== "Live") {
+    // Owners can still load drafts in the editor; public visitors cannot.
+    const header = req.headers.authorization;
+    const token = header?.startsWith("Bearer ") ? header.slice(7) : null;
+    let ownerOk = false;
+    if (token) {
+      const payload = verifyAccessToken(token);
+      ownerOk = Boolean(payload && meta?.ownerUserId && payload.sub === meta.ownerUserId);
+    }
+    if (!ownerOk) {
+      res.set("Cache-Control", "no-store");
+      res.status(404).json({ error: "Page not published", code: "PAGE_NOT_PUBLISHED" });
+      return;
+    }
+  }
+
   const updatedAt =
     typeof pageData.updatedAt === "string" ? pageData.updatedAt : "";
   const etag = `"${id}-${updatedAt}"`;
   res.set("ETag", etag);
-  res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=120");
+  res.set("Cache-Control", status === "Live" ? "public, max-age=30, stale-while-revalidate=120" : "no-store");
   if (req.headers["if-none-match"] === etag) {
     res.status(304).end();
     return;

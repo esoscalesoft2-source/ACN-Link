@@ -87,59 +87,13 @@ const DEFAULT_PROVIDERS: DnsProviderCapability[] = [
     blurb: "One click — authorize YOUR Cloudflare account and we add DNS for you."
   },
   {
-    id: "godaddy",
-    name: "GoDaddy",
-    supportsAutoDns: false,
-    supportsOAuth: false,
-    logoUrl: "/dns-providers/godaddy.svg",
-    helpUrl: "https://www.godaddy.com/help/add-a-cname-record-19236",
-    blurb: "Guided steps for GoDaddy DNS — auto-connect coming soon."
-  },
-  {
-    id: "hostinger",
-    name: "Hostinger",
-    supportsAutoDns: false,
-    supportsOAuth: false,
-    logoUrl: "/dns-providers/hostinger.svg",
-    helpUrl: "https://support.hostinger.com/en/articles/1583227-how-to-manage-dns-records-in-hpanel",
-    blurb: "Guided steps for Hostinger DNS — auto-connect coming soon."
-  },
-  {
-    id: "namecheap",
-    name: "Namecheap",
-    supportsAutoDns: false,
-    supportsOAuth: false,
-    logoUrl: "/dns-providers/namecheap.svg",
-    helpUrl:
-      "https://www.namecheap.com/support/knowledgebase/article.aspx/9646/2237/how-to-create-a-cname-record-for-your-domain/",
-    blurb: "Guided steps for Namecheap DNS — auto-connect coming soon."
-  },
-  {
-    id: "porkbun",
-    name: "Porkbun",
-    supportsAutoDns: false,
-    supportsOAuth: false,
-    logoUrl: "/dns-providers/porkbun.svg",
-    helpUrl: "https://kb.porkbun.com/article/22-how-to-edit-dns-records",
-    blurb: "Guided steps for Porkbun DNS — auto-connect coming soon."
-  },
-  {
-    id: "squarespace",
-    name: "Squarespace",
-    supportsAutoDns: false,
-    supportsOAuth: false,
-    logoUrl: "/dns-providers/squarespace.svg",
-    helpUrl: "https://support.squarespace.com/hc/en-us/articles/360002101888",
-    blurb: "Guided steps for Squarespace Domains — auto-connect coming soon."
-  },
-  {
     id: "other",
-    name: "Other",
+    name: "Manual",
     supportsAutoDns: false,
     supportsOAuth: false,
     logoUrl: "/dns-providers/default.svg",
     helpUrl: "https://www.google.com/search?q=how+to+add+CNAME+DNS+record",
-    blurb: "We'll show simple copy-and-paste steps for your DNS host."
+    blurb: "Copy the CNAME or A records and add them at your DNS host yourself."
   }
 ];
 
@@ -214,15 +168,34 @@ export default function ConnectDomainWizard({
   const previewSessionMessage =
     "You are in preview mode. Sign in with your email and password to connect a domain.";
 
-  const providers = platformConfig?.dnsProviders?.length
-    ? platformConfig.dnsProviders
-    : DEFAULT_PROVIDERS;
+  const providers = useMemo(() => {
+    const raw = platformConfig?.dnsProviders?.length
+      ? platformConfig.dnsProviders
+      : DEFAULT_PROVIDERS;
+    const cloudflare =
+      raw.find((item) => item.id === "cloudflare") ||
+      DEFAULT_PROVIDERS.find((item) => item.id === "cloudflare")!;
+    const manual =
+      raw.find((item) => item.id === "other") ||
+      DEFAULT_PROVIDERS.find((item) => item.id === "other")!;
+    return [
+      { ...cloudflare, supportsAutoDns: true },
+      {
+        ...manual,
+        name: "Manual",
+        supportsAutoDns: false,
+        blurb: "Copy the CNAME or A records and add them at your DNS host yourself."
+      }
+    ];
+  }, [platformConfig]);
 
   const selectedProvider =
     providers.find((item) => item.id === selectedProviderId) ||
     DEFAULT_PROVIDERS.find((item) => item.id === selectedProviderId) ||
     null;
 
+  // Reset wizard state only when the modal opens (or OAuth/resume handoff changes) —
+  // never when page list updates mid-flow (that was bouncing users back to step 1).
   useEffect(() => {
     if (!open) return;
     if (resumeDomain) {
@@ -231,7 +204,9 @@ export default function ConnectDomainWizard({
       setPageId(resumeDomain.pageId || firstAvailablePageId);
       setPageSelectionConfirmed(Boolean(resumeDomain.pageId || firstAvailablePageId));
       setPendingPage(null);
-      setSelectedProviderId((resumeDomain.dnsProviderId as DnsProviderId) || "other");
+      setSelectedProviderId(
+        resumeDomain.dnsProviderId === "cloudflare" ? "cloudflare" : "other"
+      );
       setPhase("verifying");
       void analyzeDomain(resumeDomain.domainName)
         .then(setAnalysis)
@@ -278,9 +253,11 @@ export default function ConnectDomainWizard({
 
     void fetchDomainPreferences()
       .then((prefs) => {
-        setPreferredProviderId(prefs.preferredDnsProvider);
-        if (!resumeDomain && !oauthBootstrap && prefs.preferredDnsProvider) {
-          setSelectedProviderId(prefs.preferredDnsProvider as DnsProviderId);
+        const preferred =
+          prefs.preferredDnsProvider === "cloudflare" ? "cloudflare" : prefs.preferredDnsProvider ? "other" : null;
+        setPreferredProviderId(preferred);
+        if (!resumeDomain && !oauthBootstrap && preferred) {
+          setSelectedProviderId(preferred as DnsProviderId);
         }
         const saved = prefs.connections.find(
           (item) => item.providerId === "cloudflare" && item.hasToken
@@ -293,7 +270,8 @@ export default function ConnectDomainWizard({
       .catch(() => {
         /* preferences optional */
       });
-  }, [open, resumeDomain, oauthBootstrap, firstAvailablePageId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- firstAvailablePageId only for initial resume seed
+  }, [open, resumeDomain, oauthBootstrap]);
 
   useEffect(() => {
     if (!open || phase !== "verifying" || connectStartedRef.current) return;
@@ -322,8 +300,12 @@ export default function ConnectDomainWizard({
   const inputPreview = useDomainInputPreview(domainName, dnsSet, phase === "domain" && !isResume);
   const dnsRecords = useMemo(() => (dnsSet ? dnsSet.records : []), [dnsSet]);
   const providerBranding = getProviderBranding(
-    selectedProviderId || analysis?.providerId || "unknown",
-    selectedProvider?.name || analysis?.providerName
+    selectedProviderId === "cloudflare"
+      ? "cloudflare"
+      : analysis?.providerId && analysis.providerId !== "unknown"
+        ? analysis.providerId
+        : selectedProviderId || "other",
+    selectedProvider?.name || analysis?.providerName || "your DNS host"
   );
 
   const requestPageSelection = (page: BioPage) => setPendingPage(page);
@@ -563,7 +545,7 @@ export default function ConnectDomainWizard({
       return;
     }
     if (!isValidHostname(hostname)) {
-      setFormError("Enter a website address like yourbrand.com or shop.yourbrand.com.");
+      setFormError("Enter a website address like yourdomain.com or name.yourdomain.com.");
       return;
     }
     if (!pageId || !pageSelectionConfirmed) {
@@ -583,11 +565,13 @@ export default function ConnectDomainWizard({
     void analyzeDomain(hostname)
       .then((result) => {
         setAnalysis(result);
-        if (!selectedProviderId && result.providerId && result.providerId !== "unknown") {
-          const match = providers.find((item) => item.id === result.providerId);
-          if (match) setSelectedProviderId(match.id);
-        } else if (!selectedProviderId && preferredProviderId) {
-          setSelectedProviderId(preferredProviderId as DnsProviderId);
+        if (!selectedProviderId && result.providerId === "cloudflare") {
+          setSelectedProviderId("cloudflare");
+        } else if (!selectedProviderId && preferredProviderId === "cloudflare") {
+          setSelectedProviderId("cloudflare");
+        } else if (!selectedProviderId) {
+          // Non-Cloudflare DNS → Manual path (copy CNAME/A records).
+          setSelectedProviderId("other");
         }
       })
       .catch(() => undefined);
@@ -605,14 +589,10 @@ export default function ConnectDomainWizard({
     }
 
     if (provider.id === "cloudflare") {
-      // Show one-click confirm screen (no token). User taps Connect → setup starts.
       setPhase("connect");
       return;
     }
-    if (provider.supportsAutoDns) {
-      setPhase("connect");
-      return;
-    }
+    // Manual (and any non-Cloudflare): create domain row then show CNAME/A copy steps.
     setPhase("verifying");
   };
 
@@ -653,10 +633,12 @@ export default function ConnectDomainWizard({
     }
   };
 
-  const finishWizard = async () => {
+  const finishWizard = () => {
     const domainRecord = connectedDomain;
-    if (!domainRecord || !isDomainLive(domainRecord)) return;
-    onFinished({ domain: domainRecord, connected: true, pending: false });
+    if (domainRecord) {
+      const live = isDomainLive(domainRecord);
+      onFinished({ domain: domainRecord, connected: live, pending: !live });
+    }
     onClose();
   };
 
@@ -745,7 +727,7 @@ export default function ConnectDomainWizard({
               autoFocus
               value={domainName}
               onChange={(event) => setDomainName(event.target.value)}
-              placeholder="shop.yourbrand.com"
+              placeholder="name.yourdomain.com"
               className="acn-domain-wizard__input"
             />
             {inputPreview.isValid && (
@@ -807,7 +789,7 @@ export default function ConnectDomainWizard({
             <h2 className="acn-domain-wizard__title">Where is your domain managed?</h2>
             <p className="acn-domain-wizard__lead">
               Pick the company where you buy or manage <strong>{normaliseHostname(domainName)}</strong>.
-              Not sure? Choose <strong>Other</strong>.
+              Not sure? Choose <strong>Manual</strong>.
             </p>
             {analysis?.providerName && analysis.providerId !== "unknown" && (
               <p className="acn-domain-wizard__hint-pill">

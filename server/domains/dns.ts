@@ -270,7 +270,7 @@ export async function verifyDomainDns(hostname: string): Promise<DnsVerification
       addresses: [],
       txtRecords: [],
       checkedAt: new Date().toISOString(),
-      message: "Enter a root domain or subdomain, for example yourbrand.com or app.yourbrand.com."
+      message: "Enter a root domain or subdomain, for example yourdomain.com or name.yourdomain.com."
     };
   }
 

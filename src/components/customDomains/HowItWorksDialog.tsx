@@ -34,8 +34,8 @@ export default function HowItWorksDialog({ open, onClose, cnameTarget, aRecordTa
           <section>
             <h4>Example</h4>
             <p>
-              You own <strong>ezysellonline.com</strong> on Cloudflare. You want{" "}
-              <code>tree.ezysellonline.com</code> to open your “Tree” bio page.
+              You own <strong>yourdomain.com</strong> on Cloudflare. You want{" "}
+              <code>name.yourdomain.com</code> to open one of your bio pages.
             </p>
           </section>
 
@@ -45,7 +45,7 @@ export default function HowItWorksDialog({ open, onClose, cnameTarget, aRecordTa
               <div>
                 <strong>Connect Domain</strong>
                 <p>
-                  Enter <code>tree.ezysellonline.com</code> and choose the bio page “Tree”.
+                  Enter <code>name.yourdomain.com</code> and choose which bio page should open.
                 </p>
               </div>
             </li>
@@ -64,8 +64,8 @@ export default function HowItWorksDialog({ open, onClose, cnameTarget, aRecordTa
               <div>
                 <strong>We add DNS automatically</strong>
                 <p>
-                  ACN creates CNAME <code>tree</code> → <code>{cnameTarget}</code> (DNS only / gray
-                  cloud). For a root domain like <code>ezysellonline.com</code>, we use A{" "}
+                  ACN creates CNAME <code>name</code> → <code>{cnameTarget}</code> (DNS only / gray
+                  cloud). For a root domain like <code>yourdomain.com</code>, we use A{" "}
                   <code>@</code> → <code>{aRecordTarget}</code>.
                 </p>
               </div>
@@ -76,7 +76,7 @@ export default function HowItWorksDialog({ open, onClose, cnameTarget, aRecordTa
                 <strong>Wait until LIVE</strong>
                 <p>
                   Status moves Pending → Verified → <strong>LIVE</strong>. Share{" "}
-                  <code>https://tree.ezysellonline.com</code> with visitors.
+                  <code>https://name.yourdomain.com</code> with visitors.
                 </p>
               </div>
             </li>
@@ -97,8 +97,8 @@ export default function HowItWorksDialog({ open, onClose, cnameTarget, aRecordTa
             <ul>
               <li>
                 <strong>Same root, many subdomains</strong> — on any root you own (e.g.{" "}
-                <code>yourbrand.com</code>), you can connect several subdomains like{" "}
-                <code>shop.</code>, <code>link.</code>, <code>team.</code>.
+                <code>yourdomain.com</code>), you can connect several subdomains like{" "}
+                <code>shop.</code>, <code>link.</code>, <code>name.</code>.
               </li>
               <li>
                 <strong>One custom domain per bio page</strong> — if a page already opens on another
@@ -110,8 +110,8 @@ export default function HowItWorksDialog({ open, onClose, cnameTarget, aRecordTa
                 needs a paid plan. Other roots each get their own free allowance of 3.
               </li>
               <li>
-                <strong>Other hosts</strong> (GoDaddy, Hostinger, …) — guided copy steps; auto-connect
-                coming soon.
+                <strong>Manual DNS</strong> — for any other host (GoDaddy, Hostinger, …), copy the
+                CNAME/A records we show. If Cloudflare auto-setup fails, the same manual steps appear.
               </li>
             </ul>
           </section>

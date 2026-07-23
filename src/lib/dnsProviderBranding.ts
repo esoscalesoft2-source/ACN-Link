@@ -82,7 +82,7 @@ const BRANDING: Record<string, Omit<ProviderBranding, "id">> = {
     accentColor: "#003366"
   },
   other: {
-    displayName: "Other",
+    displayName: "Manual",
     logoUrl: "/dns-providers/default.svg",
     accentColor: "#64748b"
   }

@@ -48,7 +48,7 @@ export function getCustomDomainKind(hostname: string): "root" | "subdomain" | nu
   return null;
 }
 
-/** Root domain or subdomain (e.g. yourbrand.com or app.yourbrand.com). */
+/** Root domain or subdomain (e.g. yourdomain.com or name.yourdomain.com). */
 export function isSupportedCustomDomain(hostname: string): boolean {
   return isRootDomain(hostname) || isSubdomain(hostname);
 }
@@ -65,7 +65,7 @@ export function getSubdomainHostLabel(hostname: string): string {
   return labels.slice(0, -2).join(".");
 }
 
-/** Map www.yourbrand.com → yourbrand.com for routing lookups. */
+/** Map www.yourdomain.com → yourdomain.com for routing lookups. */
 export function resolveRoutableHostnameAlias(hostname: string): string {
   const host = normalizeHostname(hostname);
   const labels = getLabels(host);
@@ -116,23 +116,23 @@ export function customDomainValidationError(hostname: string): string | null {
   const host = normalizeHostname(hostname);
   const labels = getLabels(host);
   if (labels.length === 0) {
-    return "Enter your root domain or subdomain, for example yourbrand.com or app.yourbrand.com.";
+    return "Enter your root domain or subdomain, for example yourdomain.com or name.yourdomain.com.";
   }
   if (labels.length === 1) {
-    return "Enter a full address like yourbrand.com or app.yourbrand.com.";
+    return "Enter a full address like yourdomain.com or name.yourdomain.com.";
   }
   if (labels[0] === "www" && labels.length === 2) {
-    return "Enter the full domain, for example yourbrand.com (root) or www.yourbrand.com (subdomain).";
+    return "Enter the full domain, for example yourdomain.com (root) or www.yourdomain.com (subdomain).";
   }
   if (!isSupportedCustomDomain(host)) {
-    return "Enter a valid root domain (yourbrand.com) or subdomain (app.yourbrand.com).";
+    return "Enter a valid root domain (yourdomain.com) or subdomain (name.yourdomain.com).";
   }
   return null;
 }
 
 export function assertSupportedCustomDomain(hostname: string): string | null {
   if (!CUSTOM_DOMAIN_PATTERN.test(hostname)) {
-    return "Enter a valid root domain or subdomain, for example yourbrand.com or app.yourbrand.com.";
+    return "Enter a valid root domain or subdomain, for example yourdomain.com or name.yourdomain.com.";
   }
   return customDomainValidationError(hostname);
 }

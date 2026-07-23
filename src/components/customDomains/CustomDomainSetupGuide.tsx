@@ -37,7 +37,7 @@ export default function CustomDomainSetupGuide({
       )}
       {config?.cnameTarget && (
         <p className="acn-custom-domain-guide__dns mt-3">
-          Tip: most people connect a subdomain like <code>link.yourbrand.com</code> pointing to{" "}
+          Tip: most people connect a subdomain like <code>name.yourdomain.com</code> pointing to{" "}
           <code>{config.cnameTarget}</code>.
         </p>
       )}

@@ -54,11 +54,17 @@ export const cloudflareProvider: DnsProviderAdapter = {
 
     const needsOAuth =
       isCloudflareOAuthConfigured() &&
-      (lastCode === "NO_TOKEN" || lastCode === "PERMISSION_DENIED" || source === "none");
+      (lastCode === "NO_TOKEN" ||
+        lastCode === "PERMISSION_DENIED" ||
+        lastCode === "NO_ZONE" ||
+        source === "none");
 
     return {
       success: false,
-      message: lastError,
+      message:
+        lastCode === "NO_ZONE"
+          ? `${lastError} Make sure you approved the Cloudflare account that owns this domain.`
+          : lastError,
       providerAccountId: null,
       needsOAuth
     };

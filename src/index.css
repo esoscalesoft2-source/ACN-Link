@@ -7373,73 +7373,97 @@ body.acn-editor-open header.acn-glass-header {
   width: min(100%, 40rem);
 }
 
+/* Provider picker: one row per provider (logo + name + blurb), not cube grid */
 .acn-provider-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem;
-  margin-top: 1.25rem;
-}
-
-@media (min-width: 640px) {
-  .acn-provider-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 1.1rem;
+  max-height: min(52vh, 26rem);
+  overflow-y: auto;
+  padding-right: 0.15rem;
 }
 
 .acn-provider-card {
   position: relative;
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.35rem;
-  min-height: 7.5rem;
-  padding: 0.95rem;
-  border-radius: 1rem;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.85rem;
+  width: 100%;
+  min-height: 3.75rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 0.9rem;
   border: 1px solid rgba(226, 232, 240, 0.95);
-  background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
+  background: #fff;
   text-align: left;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }
 
 .acn-provider-card:hover {
-  border-color: rgba(99, 102, 241, 0.45);
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
-  transform: translateY(-1px);
+  border-color: rgba(99, 102, 241, 0.4);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+  background: #fafbff;
 }
 
 .acn-provider-card.is-selected,
 .acn-provider-card.is-suggested {
   border-color: rgba(79, 70, 229, 0.55);
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+  background: #f8f7ff;
+}
+
+.acn-provider-card__logo-wrap {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.7rem;
+  background: #f8fafc;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  overflow: hidden;
 }
 
 .acn-provider-card__logo {
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 1.85rem;
+  height: 1.85rem;
   object-fit: contain;
 }
 
+.acn-provider-card__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
 .acn-provider-card__name {
-  font-size: 0.9rem;
+  font-size: 0.92rem;
   font-weight: 800;
   color: #0f172a;
+  line-height: 1.2;
 }
 
 .acn-provider-card__blurb {
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   line-height: 1.35;
   color: #64748b;
 }
 
 .acn-provider-card__badge {
-  margin-top: auto;
+  flex-shrink: 0;
   display: inline-flex;
-  padding: 0.15rem 0.45rem;
+  align-items: center;
+  padding: 0.2rem 0.5rem;
   border-radius: 999px;
   background: rgba(16, 185, 129, 0.12);
   color: #047857;
   font-size: 0.625rem;
   font-weight: 800;
+  white-space: nowrap;
 }
 
 .acn-domain-wizard__hint-pill {

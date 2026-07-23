@@ -1,3 +1,10 @@
-﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 48" role="img" aria-label="Porkbun">
-  <text x="0" y="34" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700" fill="#e1563e">Porkbun</text>
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="Porkbun">
+  <rect width="48" height="48" rx="10" fill="#FFF1F2"/>
+  <ellipse cx="24" cy="26" rx="12" ry="10" fill="#F43F5E"/>
+  <circle cx="19.5" cy="23" r="2.2" fill="#FFF"/>
+  <circle cx="28.5" cy="23" r="2.2" fill="#FFF"/>
+  <circle cx="19.5" cy="23.3" r="1" fill="#111"/>
+  <circle cx="28.5" cy="23.3" r="1" fill="#111"/>
+  <ellipse cx="24" cy="28.5" rx="3.2" ry="2" fill="#FDA4AF"/>
+  <path fill="#BE123C" d="M16 16c2.5 2 5.5 3 8 3s5.5-1 8-3c-1.2 3.5-4.2 6-8 6s-6.8-2.5-8-6z"/>
 </svg>

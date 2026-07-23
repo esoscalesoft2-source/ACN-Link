@@ -35,6 +35,7 @@ import {
   sanitizeARecordTarget
 } from "./hostname";
 import { beginCloudflareAutoSetup } from "./providers/cloudflareAuto";
+import { cloudflareProvider } from "./providers/cloudflareProvider";
 import {
   disconnectDnsProviderConnection,
   getDnsProviderConnection,
@@ -881,12 +882,13 @@ export function createDomainsRouter() {
       let oauthAuthorizeUrl: string | null = null;
 
       const adapter = getDnsProvider(dnsProviderId);
-      // Multi-tenant: use this user's saved OAuth token only (never platform CF token).
-      let accessToken = cloudflareApiToken;
-      if (!accessToken && adapter.capability.supportsAutoDns) {
-        const saved = await getDnsProviderConnection(req.authUser!.id, dnsProviderId);
-        if (saved?.accessToken) accessToken = saved.accessToken;
-      }
+      // Multi-tenant Cloudflare: NEVER pass platform/request token for customer DNS.
+      // cloudflareProvider resolves THIS user's encrypted OAuth token (+ refresh).
+      // Other providers may still accept an explicit request token (guided/manual path).
+      const accessTokenForProvision =
+        dnsProviderId === "cloudflare"
+          ? undefined
+          : cloudflareApiToken || undefined;
 
       try {
         record = await updateDomain(record.id, req.authUser!.id, {
@@ -912,7 +914,7 @@ export function createDomainsRouter() {
 
       const canAttemptAutoDns =
         adapter.capability.supportsAutoDns &&
-        (Boolean(accessToken) || dnsProviderId === "cloudflare");
+        (dnsProviderId === "cloudflare" || Boolean(accessTokenForProvision));
 
       if (canAttemptAutoDns) {
         try {
@@ -921,7 +923,7 @@ export function createDomainsRouter() {
             domainName,
             records: dnsRecords,
             ownerUserId: req.authUser!.id,
-            accessToken: accessToken || undefined
+            accessToken: accessTokenForProvision
           });
           dnsAutoProvisioned = provision.success;
           dnsProvisionMessage = provision.message;
@@ -943,11 +945,11 @@ export function createDomainsRouter() {
           }
 
           // Do not persist raw pasted tokens as the user's OAuth connection unless rememberProvider.
-          if (rememberProvider && accessToken && dnsProviderId !== "cloudflare") {
+          if (rememberProvider && accessTokenForProvision && dnsProviderId !== "cloudflare") {
             await upsertDnsProviderConnection({
               ownerUserId: req.authUser!.id,
               providerId: dnsProviderId,
-              accessToken,
+              accessToken: accessTokenForProvision,
               providerAccountId,
               connected: provision.success
             });
@@ -1141,12 +1143,6 @@ export function createDomainsRouter() {
   });
 
   router.post("/:id/repair-dns", async (req: AuthedRequest, res: Response) => {
-    const cloudflareApiToken = String(req.body?.cloudflareApiToken || "").trim();
-    if (!cloudflareApiToken) {
-      res.status(400).json({ error: "Cloudflare API token is required to repair DNS automatically." });
-      return;
-    }
-
     try {
       const record = await findDomainById(req.params.id, req.authUser!.id);
       if (!record) {
@@ -1155,11 +1151,21 @@ export function createDomainsRouter() {
       }
 
       const dnsRecords = buildDnsRecordSet(record.domainName).records;
-      const provision = await provisionCloudflareDnsRecords(
-        cloudflareApiToken,
-        record.domainName,
-        dnsRecords
-      );
+      // Multi-tenant: repair with the owner's saved Cloudflare OAuth token only.
+      const provision = await cloudflareProvider.provisionDns({
+        domainName: record.domainName,
+        records: dnsRecords,
+        ownerUserId: req.authUser!.id
+      });
+
+      if (!provision.success) {
+        res.status(provision.needsOAuth ? 401 : 400).json({
+          error: provision.message,
+          needsOAuth: provision.needsOAuth || false,
+          code: provision.needsOAuth ? "CLOUDFLARE_RECONNECT" : "DOMAIN_REPAIR_DNS_FAILED"
+        });
+        return;
+      }
 
       await appendDomainVerificationLog({
         domainId: record.id,

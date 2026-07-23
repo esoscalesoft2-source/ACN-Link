@@ -1,3 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 48" role="img" aria-label="Namecheap">
-  <text x="0" y="34" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#de3723">Namecheap</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="Namecheap">
+  <rect width="48" height="48" rx="10" fill="#FF5C00"/>
+  <path fill="#FFF" d="M12 33V15h5.2l6.4 10.6L30 15h5.2v18h-4.6V22.2L25.2 33h-3.2l-5.4-10.8V33H12z"/>
 </svg>

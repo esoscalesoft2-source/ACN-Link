@@ -465,9 +465,9 @@ export default function ConnectDomainWizard({
     setDnsConfirmed(false);
 
     try {
+      // Multi-tenant: auto DNS only with THIS user's Cloudflare OAuth — never platform env token.
       const useAutoDns =
-        selectedProviderId === "cloudflare" &&
-        (autoDnsReady || providerHasSavedToken || Boolean(platformConfig?.cloudflareEnvConfigured));
+        selectedProviderId === "cloudflare" && (autoDnsReady || providerHasSavedToken);
       let result: DomainConnectResult;
       try {
         result = await onConnectDomain(hostname, pageId, {
@@ -616,26 +616,35 @@ export default function ConnectDomainWizard({
   const submitCloudflareConnect = async () => {
     setFormError("");
     setIsSubmitting(true);
-    // Always proceed to setup — never strand the user on a red error for begin/OAuth probes.
-    setAutoDnsReady(true);
     try {
       const hostname = normaliseHostname(domainName);
-      // OAuth redirect only when admin configured it; otherwise go straight to auto DNS.
-      if (platformConfig?.cloudflareOAuthEnabled) {
-        try {
-          const begin = await beginCloudflareConnect(hostname, pageId);
-          if (begin.mode === "oauth" && begin.authorizeUrl) {
-            window.location.href = begin.authorizeUrl;
-            return;
-          }
-          if (begin.mode === "ready") {
-            setProviderHasSavedToken(begin.reason === "saved_connection");
-          }
-        } catch {
-          /* ignore — connect flow below still runs with platform/saved credentials */
-        }
+      if (!platformConfig?.cloudflareOAuthEnabled) {
+        setFormError(
+          "Cloudflare Connect is not configured on the server yet. Use Skip for manual DNS steps."
+        );
+        return;
       }
-      setPhase("verifying");
+      const begin = await beginCloudflareConnect(hostname, pageId);
+      if (begin.mode === "oauth" && begin.authorizeUrl) {
+        // Customer must approve ACN Link on THEIR Cloudflare account.
+        window.location.href = begin.authorizeUrl;
+        return;
+      }
+      if (begin.mode === "ready") {
+        setProviderHasSavedToken(true);
+        setAutoDnsReady(true);
+        setPhase("verifying");
+        return;
+      }
+      if (begin.mode === "manual") {
+        setFormError(begin.message);
+        return;
+      }
+      setFormError("Could not start Cloudflare connect. Try Skip for manual steps.");
+    } catch (error) {
+      setFormError(
+        error instanceof Error ? error.message : "Could not start Cloudflare connect."
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -817,9 +826,19 @@ export default function ConnectDomainWizard({
                     }`}
                     onClick={() => void chooseProvider(provider)}
                   >
-                    <img src={provider.logoUrl} alt="" className="acn-provider-card__logo" />
-                    <span className="acn-provider-card__name">{provider.name}</span>
-                    <span className="acn-provider-card__blurb">{provider.blurb}</span>
+                    <span className="acn-provider-card__logo-wrap" aria-hidden>
+                      <img
+                        src={provider.logoUrl}
+                        alt=""
+                        className="acn-provider-card__logo"
+                        width={32}
+                        height={32}
+                      />
+                    </span>
+                    <span className="acn-provider-card__text">
+                      <span className="acn-provider-card__name">{provider.name}</span>
+                      <span className="acn-provider-card__blurb">{provider.blurb}</span>
+                    </span>
                     {provider.supportsAutoDns && (
                       <span className="acn-provider-card__badge">Auto setup</span>
                     )}
@@ -873,7 +892,7 @@ export default function ConnectDomainWizard({
               onClick={() => void submitCloudflareConnect()}
             >
               {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Connect Cloudflare
+              {providerHasSavedToken ? "Continue setup" : "Connect Cloudflare"}
             </button>
             <button
               type="button"

@@ -5,12 +5,14 @@ import { screenToPath } from "../navigation";
 import { ScreenId } from "../types";
 import {
   AlertCircle,
+  BookOpen,
   CheckCircle,
   ChevronDown,
   Clock,
   Edit3,
   ExternalLink,
   Globe,
+  HelpCircle,
   Loader2,
   PlugZap,
   RefreshCw,
@@ -43,6 +45,7 @@ import ConnectDomainWizard, {
 import CloudflareConnectionCard from "./customDomains/CloudflareConnectionCard";
 import CustomDomainSetupGuide from "./customDomains/CustomDomainSetupGuide";
 import DomainDnsPanel from "./customDomains/DomainDnsPanel";
+import HowItWorksDialog from "./customDomains/HowItWorksDialog";
 import RemoveDomainDialog from "./customDomains/RemoveDomainDialog";
 import PageShell, { PageHeader, SectionCard, Workspace } from "./layout/PageShell";
 
@@ -167,6 +170,7 @@ export default function CustomDomainsScreen({
   const [testingId, setTestingId] = useState<string | null>(null);
   const [reassigningId, setReassigningId] = useState<string | null>(null);
   const [connectionTests, setConnectionTests] = useState<Record<string, DomainConnectionTest>>({});
+  const [howItWorksOpen, setHowItWorksOpen] = useState(false);
 
   const loadPlatformConfig = React.useCallback(async () => {
     const startedAt = Date.now();
@@ -404,7 +408,23 @@ export default function CustomDomainsScreen({
           </>
         }
         actions={
-          <div className="self-start sm:pt-1">
+          <div className="acn-domains-header-actions self-start sm:pt-1">
+            {!isPreviewSession && (
+              <CloudflareConnectionCard
+                sampleDomain={domains[0]?.domainName}
+                samplePageId={pages[0]?.id}
+              />
+            )}
+            <button
+              type="button"
+              onClick={() =>
+                navigate(`${screenToPath(ScreenId.HELP_CENTER)}?article=faq-cd-cloudflare-account`)
+              }
+              className="acn-domains-help-btn"
+            >
+              <HelpCircle className="h-4 w-4" />
+              Help
+            </button>
             <button
               type="button"
               onClick={openConnectWizard}
@@ -462,16 +482,7 @@ export default function CustomDomainsScreen({
         </div>
       )}
 
-      {!isPreviewSession && (
-        <div className="mb-4">
-          <CloudflareConnectionCard
-            sampleDomain={domains[0]?.domainName}
-            samplePageId={pages[0]?.id}
-          />
-        </div>
-      )}
-
-      <div className="acn-domains-lovable">
+      <div className="acn-domains-lovable acn-domains-lovable--single">
         <SectionCard>
           <Workspace>
             <div className="acn-domains-lovable__section">
@@ -743,53 +754,19 @@ export default function CustomDomainsScreen({
                 })}
               </ul>
             )}
+
+            <div className="acn-domains-how-trigger-wrap">
+              <button
+                type="button"
+                className="acn-domains-how-trigger"
+                onClick={() => setHowItWorksOpen(true)}
+              >
+                <BookOpen className="h-4 w-4" />
+                How it works
+              </button>
+            </div>
           </Workspace>
         </SectionCard>
-
-        {!platformConfigLoading && platformConfig && (
-          <aside className="acn-domains-lovable__aside">
-            <h4 className="font-bold text-slate-900">How it works</h4>
-            <ol className="acn-domains-lovable__how-steps">
-              <li>
-                <span>1</span>
-                Tap <strong>Connect Domain</strong>, enter your address, and pick which bio page opens.
-              </li>
-              <li>
-                <span>2</span>
-                Choose <strong>Cloudflare</strong> → Connect once. You approve ACN Link on{" "}
-                <em>your</em> Cloudflare account (not ours).
-              </li>
-              <li>
-                <span>3</span>
-                We add DNS automatically (CNAME or A), then check until status is{" "}
-                <strong>LIVE</strong>.
-              </li>
-              <li>
-                <span>4</span>
-                Remove a domain here and we also delete that DNS record from your Cloudflare when
-                connected.
-              </li>
-            </ol>
-            <div className="acn-domains-lovable__how-note">
-              <p>
-                <strong>Other DNS hosts</strong> (GoDaddy, Hostinger, …): use the guided copy steps —
-                auto-connect coming soon.
-              </p>
-              <p className="mt-2">
-                <strong>Subdomain:</strong> CNAME →{" "}
-                <code>{platformConfig.cnameTarget || platformConfig.platformUrl}</code> (DNS only /
-                gray cloud).
-              </p>
-              <p className="mt-1">
-                <strong>Root domain:</strong> A <code>@</code> →{" "}
-                <code>{platformConfig.aRecordTarget}</code>
-              </p>
-              <p className="mt-2 text-slate-500">
-                One bio page can use one custom domain. You can connect many domains on one account.
-              </p>
-            </div>
-          </aside>
-        )}
       </div>
 
       {wizardOpen &&
@@ -834,6 +811,17 @@ export default function CustomDomainsScreen({
             onCancel={() => setRemoveTarget(null)}
             onConfirm={() => void confirmRemove()}
             isRemoving={deletingId === removeTarget.id}
+          />,
+          document.body
+        )}
+
+      {howItWorksOpen &&
+        createPortal(
+          <HowItWorksDialog
+            open={howItWorksOpen}
+            onClose={() => setHowItWorksOpen(false)}
+            cnameTarget={platformConfig?.cnameTarget || platformConfig?.platformUrl || "acnlink.mindflo.today"}
+            aRecordTarget={platformConfig?.aRecordTarget || "69.46.46.98"}
           />,
           document.body
         )}

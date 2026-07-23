@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { HelpArticle, ScreenId } from "../types";
 import {
   BookOpen,
@@ -15,6 +16,71 @@ import {
   CreditCard
 } from "lucide-react";
 import PageShell from "./layout/PageShell";
+
+function HelpArticleBody({ content }: { content: string }) {
+  const parts: Array<{ type: "text" | "table"; value: string }> = [];
+  const chunks = content.split(/\n(?=TABLE:)/);
+  for (const chunk of chunks) {
+    if (!chunk.startsWith("TABLE:")) {
+      if (chunk.trim()) parts.push({ type: "text", value: chunk.trim() });
+      continue;
+    }
+    const lines = chunk.split("\n");
+    const tableLines: string[] = [];
+    const rest: string[] = [];
+    let inTable = true;
+    for (let i = 1; i < lines.length; i += 1) {
+      const line = lines[i];
+      if (inTable && line.includes("|")) tableLines.push(line);
+      else {
+        inTable = false;
+        if (line.trim()) rest.push(line);
+      }
+    }
+    if (tableLines.length >= 2) {
+      parts.push({ type: "table", value: tableLines.join("\n") });
+    }
+    if (rest.length) parts.push({ type: "text", value: rest.join("\n").trim() });
+  }
+
+  return (
+    <div className="space-y-4">
+      {parts.map((part, index) => {
+        if (part.type === "table") {
+          const rows = part.value.split("\n").map((line) => line.split("|").map((cell) => cell.trim()));
+          const [header, ...body] = rows;
+          return (
+            <div key={index} className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+              <table className="acn-help-table">
+                <thead>
+                  <tr>
+                    {header.map((cell) => (
+                      <th key={cell}>{cell}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {body.map((row, rowIndex) => (
+                    <tr key={rowIndex}>
+                      {row.map((cell, cellIndex) => (
+                        <td key={`${rowIndex}-${cellIndex}`}>{cell}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
+        return (
+          <p key={index} className="text-sm text-slate-700 leading-relaxed whitespace-pre-line font-medium">
+            {part.value}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
 
 interface HelpCenterScreenProps {
   articles: HelpArticle[];
@@ -33,11 +99,23 @@ const CATEGORY_META: Record<
 };
 
 export default function HelpCenterScreen({ articles, onNavigate }: HelpCenterScreenProps) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [selectedArticle, setSelectedArticle] = useState<HelpArticle | null>(null);
   const [feedback, setFeedback] = useState<"up" | "down" | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    const articleId = searchParams.get("article");
+    if (!articleId) return;
+    const match = articles.find((item) => item.id === articleId);
+    if (match) {
+      setSelectedArticle(match);
+      setActiveCategory(match.category);
+      setFeedback(null);
+    }
+  }, [articles, searchParams]);
 
   const triggerToast = (msg: string) => {
     setToast(msg);
@@ -283,7 +361,14 @@ export default function HelpCenterScreen({ articles, onNavigate }: HelpCenterScr
               </div>
               <button
                 type="button"
-                onClick={() => setSelectedArticle(null)}
+                onClick={() => {
+                  setSelectedArticle(null);
+                  if (searchParams.has("article")) {
+                    const next = new URLSearchParams(searchParams);
+                    next.delete("article");
+                    setSearchParams(next, { replace: true });
+                  }
+                }}
                 className="text-slate-400 hover:text-slate-600 p-1 rounded-full shrink-0"
                 aria-label="Close article"
               >
@@ -293,9 +378,7 @@ export default function HelpCenterScreen({ articles, onNavigate }: HelpCenterScr
 
             <div className="p-5 overflow-y-auto space-y-6 flex-1">
               <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 sm:p-5">
-                <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line font-medium">
-                  {selectedArticle.content || selectedArticle.excerpt}
-                </p>
+                <HelpArticleBody content={selectedArticle.content || selectedArticle.excerpt} />
               </div>
 
               <div className="pt-3 border-t border-slate-100">

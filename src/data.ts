@@ -271,6 +271,16 @@ export const initialHelpArticles: HelpArticle[] = [
       "Short answer: Yes.\n\nACN Link lets you open your bio page on an address you already own instead of the default ACN URL.\n\nYou have two main options:\n\n1) ROOT DOMAIN — yourbrand.com and www.yourbrand.com\n   → Read: \"Story guide: Connect a root domain (yourbrand.com)\"\n\n2) SUBDOMAIN — link.yourbrand.com or studio.yourbrand.com\n   → Read: \"Story guide: Connect a subdomain (link.yourbrand.com)\"\n\nNot ready to buy a domain?\n   → On Bio Pages, use \"Get free URL\" for something like yourname.acnlink.mindflo.today (no DNS setup).\n\nWhere to start in the app:\nSidebar → Custom Domains → Connect Domain (button on the top right).\n\nPick the story guide that matches what you typed in the wizard — root or subdomain — and follow it step by step."
   },
   {
+    id: "faq-cd-cloudflare-account",
+    title: "Cloudflare account on Custom Domains — why it exists",
+    category: "Custom Domains",
+    excerpt:
+      "Why the Cloudflare logo is on Custom Domains, what Connected means, and when to use Reconnect or Disconnect.",
+    readTime: "4 mins",
+    content:
+      "WHY THIS EXISTS\n\nThe Cloudflare logo on Custom Domains is your link between ACN Link and YOUR Cloudflare account.\n\nConnect once. After that, ACN Link can automatically create (and later remove) DNS records for every custom domain you add — without pasting API tokens.\n\nACN Link never writes customer DNS using the platform owner’s Cloudflare account.\n\nTABLE:STATUS\nWhat you see|Meaning\nConnected|ACN Link has permission to add/remove DNS in your Cloudflare account.\nNot connected|Use Connect Domain → Cloudflare Auto setup, or add DNS manually.\nReconnect|Approve Cloudflare again (token expired, wrong account, or new permissions).\nDisconnect|Remove access. Auto DNS stops. Domains stay in ACN until you delete them.\n\nHOW CONNECT WORKS (TODAY)\n\n1. Custom Domains → Connect Domain → enter an address (example: tree.ezysellonline.com) and pick a bio page.\n2. Choose Cloudflare → Auto setup → approve ACN Link in Cloudflare (one time).\n3. ACN creates the CNAME (or A for root domains) in YOUR zone.\n4. Status moves to LIVE when DNS + HTTPS are ready.\n5. Remove Domain deletes the ACN domain and removes that DNS record from Cloudflare when still connected.\n\nTABLE:RULES\nRule|Detail\nMany domains per user|shop.brand.com, link.brand.com, tree.brand.com — all OK on one account.\nOne domain per bio page|Each bio page can use only one custom domain at a time.\nOther DNS hosts|GoDaddy, Hostinger, etc. use guided copy steps (auto-connect coming soon).\n\nWHERE TO CLICK IN THE APP\n\n• Orange Cloudflare logo (top of Custom Domains) → manage Connect / Reconnect / Disconnect\n• (i) info button next to the logo → short explanation\n• Help (grey) → this Help Center article\n• How it works (under Connected domains) → example walkthrough popup"
+  },
+  {
     id: "faq-cd-start",
     title: "Start here: Custom domains for complete beginners",
     category: "Custom Domains",

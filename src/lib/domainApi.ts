@@ -4,6 +4,7 @@ import { sanitizeARecordTarget } from "./customDomainDns";
 import { apiUrl } from "./apiBase";
 import {
   clearAuthSession,
+  ensureAuthSession,
   getAccessToken,
   getRefreshToken,
   isPreviewToken,
@@ -51,16 +52,26 @@ async function domainFetch<T>(path: string, init: RequestInit = {}, retry = true
       await refreshSession();
       return domainFetch<T>(path, init, false);
     } catch {
-      clearAuthSession();
+      clearAuthSession("session_expired");
     }
   }
 
   const data = await response.json().catch(() => null);
   if (!response.ok) {
+    const code = data?.code || "DOMAIN_REQUEST_FAILED";
+    const authExpired =
+      response.status === 401 &&
+      (code === "SESSION_EXPIRED" ||
+        code === "TOKEN_EXPIRED" ||
+        code === "NO_TOKEN" ||
+        code === "REFRESH_EXPIRED" ||
+        /session expired|unauthorized|sign in/i.test(String(data?.error || "")));
     throw new DomainApiError(
-      data?.error || "Domain request failed.",
+      authExpired
+        ? "Your login expired. Please sign in again, then tap Connect Cloudflare."
+        : data?.error || "Domain request failed.",
       response.status,
-      data?.code || "DOMAIN_REQUEST_FAILED"
+      authExpired ? "SESSION_EXPIRED" : code
     );
   }
   return data as T;
@@ -238,6 +249,15 @@ export type CloudflareBeginResult =
 
 /** One-click Cloudflare connect — never asks the customer for an API token. */
 export async function beginCloudflareConnect(domainName: string, pageId: string) {
+  const ok = await ensureAuthSession();
+  if (!ok) {
+    clearAuthSession("session_expired");
+    throw new DomainApiError(
+      "Your login expired. Please sign in again, then tap Connect Cloudflare.",
+      401,
+      "SESSION_EXPIRED"
+    );
+  }
   return domainFetch<CloudflareBeginResult>("/api/domains/providers/cloudflare/begin", {
     method: "POST",
     body: JSON.stringify({ domainName, pageId })

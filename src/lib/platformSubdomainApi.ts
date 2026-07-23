@@ -45,7 +45,7 @@ async function fetchJson<T>(path: string, init: RequestInit = {}, retry = true):
       await refreshSession();
       return fetchJson<T>(path, init, false);
     } catch {
-      clearAuthSession();
+      clearAuthSession("session_expired");
     }
   }
 

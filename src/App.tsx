@@ -273,7 +273,7 @@ export default function App() {
           setIsLoggedIn(true);
           touchActivity();
         } else {
-          clearAuthSession();
+          clearAuthSession("silent");
           setIsLoggedIn(false);
         }
         setAuthBootstrapping(false);
@@ -296,7 +296,7 @@ export default function App() {
         touchActivity();
       } catch {
         if (!cancelled) {
-          clearAuthSession();
+          clearAuthSession("silent");
           setIsLoggedIn(false);
         }
       } finally {
@@ -856,12 +856,12 @@ export default function App() {
   const handleLogout = async () => {
     try {
       if (isPreviewToken(getAccessToken())) {
-        clearAuthSession();
+        clearAuthSession("silent");
       } else {
         await logoutRequest();
       }
     } catch {
-      clearAuthSession();
+      clearAuthSession("silent");
     }
     setIsLoggedIn(false);
     setWorkspaceHydrated(false);
@@ -870,6 +870,19 @@ export default function App() {
     navigate(screenToPath(ScreenId.LOGIN), { replace: true });
     window.history.replaceState({ acnAuthGate: "login" }, "", screenToPath(ScreenId.LOGIN));
   };
+
+  React.useEffect(() => {
+    const onAuthExpired = () => {
+      setIsLoggedIn(false);
+      setWorkspaceHydrated(false);
+      didPushLocalPagesRef.current = false;
+      setIsMobileNavOpen(false);
+      navigate(screenToPath(ScreenId.LOGIN), { replace: true });
+      window.history.replaceState({ acnAuthGate: "login" }, "", screenToPath(ScreenId.LOGIN));
+    };
+    window.addEventListener("acnlink:auth-expired", onAuthExpired);
+    return () => window.removeEventListener("acnlink:auth-expired", onAuthExpired);
+  }, [navigate]);
 
   const handleAddPage = (title: string, slug: string, pageId?: string) => {
     const newPage: BioPage = {

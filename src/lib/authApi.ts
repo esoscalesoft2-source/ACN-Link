@@ -159,7 +159,7 @@ export function saveAuthSession(user: AuthUser, tokens: AuthTokens, rememberMe: 
   touchActivity();
 }
 
-export function clearAuthSession() {
+export function clearAuthSession(reason?: string) {
   localStorage.removeItem(ACCESS_KEY);
   localStorage.removeItem(REFRESH_KEY);
   localStorage.removeItem(USER_KEY);
@@ -169,6 +169,11 @@ export function clearAuthSession() {
   sessionStorage.removeItem("acnlink_session");
   localStorage.removeItem(ACTIVITY_KEY);
   sessionStorage.removeItem(ACTIVITY_KEY);
+  if (typeof window !== "undefined" && reason !== "silent") {
+    window.dispatchEvent(
+      new CustomEvent("acnlink:auth-expired", { detail: { reason: reason || "cleared" } })
+    );
+  }
 }
 
 export function touchActivity() {
@@ -248,7 +253,7 @@ async function authFetch<T>(path: string, init: RequestInit = {}, retry = true):
       await refreshSession();
       return authFetch<T>(path, init, false);
     } catch {
-      clearAuthSession();
+      clearAuthSession("session_expired");
     }
   }
 
@@ -356,28 +361,69 @@ export async function logoutRequest() {
   try {
     await authFetch<{ success: boolean }>("/api/auth/logout", { method: "POST" }, false);
   } finally {
-    clearAuthSession();
+    clearAuthSession("silent");
   }
 }
 
+/**
+ * Single-flight refresh. Access tokens last 15 minutes; when several API calls
+ * 401 at once, rotating refresh without a lock revokes the first success and
+ * the rest fail with "Session expired" (common on a second PC / idle tab).
+ */
+let refreshInflight: Promise<{
+  success: boolean;
+  user: AuthUser;
+  accessToken: string;
+  refreshToken: string;
+}> | null = null;
+
 export async function refreshSession() {
-  const refreshToken = getRefreshToken();
-  const data = await authFetch<{
-    success: boolean;
-    user: AuthUser;
-    accessToken: string;
-    refreshToken: string;
-  }>(
-    "/api/auth/refresh-token",
-    {
-      method: "POST",
-      body: JSON.stringify({ refreshToken })
-    },
-    false
-  );
-  const rememberMe = Boolean(localStorage.getItem(ACCESS_KEY));
-  saveAuthSession(data.user, data, rememberMe);
-  return data;
+  if (refreshInflight) return refreshInflight;
+
+  refreshInflight = (async () => {
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) {
+      throw new AuthApiError("Please sign in again.", "NO_REFRESH_TOKEN", 401);
+    }
+    const data = await authFetch<{
+      success: boolean;
+      user: AuthUser;
+      accessToken: string;
+      refreshToken: string;
+    }>(
+      "/api/auth/refresh-token",
+      {
+        method: "POST",
+        body: JSON.stringify({ refreshToken })
+      },
+      false
+    );
+    const rememberMe = Boolean(localStorage.getItem(ACCESS_KEY));
+    saveAuthSession(data.user, data, rememberMe);
+    return data;
+  })().finally(() => {
+    refreshInflight = null;
+  });
+
+  return refreshInflight;
+}
+
+/** Probe / refresh so OAuth and domain actions do not hit a stale access token. */
+export async function ensureAuthSession(): Promise<boolean> {
+  const accessToken = getAccessToken();
+  if (!accessToken || isPreviewToken(accessToken)) return false;
+  try {
+    await fetchMe();
+    return true;
+  } catch {
+    if (!getRefreshToken()) return false;
+    try {
+      await refreshSession();
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }
 
 export async function updateProfileRequest(input: Record<string, unknown>) {

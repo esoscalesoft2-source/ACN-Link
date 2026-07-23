@@ -201,11 +201,12 @@ export default function CustomDomainsScreen({
 
   const linkedDomainsByPageId = useMemo(() => {
     const map = new Map<string, CustomDomain>();
-    for (const domain of historyDomains) {
+    // Any domain (live or pending) that already uses a bio page blocks that page.
+    for (const domain of domains) {
       if (domain.pageId) map.set(domain.pageId, domain);
     }
     return map;
-  }, [historyDomains]);
+  }, [domains]);
 
   const triggerToast = (message: string, tone: "ok" | "error" = "ok") => {
     setToast({ message, tone });

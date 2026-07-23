@@ -504,16 +504,17 @@ export default function ConnectDomainWizard({
         return;
       }
 
-      if (useAutoDns && selectedProviderId === "cloudflare") {
-        // Last resort: try begin() for OAuth URL even when connect payload omitted it.
-        try {
-          const begin = await beginCloudflareConnect(hostname, pageId);
-          if (begin.mode === "oauth" && begin.authorizeUrl) {
-            window.location.href = begin.authorizeUrl;
-            return;
+      if (selectedProviderId === "cloudflare") {
+        if (useAutoDns) {
+          try {
+            const begin = await beginCloudflareConnect(hostname, pageId);
+            if (begin.mode === "oauth" && begin.authorizeUrl) {
+              window.location.href = begin.authorizeUrl;
+              return;
+            }
+          } catch {
+            /* fall through to manual */
           }
-        } catch {
-          /* fall through to manual */
         }
         setVerifyError(
           result.dnsProvisionMessage ||
@@ -523,7 +524,8 @@ export default function ConnectDomainWizard({
         return;
       }
 
-      await runVerifyLoop(result.domain);
+      // Manual / non-Cloudflare: show CNAME/A copy steps (never the auto "Setting up…" spinner).
+      setPhase("manual");
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "Could not connect this domain.");
       setPhase("provider");
@@ -555,8 +557,8 @@ export default function ConnectDomainWizard({
     const linkedDomain = linkedDomainsByPageId.get(pageId);
     if (linkedDomain) {
       setFormError(
-        `This bio page already opens ${linkedDomain.domainName}. Pick a different page for ${hostname}, ` +
-          `or remove that domain first. One bio page can only use one custom domain.`
+        `The bio page you picked already opens ${linkedDomain.domainName}. ` +
+          `Choose a different bio page for ${hostname}, or remove ${linkedDomain.domainName} from Custom Domains first.`
       );
       return;
     }
@@ -570,12 +572,73 @@ export default function ConnectDomainWizard({
         } else if (!selectedProviderId && preferredProviderId === "cloudflare") {
           setSelectedProviderId("cloudflare");
         } else if (!selectedProviderId) {
-          // Non-Cloudflare DNS → Manual path (copy CNAME/A records).
           setSelectedProviderId("other");
         }
       })
       .catch(() => undefined);
     setPhase("provider");
+  };
+
+  /** Manual path: create the domain row, then show CNAME/A records immediately. */
+  const startManualDnsSetup = async () => {
+    const hostname = normaliseHostname(domainName);
+    const linkedDomain = linkedDomainsByPageId.get(pageId);
+    if (linkedDomain) {
+      setFormError(
+        `The bio page you picked already opens ${linkedDomain.domainName}. ` +
+          `Choose a different bio page for ${hostname}, or remove ${linkedDomain.domainName} from Custom Domains first.`
+      );
+      setPhase("provider");
+      return;
+    }
+
+    setFormError("");
+    setVerifyError(null);
+    setIsSubmitting(true);
+    connectStartedRef.current = true;
+    try {
+      let result: DomainConnectResult;
+      try {
+        result = await onConnectDomain(hostname, pageId, {
+          dnsProviderId: "other",
+          rememberProvider
+        });
+      } catch (connectError) {
+        const message =
+          connectError instanceof Error ? connectError.message : "Could not connect this domain.";
+        if (/already connected|already exists|DOMAIN_EXISTS|PAGE_DOMAIN_TAKEN/i.test(message) && onDiscardIncomplete) {
+          try {
+            const existing = await import("../../lib/domainApi").then((mod) => mod.fetchDomains());
+            const stale = existing.find(
+              (item) => item.domainName === hostname && item.status !== "Verified"
+            );
+            if (stale) {
+              await onDiscardIncomplete(stale.id);
+              result = await onConnectDomain(hostname, pageId, {
+                dnsProviderId: "other",
+                rememberProvider
+              });
+            } else {
+              throw connectError;
+            }
+          } catch {
+            throw connectError;
+          }
+        } else {
+          throw connectError;
+        }
+      }
+      setConnectedDomain(result.domain);
+      setDnsAutoProvisioned(false);
+      setSelectedProviderId("other");
+      setPhase("manual");
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "Could not start manual DNS setup.");
+      setPhase("provider");
+      connectStartedRef.current = false;
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const chooseProvider = async (provider: DnsProviderCapability) => {
@@ -589,11 +652,12 @@ export default function ConnectDomainWizard({
     }
 
     if (provider.id === "cloudflare") {
+      // Show Connect Cloudflare → user taps button → Cloudflare login / permissions.
       setPhase("connect");
       return;
     }
-    // Manual (and any non-Cloudflare): create domain row then show CNAME/A copy steps.
-    setPhase("verifying");
+
+    await startManualDnsSetup();
   };
 
   const submitCloudflareConnect = async () => {
@@ -806,12 +870,19 @@ export default function ConnectDomainWizard({
             <div className="acn-provider-grid" role="list">
               {providers.map((provider) => {
                 const selected = selectedProviderId === provider.id;
-                const suggested = analysis?.providerId === provider.id;
+                const suggested =
+                  provider.id === "cloudflare"
+                    ? analysis?.providerId === "cloudflare"
+                    : analysis?.providerId !== "cloudflare" &&
+                      analysis?.providerId !== "unknown" &&
+                      Boolean(analysis?.providerId) &&
+                      provider.id === "other";
                 return (
                   <button
                     key={provider.id}
                     type="button"
                     role="listitem"
+                    disabled={isSubmitting}
                     className={`acn-provider-card ${selected ? "is-selected" : ""} ${
                       suggested ? "is-suggested" : ""
                     }`}
@@ -837,6 +908,11 @@ export default function ConnectDomainWizard({
                 );
               })}
             </div>
+            {isSubmitting && (
+              <p className="mt-3 flex items-center gap-2 text-sm text-slate-500">
+                <Loader2 className="h-4 w-4 animate-spin" /> Preparing DNS records…
+              </p>
+            )}
             {formError && <p className="acn-domain-wizard__error">{formError}</p>}
           </div>
         )}
@@ -890,7 +966,7 @@ export default function ConnectDomainWizard({
               className="acn-domain-wizard__link mt-2"
               onClick={() => {
                 setAutoDnsReady(false);
-                setPhase("verifying");
+                void startManualDnsSetup();
               }}
             >
               Skip — I&apos;ll use simple copy steps

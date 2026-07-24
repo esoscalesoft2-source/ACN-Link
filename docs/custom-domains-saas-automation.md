@@ -14,7 +14,8 @@
 1. Cloudflare Dashboard → **Manage Account → OAuth clients** → Create public client  
 2. Redirect URI: `https://acnlink.mindflo.today/api/domains/providers/cloudflare/oauth/callback`  
 3. Scopes on the client: **Zone Read** + **DNS Write** (enable `refresh_token` grant; do not invent `zone.dns.write`)  
-4. Railway env:
+4. Visibility must be **Public** (not Private). Private clients can only be authorized by members of the OAuth app’s parent Cloudflare account (e.g. always shows that account). Public + Verified lets any customer authorize with **their** Cloudflare login.  
+5. Railway env:
 
 ```text
 CLOUDFLARE_OAUTH_CLIENT_ID=...

@@ -146,10 +146,39 @@ export async function createCloudflareOAuthAuthorizeUrl(input: {
     state,
     code_challenge: pkceChallenge(codeVerifier),
     code_challenge_method: "S256",
-    scope: oauthScopes().join(" ")
+    scope: oauthScopes().join(" "),
+    // Ask Cloudflare to show a login / account choice instead of silently
+    // reusing whatever dashboard session is already open on this browser
+    // (e.g. a developer's fanideaz123 session on a shared PC).
+    prompt: "login"
   });
 
-  return { authorizeUrl: `${AUTH_URL}?${params.toString()}`, state };
+  const authorizeUrl = `${AUTH_URL}?${params.toString()}`;
+  return {
+    authorizeUrl: wrapCloudflareAuthorizeForCustomerLogin(authorizeUrl, input.domainName),
+    state
+  };
+}
+
+/**
+ * Send customers through our gate page before Cloudflare authorize.
+ * Ensures they sign into the Cloudflare account that owns THEIR domain,
+ * not whatever Cloudflare session happens to be open in the browser.
+ */
+export function wrapCloudflareAuthorizeForCustomerLogin(
+  authorizeUrl: string,
+  domainName: string
+): string {
+  if (!authorizeUrl.startsWith(AUTH_URL)) return authorizeUrl;
+  // Same public origin as the OAuth callback so the gate always hits this API.
+  const origin = cloudflareOAuthRedirectUri().replace(
+    /\/api\/domains\/providers\/cloudflare\/oauth\/callback$/i,
+    ""
+  );
+  const gate = new URL(`${origin}/api/domains/providers/cloudflare/oauth/pick-account`);
+  gate.searchParams.set("next", authorizeUrl);
+  gate.searchParams.set("domain", domainName);
+  return gate.toString();
 }
 
 /** Sync wrapper kept for call sites that cannot await — prefers durable consume. */

@@ -979,8 +979,14 @@ export default function ConnectDomainWizard({
               />
               <h2 className="acn-domain-wizard__title">Connect Cloudflare</h2>
               <p className="acn-domain-wizard__lead">
-                Tap the button below. You&apos;ll approve ACN Link in Cloudflare — then we add the DNS
-                record and finish setup automatically. No API token. No copy-paste.
+                Next you&apos;ll sign in to the Cloudflare account that owns{" "}
+                <strong>{activeHostname || "your domain"}</strong>, then approve ACN Link. We add
+                DNS automatically — no API token, no copy-paste.
+              </p>
+              <p className="mt-2 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                Important: use <strong>your</strong> Cloudflare login for this domain. If Cloudflare
+                shows a different email, click <strong>Edit</strong> on that screen and switch
+                accounts (or log out of Cloudflare first).
               </p>
             </div>
 

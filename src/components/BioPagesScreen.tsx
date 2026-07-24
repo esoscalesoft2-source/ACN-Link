@@ -106,7 +106,6 @@ import {
   Unlock
 } from "lucide-react";
 import PageShell, { PageHeader, Workspace } from "./layout/PageShell";
-import PlatformSubdomainClaimModal from "./customDomains/PlatformSubdomainClaimModal";
 import { BIO_LINK } from "../lib/bioLinkColors";
 import type { AppTheme } from "../lib/themeStorage";
 
@@ -260,7 +259,6 @@ interface BioPagesScreenProps {
   pages: BioPage[];
   domains?: CustomDomain[];
   platformSubdomains?: PlatformSubdomain[];
-  onReloadPlatformSubdomains?: () => Promise<void>;
   onAddPage: (title: string, slug: string, pageId?: string) => BioPage;
   onDeletePage: (id: string) => void;
   onDeletePages?: (ids: string[]) => void;
@@ -294,7 +292,6 @@ export default function BioPagesScreen({
   pages,
   domains = [],
   platformSubdomains = [],
-  onReloadPlatformSubdomains,
   onAddPage,
   onDeletePage,
   onDeletePages,
@@ -335,7 +332,6 @@ export default function BioPagesScreen({
     (page: BioPage) => resolveBioPagePublicLink(page, domains, platformSubdomains),
     [domains, platformSubdomains]
   );
-  const [claimSubdomainPage, setClaimSubdomainPage] = useState<BioPage | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [newPageId, setNewPageId] = useState(() => createUniquePageId());
@@ -1507,11 +1503,6 @@ export default function BioPagesScreen({
             <span className="truncate">{link.displayLabel}</span>
           </a>
         )}
-        {unpublished && (
-          <span className="acn-bio-page-link-badge shrink-0 acn-bio-page-link-badge--pending">
-            Publish to share
-          </span>
-        )}
         {!unpublished && link.kind === "custom" && (
           <span className={`acn-bio-page-link-badge shrink-0 ${link.publicReady ? "" : "acn-bio-page-link-badge--pending"}`}>
             {link.publicReady ? "Custom domain" : link.canOpen ? "DNS OK" : "Pending DNS"}
@@ -1519,16 +1510,6 @@ export default function BioPagesScreen({
         )}
         {!unpublished && link.kind === "acn_subdomain" && (
           <span className="acn-bio-page-link-badge shrink-0">Free ACN URL</span>
-        )}
-        {!unpublished && link.kind === "platform" && (
-          <button
-            type="button"
-            onClick={() => setClaimSubdomainPage(page)}
-            className="acn-bio-page-link-badge shrink-0 hover:bg-indigo-100"
-            title="Claim a short free address like yourname.acnlink.mindflo.today"
-          >
-            Get free URL
-          </button>
         )}
       </div>
     );
@@ -4693,20 +4674,6 @@ export default function BioPagesScreen({
           <span className="text-sm font-bold">{toast}</span>
         </div>
       )}
-
-      {claimSubdomainPage &&
-        createPortal(
-          <PlatformSubdomainClaimModal
-            open={Boolean(claimSubdomainPage)}
-            page={claimSubdomainPage}
-            onClose={() => setClaimSubdomainPage(null)}
-            onClaimed={() => {
-              void onReloadPlatformSubdomains?.();
-              triggerToast(`Free ACN address claimed for "${claimSubdomainPage.title}".`);
-            }}
-          />,
-          document.body
-        )}
     </PageShell>
   );
 }

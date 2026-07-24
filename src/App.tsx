@@ -1495,7 +1495,6 @@ export default function App() {
             pages={pages}
             domains={domains}
             platformSubdomains={platformSubdomains}
-            onReloadPlatformSubdomains={loadPlatformSubdomains}
             onAddPage={handleAddPage}
             onDeletePage={handleDeletePage}
             onDeletePages={handleDeletePages}

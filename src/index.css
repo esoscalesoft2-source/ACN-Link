@@ -1955,8 +1955,9 @@ body.acn-connect-domain-modal-open header.acn-glass-header {
 }
 
 .acn-page-picker__list {
-  max-height: none;
-  overflow: visible;
+  max-height: 12rem;
+  overflow-x: hidden;
+  overflow-y: auto;
   margin: 0;
   padding: 0.25rem 0;
   list-style: none;
@@ -7506,7 +7507,7 @@ body.acn-editor-open header.acn-glass-header {
 .acn-domain-wizard {
   width: min(100%, 32rem);
   max-height: min(92vh, 42rem);
-  overflow: hidden;
+  overflow: visible;
   display: flex;
   flex-direction: column;
   border-radius: 1.25rem;
@@ -7564,8 +7565,7 @@ body.acn-editor-open header.acn-glass-header {
 
 .acn-domain-wizard__body {
   padding: 0.35rem 1.25rem 1.25rem;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: visible;
   flex: 1;
   min-height: 0;
 }
@@ -7989,11 +7989,40 @@ body.acn-editor-open header.acn-glass-header {
   margin-bottom: 0.75rem;
 }
 
+.acn-domain-wizard .acn-page-picker {
+  position: relative;
+  z-index: 5;
+}
+
 .acn-domain-wizard .acn-page-picker__trigger {
   border-radius: 0.75rem;
   border: 1px solid rgba(148, 163, 184, 0.45);
   padding: 0.65rem 0.85rem;
   background: #fff;
+}
+
+/* Overlay the page list so the modal itself does not grow or scroll. */
+.acn-domain-wizard .acn-page-picker__menu {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  max-height: min(16rem, 42vh);
+  display: flex;
+  flex-direction: column;
+  margin-top: 0;
+}
+
+.acn-domain-wizard .acn-page-picker__list {
+  flex: 1 1 auto;
+  max-height: 11rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.acn-domain-wizard .acn-page-picker__footer {
+  flex-shrink: 0;
 }
 
 .acn-domain-remove-dialog {

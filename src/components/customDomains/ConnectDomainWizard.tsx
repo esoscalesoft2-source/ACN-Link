@@ -983,11 +983,6 @@ export default function ConnectDomainWizard({
                 <strong>{activeHostname || "your domain"}</strong>, then approve ACN Link. We add
                 DNS automatically — no API token, no copy-paste.
               </p>
-              <p className="mt-2 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                Important: use <strong>your</strong> Cloudflare login for this domain. If Cloudflare
-                shows a different email, click <strong>Edit</strong> on that screen and switch
-                accounts (or log out of Cloudflare first).
-              </p>
             </div>
 
             <div className="acn-domain-wizard__auto-steps">

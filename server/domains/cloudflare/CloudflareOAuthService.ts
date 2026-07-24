@@ -154,31 +154,8 @@ export async function createCloudflareOAuthAuthorizeUrl(input: {
   });
 
   const authorizeUrl = `${AUTH_URL}?${params.toString()}`;
-  return {
-    authorizeUrl: wrapCloudflareAuthorizeForCustomerLogin(authorizeUrl, input.domainName),
-    state
-  };
-}
-
-/**
- * Send customers through our gate page before Cloudflare authorize.
- * Ensures they sign into the Cloudflare account that owns THEIR domain,
- * not whatever Cloudflare session happens to be open in the browser.
- */
-export function wrapCloudflareAuthorizeForCustomerLogin(
-  authorizeUrl: string,
-  domainName: string
-): string {
-  if (!authorizeUrl.startsWith(AUTH_URL)) return authorizeUrl;
-  // Same public origin as the OAuth callback so the gate always hits this API.
-  const origin = cloudflareOAuthRedirectUri().replace(
-    /\/api\/domains\/providers\/cloudflare\/oauth\/callback$/i,
-    ""
-  );
-  const gate = new URL(`${origin}/api/domains/providers/cloudflare/oauth/pick-account`);
-  gate.searchParams.set("next", authorizeUrl);
-  gate.searchParams.set("domain", domainName);
-  return gate.toString();
+  // Straight to Cloudflare Sign in / Authorize (prompt=login). No ACN intermediate page.
+  return { authorizeUrl, state };
 }
 
 /** Sync wrapper kept for call sites that cannot await — prefers durable consume. */

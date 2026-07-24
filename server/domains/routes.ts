@@ -698,62 +698,6 @@ export function createDomainsRouter() {
     }
   });
 
-  /**
-   * Multi-tenant gate: before Cloudflare Authorize, tell the customer to use the
-   * Cloudflare login that owns THEIR domain (never a shared developer session).
-   */
-  router.get("/providers/cloudflare/oauth/pick-account", (req: Request, res: Response) => {
-    const nextRaw = String(req.query.next || "").trim();
-    const domainName = normalizeHostname(req.query.domain) || "your domain";
-    const authPrefix = "https://dash.cloudflare.com/oauth2/auth";
-    if (!nextRaw.startsWith(authPrefix)) {
-      res.status(400).type("html").send("<p>Invalid Cloudflare authorize link.</p>");
-      return;
-    }
-    const next = nextRaw;
-    const safeDomain = domainName
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/"/g, "&quot;");
-    const safeNext = next.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-    res.status(200).type("html").send(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Sign in to your Cloudflare</title>
-  <style>
-    body{font-family:ui-sans-serif,system-ui,sans-serif;max-width:34rem;margin:3rem auto;padding:0 1rem;color:#0f172a;background:#f8fafc}
-    .card{background:#fff;border:1px solid #e2e8f0;border-radius:1rem;padding:1.5rem;box-shadow:0 10px 30px rgba(15,23,42,.06)}
-    h1{font-size:1.35rem;margin:0 0 .75rem}
-    p{line-height:1.55;color:#475569;margin:.65rem 0}
-    .domain{color:#0f172a;font-weight:700}
-    .warn{background:#fff7ed;border:1px solid #ffedd5;color:#9a3412;padding:.85rem 1rem;border-radius:.85rem;font-size:.92rem}
-    .btn{display:block;text-align:center;background:#4f46e5;color:#fff;text-decoration:none;padding:.9rem 1rem;border-radius:.8rem;font-weight:700;margin-top:1.15rem}
-    .btn-secondary{background:#fff;color:#4338ca;border:1px solid #c7d2fe}
-    .muted{font-size:.85rem;color:#64748b}
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>Sign in to YOUR Cloudflare account</h1>
-    <p>Next, Cloudflare will ask permission so ACN Link can add DNS for <span class="domain">${safeDomain}</span>.</p>
-    <p class="warn">Log in with the Cloudflare account that owns <span class="domain">${safeDomain}</span>. Do not use a different Cloudflare account (for example a developer PC already signed into another account).</p>
-    <p class="muted">If the Cloudflare screen shows the wrong email, click <strong>Edit</strong> beside the account name and switch — or log out first below, then Continue.</p>
-    <a class="btn" id="continue" href="${safeNext}">Continue to Cloudflare</a>
-    <a class="btn btn-secondary" id="switch" href="https://dash.cloudflare.com/logout" target="_blank" rel="noopener noreferrer">Log out of Cloudflare in a new tab</a>
-  </div>
-  <script>
-    document.getElementById("switch").addEventListener("click", function () {
-      window.setTimeout(function () {
-        window.alert("After Cloudflare logs out, return here and tap Continue to Cloudflare — then sign in with the account that owns ${safeDomain.replace(/'/g, "\\'")}.");
-      }, 300);
-    });
-  </script>
-</body>
-</html>`);
-  });
-
   router.get("/", async (req: AuthedRequest, res: Response) => {
     try {
       const rows = await listDomains(req.authUser!.id);

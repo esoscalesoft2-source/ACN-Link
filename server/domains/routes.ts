@@ -62,6 +62,7 @@ import {
 import {
   createDomain,
   findDomainById,
+  findDomainByHostname,
   findDomainByPageId,
   listDomains,
   removeDomain,
@@ -794,19 +795,52 @@ export function createDomainsRouter() {
       return;
     }
 
-    const existingForPage = await findDomainByPageId(pageId, req.authUser!.id);
-    if (existingForPage) {
-      const incomplete = existingForPage.status !== "Verified";
+    const existingByHost = await findDomainByHostname(domainName);
+    if (existingByHost && existingByHost.ownerUserId !== req.authUser!.id) {
       res.status(409).json({
-        error: incomplete
-          ? `This bio page is still linked to ${existingForPage.domainName} (incomplete setup — may not be LIVE). ` +
-            `Remove ${existingForPage.domainName} from Custom Domains first, or pick a different bio page for ${domainName}.`
-          : `This bio page already opens ${existingForPage.domainName}. ` +
-            `Pick a different bio page for ${domainName}, or remove that domain first. ` +
-            `One bio page can only use one custom domain.`,
-        code: "PAGE_DOMAIN_TAKEN"
+        error: "This hostname is already connected.",
+        code: "DOMAIN_EXISTS"
       });
       return;
+    }
+
+    let resumeRecord: CustomDomainRecord | null = null;
+    const existingForPage = await findDomainByPageId(pageId, req.authUser!.id);
+    if (existingForPage) {
+      if (existingForPage.domainName === domainName) {
+        // Same domain + same page — resume incomplete setup instead of blocking.
+        resumeRecord = existingForPage;
+      } else if (existingForPage.status !== "Verified") {
+        // Ghost incomplete row was blocking this page — clear it and continue.
+        await removeDomain(existingForPage.id, req.authUser!.id);
+      } else {
+        res.status(409).json({
+          error:
+            `This bio page already opens ${existingForPage.domainName}. ` +
+            `Pick a different bio page for ${domainName}, or remove that domain first. ` +
+            `One bio page can only use one custom domain.`,
+          code: "PAGE_DOMAIN_TAKEN"
+        });
+        return;
+      }
+    }
+
+    if (
+      !resumeRecord &&
+      existingByHost &&
+      existingByHost.ownerUserId === req.authUser!.id
+    ) {
+      if (existingByHost.status === "Verified") {
+        res.status(409).json({
+          error: "This hostname is already connected.",
+          code: "DOMAIN_EXISTS"
+        });
+        return;
+      }
+      resumeRecord =
+        existingByHost.pageId === pageId
+          ? existingByHost
+          : await updateDomain(existingByHost.id, req.authUser!.id, { page_id: pageId });
     }
 
     const appHosts = [process.env.APP_URL, process.env.API_URL]
@@ -829,44 +863,62 @@ export function createDomainsRouter() {
     const dnsTarget = resolveCustomDomainATarget();
 
     try {
-      let record = await createDomain({
-        id: domainId(),
-        ownerUserId: req.authUser!.id,
-        pageId,
-        domainName,
-        dnsTarget,
-        provider
-      });
+      let record: CustomDomainRecord;
+      if (resumeRecord) {
+        record = resumeRecord;
+        if (record.pageId !== pageId) {
+          record = await updateDomain(record.id, req.authUser!.id, { page_id: pageId });
+        }
+      } else {
+        record = await createDomain({
+          id: domainId(),
+          ownerUserId: req.authUser!.id,
+          pageId,
+          domainName,
+          dnsTarget,
+          provider
+        });
+      }
 
       if (registerSaas) {
-        try {
-          const registered =
-            kind === "subdomain"
-              ? { apex: await registerCustomHostname(domainName), www: null }
-              : await registerRootDomainHostnames(domainName);
-          record = await updateDomain(record.id, req.authUser!.id, providerPatch(registered.apex));
+        if (record.providerHostnameId) {
           await appendDomainVerificationLog({
             domainId: record.id,
             ownerUserId: req.authUser!.id,
             event: "cloudflare_register",
-            status: registered.www ? "apex_and_www" : "apex_only",
-            message: registered.www
-              ? `Registered ${domainName} and www.${domainName} with Cloudflare for SaaS.`
-              : `Registered ${domainName} with Cloudflare for SaaS.`
+            status: "resumed",
+            message: `Resumed existing Cloudflare for SaaS hostname for ${domainName}.`
           });
-        } catch (providerError) {
-          record = await updateDomain(record.id, req.authUser!.id, {
-            provider_status: "error",
-            ssl_status: "error",
-            error_message: errorMessage(providerError)
-          });
-          await appendDomainVerificationLog({
-            domainId: record.id,
-            ownerUserId: req.authUser!.id,
-            event: "cloudflare_register",
-            status: "error",
-            message: errorMessage(providerError)
-          });
+        } else {
+          try {
+            const registered =
+              kind === "subdomain"
+                ? { apex: await registerCustomHostname(domainName), www: null }
+                : await registerRootDomainHostnames(domainName);
+            record = await updateDomain(record.id, req.authUser!.id, providerPatch(registered.apex));
+            await appendDomainVerificationLog({
+              domainId: record.id,
+              ownerUserId: req.authUser!.id,
+              event: "cloudflare_register",
+              status: registered.www ? "apex_and_www" : "apex_only",
+              message: registered.www
+                ? `Registered ${domainName} and www.${domainName} with Cloudflare for SaaS.`
+                : `Registered ${domainName} with Cloudflare for SaaS.`
+            });
+          } catch (providerError) {
+            record = await updateDomain(record.id, req.authUser!.id, {
+              provider_status: "error",
+              ssl_status: "error",
+              error_message: errorMessage(providerError)
+            });
+            await appendDomainVerificationLog({
+              domainId: record.id,
+              ownerUserId: req.authUser!.id,
+              event: "cloudflare_register",
+              status: "error",
+              message: errorMessage(providerError)
+            });
+          }
         }
       } else {
         record = await updateDomain(record.id, req.authUser!.id, {

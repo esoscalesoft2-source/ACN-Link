@@ -161,7 +161,8 @@ export default function ConnectDomainWizard({
   const connectStartedRef = useRef(false);
   const verifyLoopIdRef = useRef(0);
 
-  const firstAvailablePageId = pages.find((page) => !linkedDomainsByPageId.has(page.id))?.id || "";
+  const firstAvailablePageId =
+    pages.find((page) => page.status === "Live" && !linkedDomainsByPageId.has(page.id))?.id || "";
   const isResume = Boolean(resumeDomain);
   const isPreviewSession = isPreviewToken(getAccessToken());
   const previewSessionMessage =
@@ -560,16 +561,16 @@ export default function ConnectDomainWizard({
       return;
     }
     const linkedDomain = linkedDomainsByPageId.get(pageId);
-    if (linkedDomain) {
-      const live = linkedDomain.status === "Verified";
-      setFormError(
-        live
-          ? `Pick a different bio page — this one already opens ${linkedDomain.domainName}. ` +
-              `Or remove ${linkedDomain.domainName} from Custom Domains first.`
-          : `This bio page is still linked to ${linkedDomain.domainName} (incomplete setup — may not be LIVE). ` +
-              `Open Custom Domains, remove ${linkedDomain.domainName}, then try again — or pick another page.`
-      );
-      return;
+    // Same hostname incomplete/live on this page → continue (server resumes). Only block a different LIVE domain.
+    if (linkedDomain && normaliseHostname(linkedDomain.domainName) !== hostname) {
+      if (linkedDomain.status === "Verified") {
+        setFormError(
+          `Pick a different bio page — this one already opens ${linkedDomain.domainName}. ` +
+            `Or remove ${linkedDomain.domainName} from Custom Domains first.`
+        );
+        return;
+      }
+      // Incomplete ghost on another hostname — server clears it; allow continue.
     }
 
     setFormError("");
@@ -592,14 +593,14 @@ export default function ConnectDomainWizard({
   const startManualDnsSetup = async () => {
     const hostname = normaliseHostname(domainName);
     const linkedDomain = linkedDomainsByPageId.get(pageId);
-    if (linkedDomain) {
-      const live = linkedDomain.status === "Verified";
+    if (
+      linkedDomain &&
+      normaliseHostname(linkedDomain.domainName) !== hostname &&
+      linkedDomain.status === "Verified"
+    ) {
       setFormError(
-        live
-          ? `Pick a different bio page — this one already opens ${linkedDomain.domainName}. ` +
-              `Or remove ${linkedDomain.domainName} from Custom Domains first.`
-          : `This bio page is still linked to ${linkedDomain.domainName} (incomplete setup — may not be LIVE). ` +
-              `Open Custom Domains, remove ${linkedDomain.domainName}, then try again — or pick another page.`
+        `Pick a different bio page — this one already opens ${linkedDomain.domainName}. ` +
+          `Or remove ${linkedDomain.domainName} from Custom Domains first.`
       );
       setPhase("domain");
       return;
@@ -697,12 +698,13 @@ export default function ConnectDomainWizard({
     try {
       const hostname = normaliseHostname(domainName);
       const linkedDomain = linkedDomainsByPageId.get(pageId);
-      if (linkedDomain) {
-        const live = linkedDomain.status === "Verified";
+      if (
+        linkedDomain &&
+        normaliseHostname(linkedDomain.domainName) !== hostname &&
+        linkedDomain.status === "Verified"
+      ) {
         setFormError(
-          live
-            ? `Pick a different bio page — this one already opens ${linkedDomain.domainName}.`
-            : `This bio page is still linked to ${linkedDomain.domainName} (incomplete — remove it from Custom Domains first).`
+          `Pick a different bio page — this one already opens ${linkedDomain.domainName}.`
         );
         setPhase("domain");
         return;
@@ -870,6 +872,7 @@ export default function ConnectDomainWizard({
                 value={pageId}
                 onChange={setPageId}
                 linkedDomainsByPageId={linkedDomainsByPageId}
+                connectingHostname={inputPreview.normalized || normaliseHostname(domainName)}
                 onSelectAttempt={requestPageSelection}
               />
               <p className="mt-2 text-xs leading-relaxed text-slate-500">

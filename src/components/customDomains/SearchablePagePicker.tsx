@@ -16,9 +16,15 @@ interface SearchablePagePickerProps {
   value: string;
   onChange: (pageId: string) => void;
   linkedDomainsByPageId: Map<string, CustomDomain>;
+  /** Hostname being connected — page stays selectable if it only links this same host. */
+  connectingHostname?: string;
   placeholder?: string;
   /** When set, manual selection calls this instead of applying `onChange` immediately. */
   onSelectAttempt?: (page: BioPage) => void;
+}
+
+function sameHostname(a: string, b: string) {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
 export default function SearchablePagePicker({
@@ -26,6 +32,7 @@ export default function SearchablePagePicker({
   value,
   onChange,
   linkedDomainsByPageId,
+  connectingHostname = "",
   placeholder = "Choose your live page",
   onSelectAttempt
 }: SearchablePagePickerProps) {
@@ -33,34 +40,45 @@ export default function SearchablePagePicker({
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
 
-  const sortedPages = useMemo(
-    () => [...pages].sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" })),
+  // Connect Domain only offers published Live pages — never Draft (or Paused).
+  const selectablePages = useMemo(
+    () =>
+      pages
+        .filter((page) => page.status === "Live")
+        .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" })),
     [pages]
   );
 
   const filteredPages = useMemo(
-    () => sortedPages.filter((page) => matchesConnectPageSearch(page, query)),
-    [sortedPages, query]
+    () => selectablePages.filter((page) => matchesConnectPageSearch(page, query)),
+    [selectablePages, query]
   );
+
+  const pageIsBlocked = (pageId: string) => {
+    const linkedDomain = linkedDomainsByPageId.get(pageId);
+    if (!linkedDomain) return false;
+    if (connectingHostname && sameHostname(linkedDomain.domainName, connectingHostname)) {
+      return false;
+    }
+    // Incomplete on another hostname is cleared on connect — only LIVE other domains lock the page.
+    return linkedDomain.status === "Verified";
+  };
 
   const availableCount = useMemo(
-    () => pages.filter((page) => !linkedDomainsByPageId.has(page.id)).length,
-    [pages, linkedDomainsByPageId]
+    () => selectablePages.filter((page) => !pageIsBlocked(page.id)).length,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pageIsBlocked closes over map + hostname
+    [selectablePages, linkedDomainsByPageId, connectingHostname]
   );
 
-  const selectedPage = pages.find((page) => page.id === value);
+  const selectedPage = selectablePages.find((page) => page.id === value);
 
   const trySelectPage = (page: BioPage) => {
     const linkedDomain = linkedDomainsByPageId.get(page.id);
-    if (linkedDomain) {
-      const live = linkedDomain.status === "Verified";
+    if (linkedDomain && pageIsBlocked(page.id)) {
       window.alert(
-        live
-          ? `"${page.title}" already opens ${linkedDomain.domainName}.\n\n` +
-              `Each bio page can use only one custom domain.\n` +
-              `Pick a different page, or remove ${linkedDomain.domainName} from Custom Domains first.`
-          : `"${page.title}" is still linked to ${linkedDomain.domainName} (incomplete — may not show as LIVE).\n\n` +
-              `Open Custom Domains, remove ${linkedDomain.domainName}, then try again — or pick another page.`
+        `"${page.title}" already opens ${linkedDomain.domainName}.\n\n` +
+          `Each bio page can use only one custom domain.\n` +
+          `Pick a different page, or remove ${linkedDomain.domainName} from Custom Domains first.`
       );
       return;
     }
@@ -122,11 +140,19 @@ export default function SearchablePagePicker({
 
           <ul className="acn-page-picker__list" role="listbox">
             {filteredPages.length === 0 ? (
-              <li className="acn-page-picker__empty">No pages match your search.</li>
+              <li className="acn-page-picker__empty">
+                {selectablePages.length === 0
+                  ? "No Live bio pages yet. Publish a page first, then connect a domain."
+                  : "No pages match your search."}
+              </li>
             ) : (
               filteredPages.map((page) => {
                 const linkedDomain = linkedDomainsByPageId.get(page.id);
-                const isLocked = Boolean(linkedDomain);
+                const isLocked = pageIsBlocked(page.id);
+                const sameHostResume =
+                  Boolean(linkedDomain) &&
+                  Boolean(connectingHostname) &&
+                  sameHostname(linkedDomain!.domainName, connectingHostname);
                 return (
                   <li key={page.id}>
                     <button
@@ -141,9 +167,13 @@ export default function SearchablePagePicker({
                     >
                       <span className="min-w-0 flex-1">
                         <span className="acn-page-picker__option-title block truncate">{page.title}</span>
-                        {linkedDomain ? (
+                        {linkedDomain && isLocked ? (
                           <span className="acn-page-picker__option-linked block truncate">
                             Already used on {linkedDomain.domainName}
+                          </span>
+                        ) : sameHostResume ? (
+                          <span className="acn-page-picker__option-linked block truncate">
+                            Continue setup for {linkedDomain!.domainName}
                           </span>
                         ) : (
                           <span className="acn-page-picker__option-id block truncate">{page.id}</span>
@@ -166,7 +196,8 @@ export default function SearchablePagePicker({
           </ul>
 
           <p className="acn-page-picker__footer">
-            {availableCount} available · Showing {filteredPages.length} of {pages.length}
+            {availableCount} available · Showing {filteredPages.length} of {selectablePages.length}{" "}
+            Live pages
           </p>
         </div>
       )}

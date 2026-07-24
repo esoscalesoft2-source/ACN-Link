@@ -124,6 +124,11 @@ export async function createCloudflareOAuthAuthorizeUrl(input: {
   userId: string;
   domainName: string;
   pageId: string;
+  /**
+   * When true, Cloudflare should show Sign in (other account / first link).
+   * When false, an already-signed-in session can go straight to the permission screen.
+   */
+  forceLogin?: boolean;
 }): Promise<{ authorizeUrl: string; state: string }> {
   if (!isCloudflareOAuthConfigured()) {
     throw new Error("Cloudflare OAuth is not configured on this server.");
@@ -146,15 +151,15 @@ export async function createCloudflareOAuthAuthorizeUrl(input: {
     state,
     code_challenge: pkceChallenge(codeVerifier),
     code_challenge_method: "S256",
-    scope: oauthScopes().join(" "),
-    // Ask Cloudflare to show a login / account choice instead of silently
-    // reusing whatever dashboard session is already open on this browser
-    // (e.g. a developer's fanideaz123 session on a shared PC).
-    prompt: "login"
+    scope: oauthScopes().join(" ")
   });
+  // Only force Sign in when the domain is not in the linked account (or no link yet).
+  // Same-account reconnects must reach the permission/Approve screen without re-login.
+  if (input.forceLogin !== false) {
+    params.set("prompt", "login");
+  }
 
   const authorizeUrl = `${AUTH_URL}?${params.toString()}`;
-  // Straight to Cloudflare Sign in / Authorize (prompt=login). No ACN intermediate page.
   return { authorizeUrl, state };
 }
 

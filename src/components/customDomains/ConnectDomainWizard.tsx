@@ -524,13 +524,8 @@ export default function ConnectDomainWizard({
           try {
             const begin = await beginCloudflareConnect(hostname, pageId);
             if (begin.mode === "oauth" && begin.authorizeUrl) {
-              if (begin.message) window.alert(begin.message);
+              if (begin.accountMismatch && begin.message) window.alert(begin.message);
               window.location.href = begin.authorizeUrl;
-              return;
-            }
-            if (begin.mode === "ready") {
-              setAutoDnsReady(true);
-              await runVerifyLoop(result.domain);
               return;
             }
           } catch {
@@ -545,11 +540,6 @@ export default function ConnectDomainWizard({
             if (begin.mode === "oauth" && begin.authorizeUrl) {
               if (begin.accountMismatch && begin.message) window.alert(begin.message);
               window.location.href = begin.authorizeUrl;
-              return;
-            }
-            if (begin.mode === "ready") {
-              setAutoDnsReady(true);
-              await runVerifyLoop(result.domain);
               return;
             }
           } catch {
@@ -748,13 +738,9 @@ export default function ConnectDomainWizard({
         return;
       }
 
-      // Zone-aware: same CF account → ready; other account's domain → OAuth + alert.
+      // Always Cloudflare OAuth after Connect Cloudflare (permission required).
+      // Same account → Approve only; other account's domain → Sign in + alert.
       const begin = await beginCloudflareConnect(hostname, pageId);
-      if (begin.mode === "ready") {
-        setAutoDnsReady(true);
-        setPhase("verifying");
-        return;
-      }
       if (begin.mode === "oauth" && begin.authorizeUrl) {
         setAutoDnsReady(false);
         if (begin.accountMismatch && begin.message) {

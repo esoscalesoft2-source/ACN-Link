@@ -243,11 +243,11 @@ export async function saveDomainPreferences(preferredDnsProvider: string) {
 }
 
 export type CloudflareBeginResult =
-  | { mode: "ready"; reason: "zone_in_linked_account"; zoneName: string }
   | {
       mode: "oauth";
       authorizeUrl: string;
       accountMismatch?: boolean;
+      sameAccount?: boolean;
       message?: string;
     }
   | { mode: "manual"; message: string };

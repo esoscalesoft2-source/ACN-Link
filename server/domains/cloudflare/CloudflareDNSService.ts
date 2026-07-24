@@ -66,7 +66,10 @@ export async function provisionCustomerDns(input: {
     if (!zone) {
       return {
         success: false,
-        message: `No matching Cloudflare zone found for ${zoneDomain}. Add this domain to your Cloudflare account, then reconnect.`,
+        message:
+          `No matching Cloudflare zone found for ${zoneDomain}. ` +
+          `That domain is not in the Cloudflare account you approved. ` +
+          `Sign in with the Cloudflare account that owns ${zoneDomain}.`,
         changes: 0,
         code: "NO_ZONE"
       };

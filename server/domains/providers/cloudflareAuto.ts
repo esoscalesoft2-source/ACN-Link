@@ -1,27 +1,76 @@
+import { getDnsProviderConnection } from "./connections";
 import {
   createCloudflareOAuthAuthorizeUrl,
   isCloudflareOAuthConfigured
 } from "../cloudflare/CloudflareOAuthService";
+import { findZoneForHostname } from "../cloudflare/CloudflareZoneService";
+import { getDnsZoneDomain, normalizeHostname } from "../hostname";
 
 export type CloudflareBeginResult =
-  | { mode: "oauth"; authorizeUrl: string }
+  | { mode: "ready"; reason: "zone_in_linked_account"; zoneName: string }
+  | {
+      mode: "oauth";
+      authorizeUrl: string;
+      /** True when a linked CF account exists but does not contain this domain's zone. */
+      accountMismatch?: boolean;
+      message?: string;
+    }
   | { mode: "manual"; message: string };
 
 /**
- * Multi-tenant: every Connect Domain → Cloudflare requires a fresh OAuth approve.
- * Do not return "ready" from a saved token — that confused users with a global
- * "Cloudflare Connected" state.
+ * Multi-tenant Cloudflare begin:
+ * - Linked token + zone exists in that account → ready (reuse; no login again)
+ * - Linked token + zone NOT in that account → OAuth with prompt=login + mismatch message
+ * - No token → OAuth Sign in / Authorize
  */
 export async function beginCloudflareAutoSetup(input: {
   ownerUserId: string;
   domainName: string;
   pageId: string;
 }): Promise<CloudflareBeginResult> {
+  const hostname = normalizeHostname(input.domainName);
+  const zoneHint = getDnsZoneDomain(hostname) || hostname;
+
   try {
+    const saved = await getDnsProviderConnection(input.ownerUserId, "cloudflare");
+    if (saved?.accessToken) {
+      try {
+        const zone = await findZoneForHostname(saved.accessToken, hostname);
+        if (zone?.id) {
+          return {
+            mode: "ready",
+            reason: "zone_in_linked_account",
+            zoneName: zone.name || zoneHint
+          };
+        }
+
+        // Token works, but this root is not in that Cloudflare account (e.g. acncart.in
+        // while linked account only has acnfashionshop.com, …).
+        if (isCloudflareOAuthConfigured()) {
+          const { authorizeUrl } = await createCloudflareOAuthAuthorizeUrl({
+            userId: input.ownerUserId,
+            domainName: hostname,
+            pageId: input.pageId
+          });
+          return {
+            mode: "oauth",
+            authorizeUrl,
+            accountMismatch: true,
+            message:
+              `${zoneHint} is not in the Cloudflare account currently linked to ACN Link. ` +
+              `Sign in with the Cloudflare account that owns ${zoneHint} ` +
+              `(if the next screen shows a different email, click Edit and switch accounts).`
+          };
+        }
+      } catch (zoneError) {
+        console.warn("[cloudflare-auto] zone check failed, falling back to OAuth:", zoneError);
+      }
+    }
+
     if (isCloudflareOAuthConfigured()) {
       const { authorizeUrl } = await createCloudflareOAuthAuthorizeUrl({
         userId: input.ownerUserId,
-        domainName: input.domainName,
+        domainName: hostname,
         pageId: input.pageId
       });
       return { mode: "oauth", authorizeUrl };
@@ -38,7 +87,7 @@ export async function beginCloudflareAutoSetup(input: {
       try {
         const { authorizeUrl } = await createCloudflareOAuthAuthorizeUrl({
           userId: input.ownerUserId,
-          domainName: input.domainName,
+          domainName: hostname,
           pageId: input.pageId
         });
         return { mode: "oauth", authorizeUrl };

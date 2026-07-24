@@ -64,7 +64,9 @@ export const cloudflareProvider: DnsProviderAdapter = {
       success: false,
       message:
         lastCode === "NO_ZONE"
-          ? `${lastError} Make sure you approved the Cloudflare account that owns this domain.`
+          ? `${lastError} This domain is not in the Cloudflare account you approved. ` +
+            `Sign in again with the Cloudflare account that owns this domain ` +
+            `(click Edit on Cloudflare if the wrong email is shown).`
           : lastError,
       providerAccountId: null,
       needsOAuth

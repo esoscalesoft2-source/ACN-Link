@@ -506,12 +506,50 @@ export default function ConnectDomainWizard({
       }
 
       if (selectedProviderId === "cloudflare") {
-        // Not yet approved this session → send user to Cloudflare Authorize.
+        const provisionMsg = result.dnsProvisionMessage || "";
+        const zoneMissing =
+          result.needsOAuth ||
+          Boolean(result.oauthAuthorizeUrl) ||
+          /no matching cloudflare zone|not in the cloudflare account|owns this domain/i.test(
+            provisionMsg
+          );
+
+        // Wrong Cloudflare account approved (domain not in that account) → force Sign in again.
+        if (zoneMissing) {
+          if (provisionMsg) window.alert(provisionMsg);
+          if (result.oauthAuthorizeUrl) {
+            window.location.href = result.oauthAuthorizeUrl;
+            return;
+          }
+          try {
+            const begin = await beginCloudflareConnect(hostname, pageId);
+            if (begin.mode === "oauth" && begin.authorizeUrl) {
+              if (begin.message) window.alert(begin.message);
+              window.location.href = begin.authorizeUrl;
+              return;
+            }
+            if (begin.mode === "ready") {
+              setAutoDnsReady(true);
+              await runVerifyLoop(result.domain);
+              return;
+            }
+          } catch {
+            /* fall through */
+          }
+        }
+
+        // Not yet approved this session → Cloudflare Authorize / Sign in.
         if (!autoDnsReady) {
           try {
             const begin = await beginCloudflareConnect(hostname, pageId);
             if (begin.mode === "oauth" && begin.authorizeUrl) {
+              if (begin.accountMismatch && begin.message) window.alert(begin.message);
               window.location.href = begin.authorizeUrl;
+              return;
+            }
+            if (begin.mode === "ready") {
+              setAutoDnsReady(true);
+              await runVerifyLoop(result.domain);
               return;
             }
           } catch {
@@ -519,7 +557,7 @@ export default function ConnectDomainWizard({
           }
         }
         setFormError(
-          result.dnsProvisionMessage ||
+          provisionMsg ||
             "We couldn't update DNS automatically. Try Connect Cloudflare again, or go back and choose Manual."
         );
         setPhase("connect");
@@ -710,10 +748,20 @@ export default function ConnectDomainWizard({
         return;
       }
 
-      // Every Connect Domain → Cloudflare requires a fresh Approve in Cloudflare.
+      // Zone-aware: same CF account → ready; other account's domain → OAuth + alert.
       const begin = await beginCloudflareConnect(hostname, pageId);
+      if (begin.mode === "ready") {
+        setAutoDnsReady(true);
+        setPhase("verifying");
+        return;
+      }
       if (begin.mode === "oauth" && begin.authorizeUrl) {
         setAutoDnsReady(false);
+        if (begin.accountMismatch && begin.message) {
+          window.alert(begin.message);
+        } else if (begin.message) {
+          setFormError(begin.message);
+        }
         window.location.href = begin.authorizeUrl;
         return;
       }

@@ -19,6 +19,7 @@ import { resolveCnameTarget, resolveCustomDomainATarget } from "./server/domains
 import { clientIp, consumeRateLimit } from "./server/domains/rateLimit";
 import { startSslPollingLoop } from "./server/domains/sslPoller";
 import { ensurePlatformOriginHostRewrite } from "./server/domains/originHostRewrite";
+import { ensurePlatformFreeUrlWildcardDns } from "./server/platformSubdomains/ensureWildcardDns";
 import { shouldRegisterCloudflareCustomHostnames } from "./server/domains/saasConfig";
 import { createPlatformSubdomainsRouter } from "./server/platformSubdomains/routes";
 import { findPlatformSubdomainBySlug } from "./server/platformSubdomains/repository";
@@ -710,6 +711,8 @@ async function startServer() {
       const origin = await ensurePlatformOriginHostRewrite();
       console.log(`[custom-domains] ${origin.message}`);
     }
+    const wildcard = await ensurePlatformFreeUrlWildcardDns();
+    console.log(`[platform-subdomains] ${wildcard.message}`);
     startSslPollingLoop();
   } catch (error) {
     console.error("Data store init failed (continuing with file fallback):", error);

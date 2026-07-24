@@ -40,20 +40,6 @@ export default function SearchablePagePicker({
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
 
-  // Connect Domain only offers published Live pages — never Draft (or Paused).
-  const selectablePages = useMemo(
-    () =>
-      pages
-        .filter((page) => page.status === "Live")
-        .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" })),
-    [pages]
-  );
-
-  const filteredPages = useMemo(
-    () => selectablePages.filter((page) => matchesConnectPageSearch(page, query)),
-    [selectablePages, query]
-  );
-
   const pageIsBlocked = (pageId: string) => {
     const linkedDomain = linkedDomainsByPageId.get(pageId);
     if (!linkedDomain) return false;
@@ -64,24 +50,24 @@ export default function SearchablePagePicker({
     return linkedDomain.status === "Verified";
   };
 
-  const availableCount = useMemo(
-    () => selectablePages.filter((page) => !pageIsBlocked(page.id)).length,
+  // Connect Domain: Live pages only — hide Draft/Paused and pages already on another domain.
+  const selectablePages = useMemo(
+    () =>
+      pages
+        .filter((page) => page.status === "Live" && !pageIsBlocked(page.id))
+        .sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" })),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- pageIsBlocked closes over map + hostname
-    [selectablePages, linkedDomainsByPageId, connectingHostname]
+    [pages, linkedDomainsByPageId, connectingHostname]
+  );
+
+  const filteredPages = useMemo(
+    () => selectablePages.filter((page) => matchesConnectPageSearch(page, query)),
+    [selectablePages, query]
   );
 
   const selectedPage = selectablePages.find((page) => page.id === value);
 
   const trySelectPage = (page: BioPage) => {
-    const linkedDomain = linkedDomainsByPageId.get(page.id);
-    if (linkedDomain && pageIsBlocked(page.id)) {
-      window.alert(
-        `"${page.title}" already opens ${linkedDomain.domainName}.\n\n` +
-          `Each bio page can use only one custom domain.\n` +
-          `Pick a different page, or remove ${linkedDomain.domainName} from Custom Domains first.`
-      );
-      return;
-    }
     if (onSelectAttempt) {
       onSelectAttempt(page);
       setOpen(false);
@@ -130,7 +116,7 @@ export default function SearchablePagePicker({
               autoFocus
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search page name, ID, slug, or status…"
+              placeholder="Search page name, ID, or slug…"
               className="acn-page-picker__search-input"
               onKeyDown={(event) => {
                 if (event.key === "Escape") setOpen(false);
@@ -142,13 +128,12 @@ export default function SearchablePagePicker({
             {filteredPages.length === 0 ? (
               <li className="acn-page-picker__empty">
                 {selectablePages.length === 0
-                  ? "No Live bio pages yet. Publish a page first, then connect a domain."
+                  ? "No available Live pages. Publish a page first, or free a page that already has a domain."
                   : "No pages match your search."}
               </li>
             ) : (
               filteredPages.map((page) => {
                 const linkedDomain = linkedDomainsByPageId.get(page.id);
-                const isLocked = pageIsBlocked(page.id);
                 const sameHostResume =
                   Boolean(linkedDomain) &&
                   Boolean(connectingHostname) &&
@@ -159,35 +144,22 @@ export default function SearchablePagePicker({
                       type="button"
                       role="option"
                       aria-selected={page.id === value}
-                      aria-disabled={isLocked}
                       className={`acn-page-picker__option ${
                         page.id === value ? "acn-page-picker__option--selected" : ""
-                      } ${isLocked ? "acn-page-picker__option--locked" : ""}`}
+                      }`}
                       onClick={() => trySelectPage(page)}
                     >
                       <span className="min-w-0 flex-1">
                         <span className="acn-page-picker__option-title block truncate">{page.title}</span>
-                        {linkedDomain && isLocked ? (
-                          <span className="acn-page-picker__option-linked block truncate">
-                            Already used on {linkedDomain.domainName}
-                          </span>
-                        ) : sameHostResume ? (
-                          <span className="acn-page-picker__option-linked block truncate">
+                        {sameHostResume ? (
+                          <span className="acn-page-picker__option-resume block truncate">
                             Continue setup for {linkedDomain!.domainName}
                           </span>
                         ) : (
                           <span className="acn-page-picker__option-id block truncate">{page.id}</span>
                         )}
                       </span>
-                      {isLocked ? (
-                        <span className="acn-page-picker__status acn-page-picker__status--in-use">In use</span>
-                      ) : (
-                        <span
-                          className={`acn-page-picker__status acn-page-picker__status--${page.status.toLowerCase()}`}
-                        >
-                          {page.status}
-                        </span>
-                      )}
+                      <span className="acn-page-picker__status acn-page-picker__status--live">Live</span>
                     </button>
                   </li>
                 );
@@ -196,8 +168,7 @@ export default function SearchablePagePicker({
           </ul>
 
           <p className="acn-page-picker__footer">
-            {availableCount} available · Showing {filteredPages.length} of {selectablePages.length}{" "}
-            Live pages
+            {filteredPages.length} of {selectablePages.length} available Live pages
           </p>
         </div>
       )}

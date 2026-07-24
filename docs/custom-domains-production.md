@@ -57,13 +57,24 @@ User adds DNS → Verify → LIVE. No Worker routes. No Railway domain adds.
 
 ## Wildcard DNS (platform free URLs)
 
-In **mindflo.today**:
+Free addresses look like `{slug}.acnlink.mindflo.today` (e.g. `krishna.acnlink.mindflo.today`).
+
+In the **mindflo.today** zone (not a bare `*`):
 
 ```text
-CNAME  *  →  acnlink.mindflo.today   (Proxied)
+Type: CNAME
+Name: *.acnlink
+Target: acnlink.mindflo.today
+Proxy: Proxied (orange cloud)
 ```
 
-Lets `{slug}.acnlink.mindflo.today` reach Railway.
+Without this record, browsers show `DNS_PROBE_FINISHED_NXDOMAIN`.
+
+On deploy, the server upserts this record when `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ZONE_ID` are set
+(token needs **Zone → DNS → Edit**). Skip with `CLOUDFLARE_SKIP_PLATFORM_WILDCARD_DNS=true`.
+
+For HTTPS on nested hosts (`*.acnlink.mindflo.today`), enable **SSL/TLS → Edge Certificates → Total TLS**
+(or an Advanced Certificate covering `*.acnlink.mindflo.today`).
 
 ## Security
 

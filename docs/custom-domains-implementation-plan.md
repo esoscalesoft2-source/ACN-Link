@@ -63,7 +63,7 @@ Visitor → Customer DNS (Cloudflare/registrar)
 - [x] Server middleware routes `{slug}.acnlink.mindflo.today` → bio page
 - [x] Bio Pages UI: **Get free URL** claim modal
 - [x] `bioPagePublicUrl` uses free ACN address when claimed
-- [ ] Wildcard DNS `*.acnlink.mindflo.today` → Railway (Cloudflare one-time setup)
+- [x] Wildcard DNS `*.acnlink.mindflo.today` → `acnlink.mindflo.today` (boot upsert + docs)
 
 ### Phase 4 — Admin & observability
 

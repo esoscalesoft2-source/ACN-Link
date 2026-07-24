@@ -5,6 +5,7 @@ export enum ScreenId {
   CONTACTS = "CONTACTS",
   WHATSAPP = "WHATSAPP",
   LINKS = "LINKS",
+  LINK_ROTATOR = "LINK_ROTATOR",
   QR_CODES = "QR_CODES",
   TEMPLATES = "TEMPLATES",
   INTEGRATIONS = "INTEGRATIONS",
@@ -77,6 +78,25 @@ export interface SmartLink {
   status: "Live" | "Paused";
   clicks: number;
   retargeting: ("fb" | "google" | "tiktok" | "snapchat")[];
+}
+
+export interface LinkRotatorDestination {
+  id: string;
+  url: string;
+  probability: number;
+}
+
+export interface LinkRotator {
+  id: string;
+  name: string;
+  description?: string;
+  slug: string;
+  rotatorUrl: string;
+  status: "Active" | "Inactive";
+  destinations: LinkRotatorDestination[];
+  totalClicks: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface QRCodeItem {

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Routes, Route, Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { ScreenId, UserProfile, BioPage, Contact, WhatsAppCampaign, WhatsAppTemplate, SmartLink, QRCodeItem, TemplateItem, IntegrationItem, IntegrationVote, TrackingPixel, MediaFile, CustomDomain, PlatformSubdomain, HelpArticle, BioPageDraft, BioPageTemplate, BioEditorBlock, AppNotification, PublishSettings } from "./types";
+import { ScreenId, UserProfile, BioPage, Contact, WhatsAppCampaign, WhatsAppTemplate, SmartLink, LinkRotator, QRCodeItem, TemplateItem, IntegrationItem, IntegrationVote, TrackingPixel, MediaFile, CustomDomain, PlatformSubdomain, HelpArticle, BioPageDraft, BioPageTemplate, BioEditorBlock, AppNotification, PublishSettings } from "./types";
 import {
   initialUser,
   initialBioPages,
@@ -51,11 +51,13 @@ import {
 } from "./lib/domainApi";
 import { syncPublishPrimaryUrlForVerifiedDomain } from "./lib/publishDomainSync";
 import { fetchPlatformSubdomains } from "./lib/platformSubdomainApi";
+import { fetchLinkRotators } from "./lib/linkRotatorApi";
 import DashboardScreen from "./components/DashboardScreen";
 import BioPagesScreen from "./components/BioPagesScreen";
 import ContactsScreen from "./components/ContactsScreen";
 import WhatsAppScreen from "./components/WhatsAppScreen";
 import LinksScreen from "./components/LinksScreen";
+import LinkRotatorScreen from "./components/LinkRotatorScreen";
 import QRCodesScreen from "./components/QRCodesScreen";
 import TemplatesScreen from "./components/TemplatesScreen";
 import IntegrationsScreen from "./components/IntegrationsScreen";
@@ -687,6 +689,9 @@ export default function App() {
   const [domainsLoading, setDomainsLoading] = useState(false);
   const [domainsLoadError, setDomainsLoadError] = useState<string | null>(null);
   const [platformSubdomains, setPlatformSubdomains] = useState<PlatformSubdomain[]>([]);
+  const [linkRotators, setLinkRotators] = useState<LinkRotator[]>([]);
+  const [linkRotatorsLoading, setLinkRotatorsLoading] = useState(false);
+  const [linkRotatorsLoadError, setLinkRotatorsLoadError] = useState<string | null>(null);
 
   const loadPlatformSubdomains = React.useCallback(async () => {
     if (!getAccessToken() || isPreviewToken(getAccessToken())) return;
@@ -694,6 +699,22 @@ export default function App() {
       setPlatformSubdomains(await fetchPlatformSubdomains());
     } catch {
       setPlatformSubdomains([]);
+    }
+  }, []);
+
+  const loadLinkRotators = React.useCallback(async () => {
+    if (!getAccessToken() || isPreviewToken(getAccessToken())) return;
+    setLinkRotatorsLoading(true);
+    setLinkRotatorsLoadError(null);
+    try {
+      setLinkRotators(await fetchLinkRotators());
+    } catch (error) {
+      setLinkRotators([]);
+      setLinkRotatorsLoadError(
+        error instanceof Error ? error.message : "Unable to load link rotators."
+      );
+    } finally {
+      setLinkRotatorsLoading(false);
     }
   }, []);
 
@@ -723,11 +744,13 @@ export default function App() {
     if (isLoggedIn) {
       void loadDomains();
       void loadPlatformSubdomains();
+      void loadLinkRotators();
     } else {
       setDomains([]);
       setPlatformSubdomains([]);
+      setLinkRotators([]);
     }
-  }, [isLoggedIn, loadDomains, loadPlatformSubdomains]);
+  }, [isLoggedIn, loadDomains, loadPlatformSubdomains, loadLinkRotators]);
   const [articles] = useState<HelpArticle[]>(initialHelpArticles);
 
   // Push browser workspace fields → Railway → Supabase normalized tables
@@ -1545,6 +1568,15 @@ export default function App() {
             onCreateLink={handleCreateLink}
             onDeleteLink={handleDeleteLink}
             onUpdateLink={handleUpdateLink}
+          />
+        );
+      case ScreenId.LINK_ROTATOR:
+        return (
+          <LinkRotatorScreen
+            rotators={linkRotators}
+            onReload={loadLinkRotators}
+            loading={linkRotatorsLoading}
+            loadError={linkRotatorsLoadError}
           />
         );
       case ScreenId.QR_CODES:

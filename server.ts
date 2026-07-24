@@ -28,6 +28,13 @@ import {
   isPlatformSubdomainHostname,
   parsePlatformSubdomainSlug
 } from "./server/platformSubdomains/slug";
+import { createLinkRotatorsRouter } from "./server/linkRotators/routes";
+import {
+  findLinkRotatorBySlug,
+  incrementLinkRotatorClicks
+} from "./server/linkRotators/repository";
+import { pickDestinationByProbability } from "./server/linkRotators/validation";
+import { normalizeRotatorSlug } from "./server/linkRotators/slug";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -169,6 +176,50 @@ app.get("/api/public/platform-subdomain/:slug", async (req, res) => {
 app.use("/api/auth", createAuthRouter());
 app.use("/api/domains", createDomainsRouter());
 app.use("/api/platform-subdomains", createPlatformSubdomainsRouter());
+app.use("/api/link-rotators", createLinkRotatorsRouter());
+
+/** Public link rotator redirect: /r/:slug → weighted destination */
+app.get("/r/:slug", (req, res) => {
+  const rateKey = `link-rotator:${clientIp(req)}`;
+  if (!consumeRateLimit(rateKey, 180, 60_000)) {
+    res.status(429).type("html").send("<!doctype html><title>Too many requests</title><h1>Too many requests</h1>");
+    return;
+  }
+
+  const slug = normalizeRotatorSlug(req.params.slug);
+  if (!slug) {
+    res.status(404).type("html").send("<!doctype html><title>Not found</title><h1>Rotator not found</h1>");
+    return;
+  }
+
+  try {
+    const record = findLinkRotatorBySlug(slug);
+    if (!record || record.status !== "Active") {
+      res
+        .status(404)
+        .type("html")
+        .send(
+          "<!doctype html><title>Rotator unavailable</title><h1>This link rotator is not available</h1>"
+        );
+      return;
+    }
+
+    const destination = pickDestinationByProbability(record.destinations);
+    if (!destination?.url) {
+      res
+        .status(503)
+        .type("html")
+        .send("<!doctype html><title>Unavailable</title><h1>No destinations configured</h1>");
+      return;
+    }
+
+    incrementLinkRotatorClicks(record.id);
+    res.redirect(302, destination.url);
+  } catch (error) {
+    console.error("Link rotator redirect failed:", error);
+    res.status(503).type("html").send("<!doctype html><title>Unavailable</title><h1>Temporarily unavailable</h1>");
+  }
+});
 
 /** Pull workspace collections for the signed-in user (cross-device hydration). */
 app.get("/api/workspace/export", requireAuth, (req, res) => {
@@ -585,7 +636,7 @@ function isStaticAssetPath(pathname: string) {
  * SPA renders the correct published page at the branded URL.
  */
 app.use(async (req, res, next) => {
-  if (req.path.startsWith("/api/") || req.method !== "GET") {
+  if (req.path.startsWith("/api/") || req.path.startsWith("/r/") || req.method !== "GET") {
     next();
     return;
   }

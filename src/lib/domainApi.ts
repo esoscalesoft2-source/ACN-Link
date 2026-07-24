@@ -243,7 +243,6 @@ export async function saveDomainPreferences(preferredDnsProvider: string) {
 }
 
 export type CloudflareBeginResult =
-  | { mode: "ready"; reason: "saved_connection" }
   | { mode: "oauth"; authorizeUrl: string }
   | { mode: "manual"; message: string };
 

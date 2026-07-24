@@ -42,7 +42,6 @@ import {
 import ConnectDomainWizard, {
   type CloudflareOAuthBootstrap
 } from "./customDomains/ConnectDomainWizard";
-import CloudflareConnectionCard from "./customDomains/CloudflareConnectionCard";
 import CustomDomainSetupGuide from "./customDomains/CustomDomainSetupGuide";
 import DomainDnsPanel from "./customDomains/DomainDnsPanel";
 import HowItWorksDialog from "./customDomains/HowItWorksDialog";
@@ -425,22 +424,10 @@ export default function CustomDomainsScreen({
         }
         actions={
           <div className="acn-domains-header-actions self-start sm:pt-1">
-            {!isPreviewSession && (
-              <CloudflareConnectionCard
-                sampleDomain={
-                  historyDomains[0]?.domainName ||
-                  domains[0]?.domainName ||
-                  "link.yourdomain.com"
-                }
-                samplePageId={
-                  pages.find((page) => !linkedDomainsByPageId.has(page.id))?.id || pages[0]?.id
-                }
-              />
-            )}
             <button
               type="button"
               onClick={() =>
-                navigate(`${screenToPath(ScreenId.HELP_CENTER)}?article=faq-cd-cloudflare-account`)
+                navigate(`${screenToPath(ScreenId.HELP_CENTER)}?article=faq-cd-start`)
               }
               className="acn-domains-help-btn"
             >
@@ -519,9 +506,6 @@ export default function CustomDomainsScreen({
                     {historyDomains.length} live
                     {listedDomains.length > historyDomains.length
                       ? ` · ${listedDomains.length - historyDomains.length} incomplete`
-                      : ""}
-                    {platformConfig?.freeCustomDomainsPerRoot
-                      ? ` · Free: up to ${platformConfig.freeCustomDomainsPerRoot} per root domain`
                       : ""}
                   </p>
                 )}

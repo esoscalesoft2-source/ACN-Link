@@ -105,9 +105,8 @@ export default function HowItWorksDialog({ open, onClose, cnameTarget, aRecordTa
                 address, pick a different page or remove the old domain first.
               </li>
               <li>
-                <strong>Free plan</strong> — up to <strong>3</strong> custom domains{" "}
-                <strong>per root</strong>, for every root domain. A 4th subdomain on that same root
-                needs a paid plan. Other roots each get their own free allowance of 3.
+                <strong>Unlimited custom domains</strong> — connect as many root domains or
+                subdomains as you need on each root you own.
               </li>
               <li>
                 <strong>Manual DNS</strong> — choose Manual on “Where is your domain managed?”, then

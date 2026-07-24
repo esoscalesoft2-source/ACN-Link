@@ -150,7 +150,6 @@ export default function ConnectDomainWizard({
   const [analysis, setAnalysis] = useState<DomainAnalysis | null>(null);
   const [selectedProviderId, setSelectedProviderId] = useState<DnsProviderId | "">("");
   const [preferredProviderId, setPreferredProviderId] = useState<string | null>(null);
-  const [providerHasSavedToken, setProviderHasSavedToken] = useState(false);
   const [rememberProvider] = useState(true);
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [dnsAutoProvisioned, setDnsAutoProvisioned] = useState(false);
@@ -226,7 +225,6 @@ export default function ConnectDomainWizard({
       setConnectedDomain(null);
       setSelectedProviderId("cloudflare");
       setAutoDnsReady(oauthBootstrap.connected);
-      setProviderHasSavedToken(oauthBootstrap.connected);
       setFormError(oauthBootstrap.error || "");
       setPhase(oauthBootstrap.connected ? "verifying" : "connect");
     } else {
@@ -246,7 +244,6 @@ export default function ConnectDomainWizard({
     setVerifyMaxAttempts(8);
     setVerifyStage(0);
     if (!oauthBootstrap) {
-      setProviderHasSavedToken(false);
       setAutoDnsReady(false);
     }
     connectStartedRef.current = false;
@@ -259,13 +256,8 @@ export default function ConnectDomainWizard({
         if (!resumeDomain && !oauthBootstrap && preferred) {
           setSelectedProviderId(preferred as DnsProviderId);
         }
-        const saved = prefs.connections.find(
-          (item) => item.providerId === "cloudflare" && item.hasToken
-        );
-        if (saved) {
-          setProviderHasSavedToken(true);
-          setAutoDnsReady(true);
-        }
+        // Never treat a saved Cloudflare token as a global "Connected" shortcut —
+        // each Connect Domain run must Approve in Cloudflare again.
       })
       .catch(() => {
         /* preferences optional */
@@ -457,9 +449,7 @@ export default function ConnectDomainWizard({
     setDnsConfirmed(false);
 
     try {
-      // Multi-tenant: auto DNS only with THIS user's Cloudflare OAuth — never platform env token.
-      const useAutoDns =
-        selectedProviderId === "cloudflare" && (autoDnsReady || providerHasSavedToken);
+      // Multi-tenant: customer OAuth token only (set after Approve this session).
       let result: DomainConnectResult;
       try {
         result = await onConnectDomain(hostname, pageId, {
@@ -515,7 +505,8 @@ export default function ConnectDomainWizard({
       }
 
       if (selectedProviderId === "cloudflare") {
-        if (useAutoDns) {
+        // Not yet approved this session → send user to Cloudflare Authorize.
+        if (!autoDnsReady) {
           try {
             const begin = await beginCloudflareConnect(hostname, pageId);
             if (begin.mode === "oauth" && begin.authorizeUrl) {
@@ -523,7 +514,7 @@ export default function ConnectDomainWizard({
               return;
             }
           } catch {
-            /* stay on Connect Cloudflare — do not auto-open Manual DNS */
+            /* stay on Connect Cloudflare */
           }
         }
         setFormError(
@@ -717,23 +708,14 @@ export default function ConnectDomainWizard({
         return;
       }
 
-      // Always ask the server — do not trust a stale/missing platformConfig flag.
+      // Every Connect Domain → Cloudflare requires a fresh Approve in Cloudflare.
       const begin = await beginCloudflareConnect(hostname, pageId);
       if (begin.mode === "oauth" && begin.authorizeUrl) {
-        setProviderHasSavedToken(false);
         setAutoDnsReady(false);
         window.location.href = begin.authorizeUrl;
         return;
       }
-      if (begin.mode === "ready") {
-        setProviderHasSavedToken(true);
-        setAutoDnsReady(true);
-        setPhase("verifying");
-        return;
-      }
 
-      // mode === "manual": OAuth app missing on server, or saved Cloudflare link unusable.
-      setProviderHasSavedToken(false);
       setAutoDnsReady(false);
       const serverMsg =
         begin.mode === "manual" && "message" in begin ? String(begin.message || "") : "";
@@ -892,9 +874,8 @@ export default function ConnectDomainWizard({
               />
               <p className="mt-2 text-xs leading-relaxed text-slate-500">
                 Tip: Each bio page can open on only <strong>one</strong> custom domain. To connect
-                another subdomain on the same root, pick a page that is not already linked. Free plan:
-                up to {platformConfig?.freeCustomDomainsPerRoot ?? 3} custom domains{" "}
-                <strong>per root</strong> (applies to every domain you own — not just one brand).
+                another subdomain on the same root, pick a page that is not already linked. You can
+                connect as many custom domains as you need.
               </p>
             </div>
 
@@ -1012,12 +993,6 @@ export default function ConnectDomainWizard({
               </div>
             </div>
 
-            {providerHasSavedToken && (
-              <p className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-                Cloudflare is already connected. Continue to finish setup.
-              </p>
-            )}
-
             {formError && <p className="acn-domain-wizard__error">{formError}</p>}
 
             <button
@@ -1027,7 +1002,7 @@ export default function ConnectDomainWizard({
               onClick={() => void submitCloudflareConnect()}
             >
               {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {providerHasSavedToken ? "Continue setup" : "Connect Cloudflare"}
+              Connect Cloudflare
             </button>
             <button
               type="button"

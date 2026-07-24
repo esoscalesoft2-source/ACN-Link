@@ -1,17 +1,16 @@
-import { getDnsProviderConnection } from "./connections";
 import {
   createCloudflareOAuthAuthorizeUrl,
   isCloudflareOAuthConfigured
 } from "../cloudflare/CloudflareOAuthService";
 
 export type CloudflareBeginResult =
-  | { mode: "ready"; reason: "saved_connection" }
   | { mode: "oauth"; authorizeUrl: string }
   | { mode: "manual"; message: string };
 
 /**
- * Multi-tenant: never treat platform Cloudflare account as "ready" for a customer domain.
- * Customer must Connect Cloudflare (OAuth) or use manual DNS.
+ * Multi-tenant: every Connect Domain → Cloudflare requires a fresh OAuth approve.
+ * Do not return "ready" from a saved token — that confused users with a global
+ * "Cloudflare Connected" state.
  */
 export async function beginCloudflareAutoSetup(input: {
   ownerUserId: string;
@@ -19,12 +18,6 @@ export async function beginCloudflareAutoSetup(input: {
   pageId: string;
 }): Promise<CloudflareBeginResult> {
   try {
-    const saved = await getDnsProviderConnection(input.ownerUserId, "cloudflare");
-    // Prefer a decryptable token — don't require the connected flag (can lag after OAuth).
-    if (saved?.accessToken) {
-      return { mode: "ready", reason: "saved_connection" };
-    }
-
     if (isCloudflareOAuthConfigured()) {
       const { authorizeUrl } = await createCloudflareOAuthAuthorizeUrl({
         userId: input.ownerUserId,

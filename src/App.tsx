@@ -703,11 +703,11 @@ export default function App() {
     setDomainsLoadError(null);
     try {
       const list = await fetchDomains();
-      // Only LIVE domains belong on the Custom Domains page — hide in-progress setup.
-      const verified = list
-        .filter((domain) => domain.status === "Verified")
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-      setDomains(verified);
+      // Keep LIVE + incomplete: incomplete rows still occupy a bio page and must be
+      // visible so users can remove ghost links (e.g. abandoned demo01printzyhub.com).
+      const sorted = [...list].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      setDomains(sorted);
+      const verified = sorted.filter((domain) => domain.status === "Verified");
       if (verified[0]) {
         const synced = syncPublishPrimaryUrlForVerifiedDomain(verified[0]);
         if (synced) savePublishSettings(synced);

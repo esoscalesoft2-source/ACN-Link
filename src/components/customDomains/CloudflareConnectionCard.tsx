@@ -31,7 +31,7 @@ export default function CloudflareConnectionCard({ sampleDomain, samplePageId }:
   const [connected, setConnected] = useState(false);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [connectedAt, setConnectedAt] = useState<string | null>(null);
-  const [oauthEnabled, setOauthEnabled] = useState(false);
+  const [oauthEnabled, setOauthEnabled] = useState<boolean | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
 
@@ -58,7 +58,7 @@ export default function CloudflareConnectionCard({ sampleDomain, samplePageId }:
 
   const onConnect = async () => {
     if (!sampleDomain || !samplePageId) {
-      setError("Open Connect Domain first, then reconnect Cloudflare from here.");
+      setError("Open Connect Domain, pick a free bio page, then connect Cloudflare from the wizard.");
       return;
     }
     setBusy(true);
@@ -73,7 +73,7 @@ export default function CloudflareConnectionCard({ sampleDomain, samplePageId }:
         await reload();
         return;
       }
-      setError(begin.mode === "manual" ? begin.message : "Cloudflare connect is unavailable.");
+      setError("Use Connect Domain → Cloudflare Auto setup, or Manual for DNS copy steps.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Connect failed.");
     } finally {
@@ -201,7 +201,7 @@ export default function CloudflareConnectionCard({ sampleDomain, samplePageId }:
                 ) : (
                   <button
                     type="button"
-                    disabled={busy || !oauthEnabled}
+                    disabled={busy}
                     onClick={() => void onConnect()}
                     className="acn-cf-manage-dialog__btn acn-cf-manage-dialog__btn--primary"
                   >
@@ -212,10 +212,10 @@ export default function CloudflareConnectionCard({ sampleDomain, samplePageId }:
               </div>
 
               {error ? <p className="acn-cf-manage-dialog__error">{error}</p> : null}
-              {!oauthEnabled && !loading && !connected ? (
+              {oauthEnabled === false && !loading && !connected ? (
                 <p className="acn-cf-manage-dialog__warn">
-                  Cloudflare Connect is not available on this server yet. You can still add domains with
-                  manual DNS steps.
+                  One-click Connect needs Cloudflare OAuth on the server. You can still add domains
+                  with Manual DNS steps in Connect Domain.
                 </p>
               ) : null}
             </div>

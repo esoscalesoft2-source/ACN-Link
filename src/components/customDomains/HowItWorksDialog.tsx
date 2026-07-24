@@ -110,8 +110,8 @@ export default function HowItWorksDialog({ open, onClose, cnameTarget, aRecordTa
                 needs a paid plan. Other roots each get their own free allowance of 3.
               </li>
               <li>
-                <strong>Manual DNS</strong> — for any other host (GoDaddy, Hostinger, …), copy the
-                CNAME/A records we show. If Cloudflare auto-setup fails, the same manual steps appear.
+                <strong>Manual DNS</strong> — choose Manual on “Where is your domain managed?”, then
+                copy the CNAME/A records we show (GoDaddy, Hostinger, Cloudflare, or any host).
               </li>
             </ul>
           </section>

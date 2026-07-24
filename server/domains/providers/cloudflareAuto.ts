@@ -20,7 +20,8 @@ export async function beginCloudflareAutoSetup(input: {
 }): Promise<CloudflareBeginResult> {
   try {
     const saved = await getDnsProviderConnection(input.ownerUserId, "cloudflare");
-    if (saved?.connected && saved.accessToken) {
+    // Prefer a decryptable token — don't require the connected flag (can lag after OAuth).
+    if (saved?.accessToken) {
       return { mode: "ready", reason: "saved_connection" };
     }
 
@@ -36,7 +37,7 @@ export async function beginCloudflareAutoSetup(input: {
     return {
       mode: "manual",
       message:
-        "Connect Cloudflare is not configured yet. Add the CNAME yourself (guided steps), or ask your admin to set CLOUDFLARE_OAUTH_CLIENT_ID / SECRET."
+        "Cloudflare one-click is not configured on the server yet (missing OAuth app). Choose Manual to add the DNS record yourself."
     };
   } catch (error) {
     console.warn("[cloudflare-auto] begin failed:", error);
@@ -55,7 +56,7 @@ export async function beginCloudflareAutoSetup(input: {
     return {
       mode: "manual",
       message:
-        "Continue with setup — we'll add DNS automatically after you connect Cloudflare, or show simple copy steps."
+        "Could not start Cloudflare connect. Go back and choose Manual to add the DNS record yourself."
     };
   }
 }

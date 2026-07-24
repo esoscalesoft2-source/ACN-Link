@@ -803,11 +803,14 @@ export function createDomainsRouter() {
 
     const existingForPage = await findDomainByPageId(pageId, req.authUser!.id);
     if (existingForPage) {
+      const incomplete = existingForPage.status !== "Verified";
       res.status(409).json({
-        error:
-          `This bio page already opens ${existingForPage.domainName}. ` +
-          `Pick a different bio page for ${domainName}, or remove that domain first. ` +
-          `One bio page can only use one custom domain.`,
+        error: incomplete
+          ? `This bio page is still linked to ${existingForPage.domainName} (incomplete setup — may not be LIVE). ` +
+            `Remove ${existingForPage.domainName} from Custom Domains first, or pick a different bio page for ${domainName}.`
+          : `This bio page already opens ${existingForPage.domainName}. ` +
+            `Pick a different bio page for ${domainName}, or remove that domain first. ` +
+            `One bio page can only use one custom domain.`,
         code: "PAGE_DOMAIN_TAKEN"
       });
       return;

@@ -86,6 +86,11 @@ function isLiveHistoryDomain(domain: CustomDomain) {
   return domain.status === "Verified";
 }
 
+/** Domains that still occupy a bio page — including incomplete setups not shown as LIVE. */
+function domainOccupiesPage(domain: CustomDomain) {
+  return Boolean(domain.pageId);
+}
+
 function ConnectionIndicator({ domain }: { domain: CustomDomain }) {
   const state = getDomainConnectionState(domain);
   const label = getDomainConnectionLabel(domain);
@@ -191,6 +196,10 @@ export default function CustomDomainsScreen({
   useEffect(() => {
     if (!wizardOpen) return;
     document.body.classList.add("acn-connect-domain-modal-open");
+    // Fresh config when opening Connect — avoid stale cloudflareOAuthEnabled=false.
+    void fetchCustomDomainPlatformConfig(true)
+      .then(setPlatformConfig)
+      .catch(() => undefined);
     return () => document.body.classList.remove("acn-connect-domain-modal-open");
   }, [wizardOpen]);
 
@@ -199,11 +208,17 @@ export default function CustomDomainsScreen({
     [domains]
   );
 
+  // Show LIVE + incomplete/pending so ghost links (blocking a page) can be removed.
+  const listedDomains = useMemo(() => {
+    const live = domains.filter(isLiveHistoryDomain);
+    const incomplete = domains.filter((domain) => !isLiveHistoryDomain(domain));
+    return [...live, ...incomplete];
+  }, [domains]);
+
   const linkedDomainsByPageId = useMemo(() => {
     const map = new Map<string, CustomDomain>();
-    // Any domain (live or pending) that already uses a bio page blocks that page.
     for (const domain of domains) {
-      if (domain.pageId) map.set(domain.pageId, domain);
+      if (domainOccupiesPage(domain)) map.set(domain.pageId, domain);
     }
     return map;
   }, [domains]);
@@ -412,8 +427,14 @@ export default function CustomDomainsScreen({
           <div className="acn-domains-header-actions self-start sm:pt-1">
             {!isPreviewSession && (
               <CloudflareConnectionCard
-                sampleDomain={domains[0]?.domainName}
-                samplePageId={pages[0]?.id}
+                sampleDomain={
+                  historyDomains[0]?.domainName ||
+                  domains[0]?.domainName ||
+                  "link.yourdomain.com"
+                }
+                samplePageId={
+                  pages.find((page) => !linkedDomainsByPageId.has(page.id))?.id || pages[0]?.id
+                }
               />
             )}
             <button
@@ -490,11 +511,15 @@ export default function CustomDomainsScreen({
               <div>
                 <h3 className="acn-domains-lovable__heading">Connected domains</h3>
                 <p className="acn-domains-lovable__desc">
-                  Open a domain for provider, DNS, SSL details, and DNS records.
+                  Open a domain for provider, DNS, SSL details, and DNS records. Incomplete setups also
+                  appear here so you can remove them if they block a bio page.
                 </p>
-                {historyDomains.length > 0 && (
+                {listedDomains.length > 0 && (
                   <p className="acn-domains-lovable__stats">
-                    {historyDomains.length} live domain{historyDomains.length === 1 ? "" : "s"}
+                    {historyDomains.length} live
+                    {listedDomains.length > historyDomains.length
+                      ? ` · ${listedDomains.length - historyDomains.length} incomplete`
+                      : ""}
                     {platformConfig?.freeCustomDomainsPerRoot
                       ? ` · Free: up to ${platformConfig.freeCustomDomainsPerRoot} per root domain`
                       : ""}
@@ -507,7 +532,7 @@ export default function CustomDomainsScreen({
               <div className="flex items-center justify-center gap-2 py-8 text-sm text-slate-500">
                 <Loader2 className="h-4 w-4 animate-spin" /> Loading domains…
               </div>
-            ) : historyDomains.length === 0 ? (
+            ) : listedDomains.length === 0 ? (
               <CustomDomainSetupGuide
                 config={platformConfig}
                 hasPages={pages.length > 0}
@@ -515,7 +540,7 @@ export default function CustomDomainsScreen({
               />
             ) : (
               <ul className="acn-domains-lovable__accordion-list">
-                {historyDomains.map((domain) => {
+                {listedDomains.map((domain) => {
                   const dnsSet =
                     platformConfig &&
                     buildDnsRecordSet(domain.domainName, platformConfig.aRecordTarget, {
@@ -800,7 +825,10 @@ export default function CustomDomainsScreen({
 
               window.setTimeout(() => {
                 if (connected) {
-                  triggerToast(`${domain.domainName} is LIVE.`, "ok");
+                  triggerToast(
+                    `${domain.domainName} connected successfully — now LIVE on Custom Domains.`,
+                    "ok"
+                  );
                 }
               }, 100);
             }}

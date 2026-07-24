@@ -277,7 +277,8 @@ export default function ConnectDomainWizard({
     if (!open || phase !== "verifying" || connectStartedRef.current) return;
     connectStartedRef.current = true;
 
-    if (isResume && connectedDomain) {
+    // Domain row already exists (Manual "check again", resume) — only verify, never re-open Connect.
+    if (connectedDomain) {
       void runVerifyLoop(connectedDomain);
       return;
     }
@@ -399,9 +400,13 @@ export default function ConnectDomainWizard({
             setVerifyError(friendlyHttpsPendingError(lastHostname));
             setPhase("verifying");
             setVerifyStage(3);
-          } else {
+          } else if (selectedProviderId === "other") {
+            // Manual path only — show CNAME/A copy steps again.
             setVerifyError(friendlyDnsPendingError(lastHostname));
             setPhase("manual");
+          } else {
+            setVerifyError(friendlyDnsPendingError(lastHostname));
+            setPhase("verifying");
           }
         } catch (error) {
           if (verifyLoopIdRef.current !== loopId) return;
@@ -416,7 +421,7 @@ export default function ConnectDomainWizard({
 
           if (missing) {
             setVerifyError(friendlyDomainMissingError());
-            setPhase("manual");
+            setPhase("verifying");
             return;
           }
 
@@ -426,7 +431,12 @@ export default function ConnectDomainWizard({
                 ? friendlyHttpsPendingError(lastHostname)
                 : message || friendlyDnsPendingError(lastHostname)
             );
-            setPhase(sawDnsOk ? "verifying" : "manual");
+            // Manual DNS copy screen only after the user chose Manual on the provider step.
+            if (!sawDnsOk && selectedProviderId === "other") {
+              setPhase("manual");
+            } else {
+              setPhase("verifying");
+            }
           } else {
             await sleep(sawDnsOk ? 4000 : 5000);
           }
@@ -513,19 +523,23 @@ export default function ConnectDomainWizard({
               return;
             }
           } catch {
-            /* fall through to manual */
+            /* stay on Connect Cloudflare — do not auto-open Manual DNS */
           }
         }
-        setVerifyError(
+        setFormError(
           result.dnsProvisionMessage ||
-            "We couldn't update DNS automatically. Follow the simple steps below — no API token needed."
+            "We couldn't update DNS automatically. Try Connect Cloudflare again, or go back and choose Manual."
         );
-        setPhase("manual");
+        setPhase("connect");
         return;
       }
 
-      // Manual / non-Cloudflare: show CNAME/A copy steps (never the auto "Setting up…" spinner).
-      setPhase("manual");
+      // Manual was chosen on the provider step — show CNAME/A copy steps.
+      if (selectedProviderId === "other") {
+        setPhase("manual");
+        return;
+      }
+      setPhase("provider");
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "Could not connect this domain.");
       setPhase("provider");
@@ -556,9 +570,13 @@ export default function ConnectDomainWizard({
     }
     const linkedDomain = linkedDomainsByPageId.get(pageId);
     if (linkedDomain) {
+      const live = linkedDomain.status === "Verified";
       setFormError(
-        `The bio page you picked already opens ${linkedDomain.domainName}. ` +
-          `Choose a different bio page for ${hostname}, or remove ${linkedDomain.domainName} from Custom Domains first.`
+        live
+          ? `Pick a different bio page — this one already opens ${linkedDomain.domainName}. ` +
+              `Or remove ${linkedDomain.domainName} from Custom Domains first.`
+          : `This bio page is still linked to ${linkedDomain.domainName} (incomplete setup — may not be LIVE). ` +
+              `Open Custom Domains, remove ${linkedDomain.domainName}, then try again — or pick another page.`
       );
       return;
     }
@@ -584,11 +602,15 @@ export default function ConnectDomainWizard({
     const hostname = normaliseHostname(domainName);
     const linkedDomain = linkedDomainsByPageId.get(pageId);
     if (linkedDomain) {
+      const live = linkedDomain.status === "Verified";
       setFormError(
-        `The bio page you picked already opens ${linkedDomain.domainName}. ` +
-          `Choose a different bio page for ${hostname}, or remove ${linkedDomain.domainName} from Custom Domains first.`
+        live
+          ? `Pick a different bio page — this one already opens ${linkedDomain.domainName}. ` +
+              `Or remove ${linkedDomain.domainName} from Custom Domains first.`
+          : `This bio page is still linked to ${linkedDomain.domainName} (incomplete setup — may not be LIVE). ` +
+              `Open Custom Domains, remove ${linkedDomain.domainName}, then try again — or pick another page.`
       );
-      setPhase("provider");
+      setPhase("domain");
       return;
     }
 
@@ -606,7 +628,19 @@ export default function ConnectDomainWizard({
       } catch (connectError) {
         const message =
           connectError instanceof Error ? connectError.message : "Could not connect this domain.";
-        if (/already connected|already exists|DOMAIN_EXISTS|PAGE_DOMAIN_TAKEN/i.test(message) && onDiscardIncomplete) {
+        const pageTaken =
+          /PAGE_DOMAIN_TAKEN|already opens|page is already connected|bio page already/i.test(message);
+        if (pageTaken) {
+          setFormError(
+            message.includes("already")
+              ? message
+              : "Pick a different bio page — this one already has a custom domain."
+          );
+          setPhase("domain");
+          connectStartedRef.current = false;
+          return;
+        }
+        if (/already exists|DOMAIN_EXISTS|hostname is already connected/i.test(message) && onDiscardIncomplete) {
           try {
             const existing = await import("../../lib/domainApi").then((mod) => mod.fetchDomains());
             const stale = existing.find(
@@ -633,8 +667,14 @@ export default function ConnectDomainWizard({
       setSelectedProviderId("other");
       setPhase("manual");
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : "Could not start manual DNS setup.");
-      setPhase("provider");
+      const message = error instanceof Error ? error.message : "Could not start manual DNS setup.";
+      if (/already connected|PAGE_DOMAIN_TAKEN|already opens/i.test(message)) {
+        setFormError(message);
+        setPhase("domain");
+      } else {
+        setFormError(message);
+        setPhase("provider");
+      }
       connectStartedRef.current = false;
     } finally {
       setIsSubmitting(false);
@@ -665,15 +705,23 @@ export default function ConnectDomainWizard({
     setIsSubmitting(true);
     try {
       const hostname = normaliseHostname(domainName);
-      if (!platformConfig?.cloudflareOAuthEnabled) {
+      const linkedDomain = linkedDomainsByPageId.get(pageId);
+      if (linkedDomain) {
+        const live = linkedDomain.status === "Verified";
         setFormError(
-          "Cloudflare Connect is not configured on the server yet. Use Skip for manual DNS steps."
+          live
+            ? `Pick a different bio page — this one already opens ${linkedDomain.domainName}.`
+            : `This bio page is still linked to ${linkedDomain.domainName} (incomplete — remove it from Custom Domains first).`
         );
+        setPhase("domain");
         return;
       }
+
+      // Always ask the server — do not trust a stale/missing platformConfig flag.
       const begin = await beginCloudflareConnect(hostname, pageId);
       if (begin.mode === "oauth" && begin.authorizeUrl) {
-        // Customer must approve ACN Link on THEIR Cloudflare account.
+        setProviderHasSavedToken(false);
+        setAutoDnsReady(false);
         window.location.href = begin.authorizeUrl;
         return;
       }
@@ -683,15 +731,31 @@ export default function ConnectDomainWizard({
         setPhase("verifying");
         return;
       }
-      if (begin.mode === "manual") {
-        setFormError(begin.message);
+
+      // mode === "manual": OAuth app missing on server, or saved Cloudflare link unusable.
+      setProviderHasSavedToken(false);
+      setAutoDnsReady(false);
+      const serverMsg =
+        begin.mode === "manual" && "message" in begin ? String(begin.message || "") : "";
+      setFormError(
+        serverMsg ||
+          "Could not start Cloudflare approve. Go back and choose Manual, or try Connect Cloudflare again."
+      );
+      setPhase("connect");
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Could not start Cloudflare connect.";
+      if (/already connected|PAGE_DOMAIN_TAKEN|already opens/i.test(message)) {
+        setFormError(
+          message.includes("already")
+            ? message
+            : "That bio page already has a custom domain. Pick a different page."
+        );
+        setPhase("domain");
         return;
       }
-      setFormError("Could not start Cloudflare connect. Try Skip for manual steps.");
-    } catch (error) {
-      setFormError(
-        error instanceof Error ? error.message : "Could not start Cloudflare connect."
-      );
+      setFormError(message);
+      setPhase("connect");
     } finally {
       setIsSubmitting(false);
     }
@@ -702,6 +766,7 @@ export default function ConnectDomainWizard({
     if (domainRecord) {
       const live = isDomainLive(domainRecord);
       onFinished({ domain: domainRecord, connected: live, pending: !live });
+      return;
     }
     onClose();
   };
@@ -723,9 +788,12 @@ export default function ConnectDomainWizard({
               className="acn-domain-wizard__back"
               onClick={() => {
                 if (phase === "provider") setPhase("domain");
-                else if (phase === "connect") setPhase("provider");
-                else if (phase === "manual") {
+                else if (phase === "connect") {
+                  setFormError("");
+                  setPhase("provider");
+                } else if (phase === "manual") {
                   // Keep the setup — back to waiting, do not delete the domain.
+                  setFormError("");
                   setPhase(dnsConfirmed ? "verifying" : "provider");
                 }
               }}
@@ -966,10 +1034,11 @@ export default function ConnectDomainWizard({
               className="acn-domain-wizard__link mt-2"
               onClick={() => {
                 setAutoDnsReady(false);
-                void startManualDnsSetup();
+                setFormError("");
+                setPhase("provider");
               }}
             >
-              Skip — I&apos;ll use simple copy steps
+              Back — choose Manual instead
             </button>
           </div>
         )}
@@ -1026,11 +1095,25 @@ export default function ConnectDomainWizard({
                 type="button"
                 className="acn-domain-wizard__primary mt-3"
                 onClick={() => {
-                  connectStartedRef.current = false;
+                  connectStartedRef.current = true;
+                  setVerifyError(null);
                   void runVerifyLoop(connectedDomain);
                 }}
               >
                 Check again
+              </button>
+            )}
+            {!isSubmitting && verifyError && selectedProviderId === "cloudflare" && (
+              <button
+                type="button"
+                className="acn-domain-wizard__link mt-2"
+                onClick={() => {
+                  setVerifyError(null);
+                  setFormError("");
+                  setPhase("provider");
+                }}
+              >
+                Back — choose Manual instead
               </button>
             )}
             <p className="mt-4 text-center text-xs text-slate-500">
@@ -1118,7 +1201,8 @@ export default function ConnectDomainWizard({
               className="acn-domain-wizard__primary"
               onClick={() => {
                 if (!connectedDomain || isSubmitting) return;
-                connectStartedRef.current = false;
+                // Keep connectStartedRef true so the verifying effect does not restart Connect Domain.
+                connectStartedRef.current = true;
                 setVerifyError(null);
                 setPhase("verifying");
                 void runVerifyLoop(connectedDomain);
@@ -1142,10 +1226,10 @@ export default function ConnectDomainWizard({
             <div className="acn-domain-wizard__success-icon">
               <Check className="h-8 w-8" />
             </div>
-            <h2 className="acn-domain-wizard__title">You&apos;re live!</h2>
+            <h2 className="acn-domain-wizard__title">All connected successfully</h2>
             <p className="acn-domain-wizard__lead">
-              <strong>{activeHostname}</strong> is connected and LIVE. It now appears on your Custom
-              Domains page.
+              <strong>{activeHostname}</strong> is LIVE and ready. Tap OK to return to your Custom
+              Domains list.
             </p>
             {pageId && (
               <p className="acn-domain-wizard__lead mt-4">
@@ -1158,7 +1242,7 @@ export default function ConnectDomainWizard({
               className="acn-domain-wizard__primary"
               onClick={() => void finishWizard()}
             >
-              Done
+              OK
             </button>
           </div>
         )}

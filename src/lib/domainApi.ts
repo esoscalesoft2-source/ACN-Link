@@ -80,11 +80,11 @@ async function domainFetch<T>(path: string, init: RequestInit = {}, retry = true
 let platformConfigCache: CustomDomainPlatformConfig | null = null;
 let platformConfigInflight: Promise<CustomDomainPlatformConfig> | null = null;
 
-export async function fetchCustomDomainPlatformConfig(): Promise<CustomDomainPlatformConfig> {
-  if (platformConfigCache) {
+export async function fetchCustomDomainPlatformConfig(force = false): Promise<CustomDomainPlatformConfig> {
+  if (!force && platformConfigCache) {
     return platformConfigCache;
   }
-  if (platformConfigInflight) return platformConfigInflight;
+  if (!force && platformConfigInflight) return platformConfigInflight;
 
   platformConfigInflight = (async () => {
     let response: Response;

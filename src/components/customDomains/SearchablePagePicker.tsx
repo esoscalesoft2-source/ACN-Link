@@ -53,10 +53,14 @@ export default function SearchablePagePicker({
   const trySelectPage = (page: BioPage) => {
     const linkedDomain = linkedDomainsByPageId.get(page.id);
     if (linkedDomain) {
+      const live = linkedDomain.status === "Verified";
       window.alert(
-        `"${page.title}" already opens ${linkedDomain.domainName}.\n\n` +
-          `Each bio page can use only one custom domain.\n` +
-          `For another subdomain on the same root, choose a different bio page — or remove the old domain first.`
+        live
+          ? `"${page.title}" already opens ${linkedDomain.domainName}.\n\n` +
+              `Each bio page can use only one custom domain.\n` +
+              `Pick a different page, or remove ${linkedDomain.domainName} from Custom Domains first.`
+          : `"${page.title}" is still linked to ${linkedDomain.domainName} (incomplete — may not show as LIVE).\n\n` +
+              `Open Custom Domains, remove ${linkedDomain.domainName}, then try again — or pick another page.`
       );
       return;
     }

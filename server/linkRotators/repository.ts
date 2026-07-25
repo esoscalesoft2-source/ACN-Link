@@ -1,8 +1,14 @@
 import { getRootStore, setRootStore } from "../db/rootStore";
 import { normalizeLinkRotatorHost } from "./publicUrl";
-import type { LinkRotatorDestinationRecord, LinkRotatorRecord, LinkRotatorStatus } from "./types";
+import type {
+  LinkRotatorClickEvent,
+  LinkRotatorDestinationRecord,
+  LinkRotatorRecord,
+  LinkRotatorStatus
+} from "./types";
 
 const STORE_KEY = "link_rotators";
+const MAX_CLICK_EVENTS = 2500;
 
 function readAll(): LinkRotatorRecord[] {
   const raw = getRootStore()[STORE_KEY];
@@ -149,6 +155,19 @@ export function updateLinkRotator(
   if (index < 0) return null;
 
   const current = rows[index];
+  let destinations = patch.destinations ?? current.destinations;
+  if (patch.destinations) {
+    // Keep lifetime click counters when destinations are re-saved with the same id/url.
+    destinations = patch.destinations.map((item) => {
+      const prior =
+        current.destinations.find((row) => row.id === item.id) ||
+        current.destinations.find((row) => row.url === item.url);
+      return {
+        ...item,
+        clicks: item.clicks ?? prior?.clicks ?? 0
+      };
+    });
+  }
   const next: LinkRotatorRecord = {
     ...current,
     name: patch.name ?? current.name,
@@ -159,7 +178,7 @@ export function updateLinkRotator(
       patch.hostDomain !== undefined
         ? normalizeLinkRotatorHost(patch.hostDomain)
         : current.hostDomain,
-    destinations: patch.destinations ?? current.destinations,
+    destinations,
     updatedAt: new Date().toISOString()
   };
   rows[index] = next;
@@ -176,14 +195,50 @@ export function removeLinkRotator(id: string, ownerUserId: string): boolean {
 }
 
 export function incrementLinkRotatorClicks(id: string): LinkRotatorRecord | null {
+  return recordLinkRotatorClick(id);
+}
+
+/** Record a redirect click against the rotator and a specific destination. */
+export function recordLinkRotatorClick(
+  id: string,
+  destination?: { id?: string; url?: string } | null
+): LinkRotatorRecord | null {
   const rows = readAll();
   const index = rows.findIndex((row) => row.id === id);
   if (index < 0) return null;
+
   const current = rows[index];
+  const now = new Date().toISOString();
+  const destId = String(destination?.id || "").trim();
+  const destUrl = String(destination?.url || "").trim();
+
+  const destinations = current.destinations.map((item) => {
+    const match =
+      (destId && item.id === destId) || (destUrl && item.url === destUrl);
+    if (!match) return item;
+    return { ...item, clicks: (item.clicks || 0) + 1 };
+  });
+
+  const event: LinkRotatorClickEvent | null =
+    destId || destUrl
+      ? {
+          destinationId: destId || destinations.find((d) => d.url === destUrl)?.id || "",
+          url: destUrl || destinations.find((d) => d.id === destId)?.url || "",
+          at: now
+        }
+      : null;
+
+  const prevEvents = Array.isArray(current.clickEvents) ? current.clickEvents : [];
+  const clickEvents = event
+    ? [event, ...prevEvents].slice(0, MAX_CLICK_EVENTS)
+    : prevEvents;
+
   const next: LinkRotatorRecord = {
     ...current,
+    destinations,
+    clickEvents,
     totalClicks: (current.totalClicks || 0) + 1,
-    updatedAt: new Date().toISOString()
+    updatedAt: now
   };
   rows[index] = next;
   writeAll(rows);

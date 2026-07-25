@@ -10,10 +10,16 @@ import {
   Shuffle,
   Trash2
 } from "lucide-react";
-import type { CustomDomain, LinkRotator, LinkRotatorDestination } from "../types";
+import type {
+  CustomDomain,
+  LinkRotator,
+  LinkRotatorAnalytics,
+  LinkRotatorDestination
+} from "../types";
 import {
   createLinkRotator,
   deleteLinkRotator,
+  fetchLinkRotatorAnalytics,
   LinkRotatorApiError,
   updateLinkRotator,
   type LinkRotatorInput
@@ -137,10 +143,122 @@ function toInput(form: ReturnType<typeof emptyForm>): LinkRotatorInput {
     slug: slugPreviewFromName(name),
     status: form.status,
     destinations: form.destinations.map((item) => ({
+      id: item.key,
       url: normalizeUrl(item.url),
       probability: Math.round(Number(item.probability))
     }))
   };
+}
+
+const PERIOD_RING_COLORS = {
+  today: { ring: "#0d9488", text: "text-teal-600", chip: "bg-teal-50 text-teal-700" },
+  week: { ring: "#6366f1", text: "text-indigo-600", chip: "bg-indigo-50 text-indigo-700" },
+  month: { ring: "#9333ea", text: "text-purple-600", chip: "bg-purple-50 text-purple-700" },
+  all: { ring: "#4f46e5", text: "text-indigo-700", chip: "bg-indigo-50 text-indigo-800" }
+} as const;
+
+/** Exact count with Indian grouping: 1,000 · 10,000 · 1,00,000 */
+function formatCountExact(value: number): string {
+  const n = Math.max(0, Math.floor(Number(value) || 0));
+  return n.toLocaleString("en-IN");
+}
+
+/** Compact count: 999 · 1.5k · 1.5M · 1.2B */
+function formatCountCompact(value: number): string {
+  const n = Math.max(0, Number(value) || 0);
+  if (!Number.isFinite(n)) return "0";
+  const abs = Math.abs(n);
+  const trim = (raw: string) => raw.replace(/\.0$/, "");
+  if (abs < 1000) return String(Math.floor(n));
+  if (abs < 1_000_000) return `${trim((n / 1000).toFixed(abs < 10_000 ? 1 : 0))}k`;
+  if (abs < 1_000_000_000) return `${trim((n / 1_000_000).toFixed(abs < 10_000_000 ? 1 : 0))}M`;
+  return `${trim((n / 1_000_000_000).toFixed(1))}B`;
+}
+
+/**
+ * One readable count for the UI.
+ * Small numbers: exact only (5). Large: compact primary + exact in title (1.5k → 1,500).
+ */
+function formatCountDisplay(value: number): { text: string; title: string } {
+  const exact = formatCountExact(value);
+  if (value < 1000) return { text: exact, title: exact };
+  return { text: formatCountCompact(value), title: exact };
+}
+
+function StatCircle({
+  label,
+  value,
+  percent,
+  accent,
+  percentClassName = "text-indigo-600"
+}: {
+  label: string;
+  value: number;
+  percent: number;
+  accent: string;
+  percentClassName?: string;
+}) {
+  const size = 88;
+  const stroke = 8;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const clamped = Math.max(0, Math.min(100, percent));
+  const offset = circumference * (1 - clamped / 100);
+  const count = formatCountDisplay(value);
+
+  return (
+    <div className="flex flex-col items-center gap-2" title={count.title}>
+      <div className="relative" style={{ width: size, height: size }}>
+        <svg width={size} height={size} className="-rotate-90" aria-hidden>
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke="#e2e8f0"
+            strokeWidth={stroke}
+          />
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke={accent}
+            strokeWidth={stroke}
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={offset}
+            style={{ transition: "stroke-dashoffset 0.45s ease" }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center px-1">
+          <span className="text-sm font-extrabold tabular-nums leading-none text-slate-900">
+            {count.text}
+          </span>
+          <span className={`mt-0.5 text-[11px] font-bold tabular-nums ${percentClassName}`}>
+            {Math.round(clamped)}%
+          </span>
+        </div>
+      </div>
+      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-600">{label}</p>
+    </div>
+  );
+}
+
+function periodPercent(value: number, total: number) {
+  if (total <= 0) return 0;
+  return Math.round((value / total) * 1000) / 10;
+}
+
+function destinationClickTotal(
+  destination: LinkRotatorDestination,
+  analytics: LinkRotatorAnalytics | null | undefined
+): number {
+  const fromAnalytics = analytics?.destinations.find(
+    (item) => item.id === destination.id || item.url === destination.url
+  )?.clicks.total;
+  if (typeof fromAnalytics === "number") return fromAnalytics;
+  return destination.clicks || 0;
 }
 
 export default function LinkRotatorScreen({
@@ -174,6 +292,10 @@ export default function LinkRotatorScreen({
   }, [domains, form.hostDomain]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [viewing, setViewing] = useState<LinkRotator | null>(null);
+  const [viewAnalytics, setViewAnalytics] = useState<LinkRotatorAnalytics | null>(null);
+  const [selectedDestinationKey, setSelectedDestinationKey] = useState("");
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const [formError, setFormError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -204,6 +326,14 @@ export default function LinkRotatorScreen({
     if (fresh) setViewing(fresh);
   }, [rotators, viewing?.id]);
 
+  useEffect(() => {
+    if (!viewing?.destinations?.length) return;
+    const keys = viewing.destinations.map((item) => item.id || item.url);
+    if (!selectedDestinationKey || !keys.includes(selectedDestinationKey)) {
+      setSelectedDestinationKey(keys[0] || "");
+    }
+  }, [viewing?.destinations, selectedDestinationKey]);
+
   const totalProbability = Math.round(probabilityTotal(form.destinations) * 100) / 100;
   const previewUrl = `https://${form.hostDomain || PRIMARY_DOMAIN}/r/${slugPreviewFromName(form.name)}`;
 
@@ -233,9 +363,48 @@ export default function LinkRotatorScreen({
     setMode("form");
   };
 
+  const buildLocalAnalytics = (rotator: LinkRotator): LinkRotatorAnalytics => {
+    const total = rotator.totalClicks || 0;
+    return {
+      rotator,
+      summary: { total, today: 0, week: 0, month: 0 },
+      destinations: rotator.destinations.map((destination) => {
+        const clicks = destination.clicks || 0;
+        return {
+          id: destination.id,
+          url: destination.url,
+          probability: destination.probability,
+          clicks: { total: clicks, today: 0, week: 0, month: 0 },
+          clickSharePercent: total > 0 ? Math.round((clicks / total) * 1000) / 10 : 0
+        };
+      })
+    };
+  };
+
+  const loadViewAnalytics = async (rotatorId: string, fallback?: LinkRotator | null) => {
+    setAnalyticsLoading(true);
+    setAnalyticsError(null);
+    try {
+      const data = await fetchLinkRotatorAnalytics(rotatorId);
+      setViewAnalytics(data);
+      if (data.rotator) setViewing(data.rotator);
+    } catch {
+      const local = fallback || viewing || rotators.find((item) => item.id === rotatorId) || null;
+      if (local) setViewAnalytics(buildLocalAnalytics(local));
+      setAnalyticsError(null);
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
   const openView = (rotator: LinkRotator) => {
+    const first = rotator.destinations[0];
     setViewing(rotator);
+    setViewAnalytics(buildLocalAnalytics(rotator));
+    setAnalyticsError(null);
+    setSelectedDestinationKey(first ? first.id || first.url : "");
     setMode("view");
+    void loadViewAnalytics(rotator.id, rotator);
   };
 
   const backToList = (options?: { force?: boolean }) => {
@@ -243,6 +412,9 @@ export default function LinkRotatorScreen({
     setMode("list");
     setEditingId(null);
     setViewing(null);
+    setViewAnalytics(null);
+    setSelectedDestinationKey("");
+    setAnalyticsError(null);
     setForm(emptyForm(PRIMARY_DOMAIN));
     setFormError("");
   };
@@ -647,8 +819,15 @@ export default function LinkRotatorScreen({
                   <p className="mt-1.5 text-sm font-bold text-slate-900">{viewing.status}</p>
                 </div>
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Clicks</p>
-                  <p className="mt-1.5 text-sm font-bold text-slate-900">{viewing.totalClicks}</p>
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                    Total clicks
+                  </p>
+                  <p
+                    className="mt-1.5 text-sm font-bold tabular-nums text-slate-900"
+                    title={formatCountDisplay(viewing.totalClicks).title}
+                  >
+                    {formatCountDisplay(viewing.totalClicks).text}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Created</p>
@@ -667,23 +846,230 @@ export default function LinkRotatorScreen({
             )}
 
             <div>
-              <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-500">
-                Destinations ({viewing.destinations.length})
-              </p>
-              <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200">
-                {viewing.destinations.map((destination: LinkRotatorDestination, index) => (
-                  <div
-                    key={destination.id || `${destination.url}-${index}`}
-                    className="flex flex-col gap-1 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-slate-400">Destination {index + 1}</p>
-                      <p className="truncate text-sm font-semibold text-slate-800">{destination.url}</p>
-                    </div>
-                    <p className="text-sm font-bold text-indigo-600">{destination.probability}%</p>
-                  </div>
-                ))}
+              <div className="mb-3 flex items-end justify-between gap-3">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Destinations ({viewing.destinations.length})
+                </p>
+                <p className="hidden text-[11px] font-semibold text-slate-400 sm:block">
+                  Clicks = people sent to that link · Traffic = split %
+                </p>
               </div>
+              <div className="overflow-hidden rounded-2xl border border-slate-200">
+                <div className="hidden grid-cols-[minmax(0,1fr)_5.5rem_4.5rem] gap-3 border-b border-slate-100 bg-slate-50 px-4 py-2 text-[10px] font-bold uppercase tracking-wide text-slate-400 sm:grid">
+                  <span>Link</span>
+                  <span className="text-right">Clicks</span>
+                  <span className="text-right">Traffic</span>
+                </div>
+                <div className="divide-y divide-slate-100">
+                  {viewing.destinations.map((destination: LinkRotatorDestination, index) => {
+                    const clicks = destinationClickTotal(destination, viewAnalytics);
+                    const count = formatCountDisplay(clicks);
+                    return (
+                      <div
+                        key={destination.id || `${destination.url}-${index}`}
+                        className="grid grid-cols-1 gap-2 bg-white px-4 py-3 sm:grid-cols-[minmax(0,1fr)_5.5rem_4.5rem] sm:items-center sm:gap-3"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-slate-400">Destination {index + 1}</p>
+                          <a
+                            href={destination.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-0.5 block truncate text-sm font-semibold text-slate-800 hover:text-indigo-600 hover:underline"
+                          >
+                            {destination.url}
+                          </a>
+                        </div>
+                        <div className="flex items-center justify-between sm:block sm:text-right">
+                          <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400 sm:hidden">
+                            Clicks
+                          </span>
+                          <p
+                            className="text-sm font-extrabold tabular-nums text-slate-900"
+                            title={count.title}
+                          >
+                            {count.text}
+                          </p>
+                        </div>
+                        <div className="flex items-center justify-between sm:block sm:text-right">
+                          <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400 sm:hidden">
+                            Traffic
+                          </span>
+                          <p className="text-sm font-bold text-indigo-600">{destination.probability}%</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4 sm:p-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+                    Traffic breakdown
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Choose a destination to see its click summary.
+                  </p>
+                </div>
+                <label className="block w-full sm:w-64">
+                  <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                    Show stats for
+                  </span>
+                  <select
+                    value={selectedDestinationKey}
+                    onChange={(event) => setSelectedDestinationKey(event.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                  >
+                    {viewing.destinations.map((destination, index) => {
+                      const key = destination.id || destination.url;
+                      return (
+                        <option key={key} value={key}>
+                          Destination {index + 1}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
+              </div>
+
+              {analyticsLoading && (
+                <p className="mt-3 text-xs font-semibold text-slate-400">Updating stats…</p>
+              )}
+
+              {(() => {
+                const selected =
+                  viewing.destinations.find(
+                    (item) => (item.id || item.url) === selectedDestinationKey
+                  ) || viewing.destinations[0];
+                if (!selected) return null;
+
+                const selectedAnalytics = viewAnalytics?.destinations.find(
+                  (item) =>
+                    item.id === selected.id ||
+                    item.url === selected.url ||
+                    (selected.id || selected.url) === item.id
+                );
+                const clicks = selectedAnalytics?.clicks || {
+                  total: selected.clicks || 0,
+                  today: 0,
+                  week: 0,
+                  month: 0
+                };
+                const summaryTotal =
+                  viewAnalytics?.summary.total ?? viewing.totalClicks ?? 0;
+                const destTotal = Math.max(clicks.total, 1);
+                const sharePercent =
+                  selectedAnalytics?.clickSharePercent ??
+                  periodPercent(clicks.total, summaryTotal);
+                const totalCount = formatCountDisplay(clicks.total);
+
+                return (
+                  <>
+                    <div className="mt-4 rounded-xl border border-slate-200 bg-white px-4 py-3">
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                        Target link
+                      </p>
+                      <a
+                        href={selected.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1 block break-all text-sm font-semibold text-indigo-600 hover:underline"
+                      >
+                        {selected.url}
+                      </a>
+                      <div className="mt-3 flex flex-wrap items-baseline gap-x-5 gap-y-2">
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                            Clicks
+                          </p>
+                          <p
+                            className="mt-0.5 text-xl font-extrabold tabular-nums text-slate-900"
+                            title={totalCount.title}
+                          >
+                            {totalCount.text}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                            Traffic split
+                          </p>
+                          <p className="mt-0.5 text-xl font-extrabold tabular-nums text-indigo-600">
+                            {selected.probability}%
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                            Share of total
+                          </p>
+                          <p className="mt-0.5 text-xl font-extrabold tabular-nums text-slate-900">
+                            {Math.round(sharePercent)}%
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      {(
+                        [
+                          ["Today", clicks.today, PERIOD_RING_COLORS.today.chip],
+                          ["This week", clicks.week, PERIOD_RING_COLORS.week.chip],
+                          ["This month", clicks.month, PERIOD_RING_COLORS.month.chip],
+                          ["All time", clicks.total, PERIOD_RING_COLORS.all.chip]
+                        ] as const
+                      ).map(([label, value, chip]) => {
+                        const count = formatCountDisplay(value);
+                        return (
+                          <div key={label} className={`rounded-xl px-3 py-2.5 ${chip}`}>
+                            <p className="text-[10px] font-bold uppercase tracking-wide opacity-80">
+                              {label}
+                            </p>
+                            <p
+                              className="mt-1 text-lg font-extrabold tabular-nums leading-none"
+                              title={count.title}
+                            >
+                              {count.text}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-5 flex flex-wrap items-center justify-center gap-6 sm:justify-between sm:gap-4 sm:px-2">
+                      <StatCircle
+                        label="Today"
+                        value={clicks.today}
+                        percent={periodPercent(clicks.today, destTotal)}
+                        accent={PERIOD_RING_COLORS.today.ring}
+                        percentClassName={PERIOD_RING_COLORS.today.text}
+                      />
+                      <StatCircle
+                        label="Week"
+                        value={clicks.week}
+                        percent={periodPercent(clicks.week, destTotal)}
+                        accent={PERIOD_RING_COLORS.week.ring}
+                        percentClassName={PERIOD_RING_COLORS.week.text}
+                      />
+                      <StatCircle
+                        label="Month"
+                        value={clicks.month}
+                        percent={periodPercent(clicks.month, destTotal)}
+                        accent={PERIOD_RING_COLORS.month.ring}
+                        percentClassName={PERIOD_RING_COLORS.month.text}
+                      />
+                      <StatCircle
+                        label="All time"
+                        value={clicks.total}
+                        percent={sharePercent}
+                        accent={PERIOD_RING_COLORS.all.ring}
+                        percentClassName={PERIOD_RING_COLORS.all.text}
+                      />
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </SectionCard>
         </Workspace>

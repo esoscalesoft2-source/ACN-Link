@@ -1,4 +1,8 @@
-import type { LinkRotator, LinkRotatorDestination } from "../types";
+import type {
+  LinkRotator,
+  LinkRotatorAnalytics,
+  LinkRotatorDestination
+} from "../types";
 import { apiUrl } from "./apiBase";
 import {
   clearAuthSession,
@@ -96,4 +100,21 @@ export async function updateLinkRotator(
 
 export async function deleteLinkRotator(id: string): Promise<void> {
   await fetchJson<{ success: boolean }>(`/api/link-rotators/${id}`, { method: "DELETE" });
+}
+
+function isAnalyticsPayload(data: unknown): data is LinkRotatorAnalytics {
+  if (!data || typeof data !== "object") return false;
+  const row = data as LinkRotatorAnalytics;
+  return Boolean(row.rotator) && Boolean(row.summary) && Array.isArray(row.destinations);
+}
+
+export async function fetchLinkRotatorAnalytics(id: string): Promise<LinkRotatorAnalytics> {
+  // Prefer query on GET /:id — more compatible with proxies than nested /analytics.
+  try {
+    const data = await fetchJson<LinkRotatorAnalytics>(`/api/link-rotators/${id}?analytics=1`);
+    if (isAnalyticsPayload(data)) return data;
+  } catch {
+    // Fall through to nested route.
+  }
+  return fetchJson<LinkRotatorAnalytics>(`/api/link-rotators/${id}/analytics`);
 }

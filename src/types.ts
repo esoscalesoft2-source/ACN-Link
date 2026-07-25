@@ -84,7 +84,31 @@ export interface LinkRotatorDestination {
   id: string;
   url: string;
   probability: number;
+  /** Lifetime clicks sent to this destination. */
+  clicks?: number;
 }
+
+export type LinkRotatorPeriodCounts = {
+  total: number;
+  today: number;
+  week: number;
+  month: number;
+};
+
+export type LinkRotatorDestinationAnalytics = {
+  id: string;
+  url: string;
+  probability: number;
+  clicks: LinkRotatorPeriodCounts;
+  /** Share of all recorded clicks (0–100). */
+  clickSharePercent: number;
+};
+
+export type LinkRotatorAnalytics = {
+  rotator: LinkRotator;
+  summary: LinkRotatorPeriodCounts;
+  destinations: LinkRotatorDestinationAnalytics[];
+};
 
 export interface LinkRotator {
   id: string;

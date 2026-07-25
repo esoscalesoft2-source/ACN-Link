@@ -10,6 +10,7 @@ import {
   linkRotatorPlatformHostname,
   normalizeLinkRotatorHost
 } from "./publicUrl";
+import { buildRotatorAnalytics } from "./analytics";
 import {
   createLinkRotator,
   findLinkRotatorById,
@@ -48,7 +49,12 @@ function publicRecord(record: LinkRotatorRecord) {
     hostDomain,
     rotatorUrl: buildLinkRotatorPublicUrl(record.slug, hostDomain),
     status: record.status,
-    destinations: record.destinations,
+    destinations: record.destinations.map((destination) => ({
+      id: destination.id,
+      url: destination.url,
+      probability: destination.probability,
+      clicks: destination.clicks || 0
+    })),
     totalClicks: record.totalClicks || 0,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt
@@ -144,11 +150,45 @@ export function createLinkRotatorsRouter() {
     }
   });
 
+  // Register before `/:id` so nested paths are never swallowed by proxies/routers.
+  router.get("/:id/analytics", (req: AuthedRequest, res: Response) => {
+    try {
+      const record = findLinkRotatorById(req.params.id, req.authUser!.id);
+      if (!record) {
+        res.status(404).json({ error: "Link rotator not found." });
+        return;
+      }
+      const analytics = buildRotatorAnalytics(record);
+      res.json({
+        rotator: publicRecord(record),
+        summary: analytics.summary,
+        destinations: analytics.destinations
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: errorMessage(error),
+        code: "LINK_ROTATOR_ANALYTICS_FAILED"
+      });
+    }
+  });
+
   router.get("/:id", (req: AuthedRequest, res: Response) => {
     try {
       const record = findLinkRotatorById(req.params.id, req.authUser!.id);
       if (!record) {
         res.status(404).json({ error: "Link rotator not found." });
+        return;
+      }
+      const includeAnalytics =
+        String(req.query.analytics || "") === "1" ||
+        String(req.query.include || "") === "analytics";
+      if (includeAnalytics) {
+        const analytics = buildRotatorAnalytics(record);
+        res.json({
+          rotator: publicRecord(record),
+          summary: analytics.summary,
+          destinations: analytics.destinations
+        });
         return;
       }
       res.json({ rotator: publicRecord(record) });

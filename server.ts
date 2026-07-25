@@ -30,7 +30,7 @@ import {
 } from "./server/platformSubdomains/slug";
 import { createLinkRotatorsRouter } from "./server/linkRotators/routes";
 import {
-  incrementLinkRotatorClicks,
+  recordLinkRotatorClick,
   resolvePublicLinkRotator
 } from "./server/linkRotators/repository";
 import {
@@ -238,7 +238,7 @@ app.get("/r/:slug", (req, res) => {
       return;
     }
 
-    incrementLinkRotatorClicks(record.id);
+    recordLinkRotatorClick(record.id, { id: destination.id, url: target });
 
     // Prefer HTML/JS redirect over bare 302:
     // Custom-domain edges sometimes follow 302 and serve destination HTML under

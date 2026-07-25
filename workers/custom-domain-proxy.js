@@ -128,17 +128,24 @@ export default {
 
       const response = await fetchUpstream(request, host);
 
-      // Link rotator (/r/:slug) must return the upstream 302 Location as-is so the
-      // browser navigates to the destination host (never proxy destination HTML).
-      if (
-        url.pathname.startsWith("/r/") &&
-        response.status >= 300 &&
-        response.status < 400 &&
-        isExternalRedirect(response.headers.get("Location") || "", request.url)
-      ) {
+      // Link rotator (/r/:slug):
+      // - External 302 → pass Location through (browser leaves customer host)
+      // - 200 HTML redirect page → pass body through unchanged (never rewrite)
+      if (url.pathname.startsWith("/r/")) {
         const headers = new Headers(response.headers);
         headers.set("cache-control", "no-store");
-        return new Response(null, { status: response.status, headers });
+        if (
+          response.status >= 300 &&
+          response.status < 400 &&
+          isExternalRedirect(response.headers.get("Location") || "", request.url)
+        ) {
+          return new Response(null, { status: response.status, headers });
+        }
+        return new Response(response.body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers
+        });
       }
 
       return response;

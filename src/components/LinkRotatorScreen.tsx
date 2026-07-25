@@ -855,12 +855,24 @@ export default function LinkRotatorScreen({
                           <a
                             href={rotator.rotatorUrl}
                             target="_blank"
-                            rel="noreferrer"
+                            rel="noreferrer noopener"
                             className="rounded-lg p-2 text-slate-500 hover:bg-white hover:text-indigo-600"
-                            title="Open rotator URL"
+                            title={`Open rotator URL\n${rotator.rotatorUrl}`}
                           >
                             <ExternalLink className="h-4 w-4" />
                           </a>
+                          {rotator.hostDomain &&
+                            rotator.hostDomain !== PRIMARY_DOMAIN && (
+                              <a
+                                href={`https://${PRIMARY_DOMAIN}/r/${rotator.slug}`}
+                                target="_blank"
+                                rel="noreferrer noopener"
+                                className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-indigo-600"
+                                title={`Open via ACN Link\nhttps://${PRIMARY_DOMAIN}/r/${rotator.slug}`}
+                              >
+                                <Shuffle className="h-4 w-4" />
+                              </a>
+                            )}
                           <button
                             type="button"
                             onClick={() => void handleDelete(rotator)}

@@ -42,6 +42,7 @@ import {
   linkRotatorPlatformHostname,
   normalizeLinkRotatorHost
 } from "./server/linkRotators/publicUrl";
+import { buildLinkRotatorRedirectHtml } from "./server/linkRotators/redirectPage";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -238,9 +239,19 @@ app.get("/r/:slug", (req, res) => {
     }
 
     incrementLinkRotatorClicks(record.id);
-    // Absolute external Location so browsers (and Cloudflare) leave the custom host.
+
+    // Prefer HTML/JS redirect over bare 302:
+    // Custom-domain edges sometimes follow 302 and serve destination HTML under
+    // the customer host (broken CSS). Browser-only location.replace avoids that.
+    const wantsHeadersOnly = req.method === "HEAD";
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-    res.redirect(302, target);
+    res.setHeader("Referrer-Policy", "no-referrer");
+    if (wantsHeadersOnly) {
+      res.setHeader("Location", target);
+      res.status(302).end();
+      return;
+    }
+    res.status(200).type("html").send(buildLinkRotatorRedirectHtml(target));
   } catch (error) {
     console.error("Link rotator redirect failed:", error);
     res.status(503).type("html").send("<!doctype html><title>Unavailable</title><h1>Temporarily unavailable</h1>");

@@ -58,28 +58,8 @@ export const initialWhatsAppTemplates: WhatsAppTemplate[] = [
   { id: "wt2", name: "Order Confirmation", status: "Approved" }
 ];
 
-export const initialSmartLinks: SmartLink[] = [
-  {
-    id: "l1",
-    title: "Summer Campaign 2024",
-    slug: "/summer-promo",
-    shortUrl: "acn.link/sum24",
-    destinationUrl: "https://example.com/summer-promo",
-    status: "Live",
-    clicks: 0,
-    retargeting: ["fb", "google", "tiktok"]
-  },
-  {
-    id: "l2",
-    title: "New Product Launch",
-    slug: "/launch-v2",
-    shortUrl: "acn.link/v2-live",
-    destinationUrl: "https://example.com/launch-v2",
-    status: "Paused",
-    clicks: 0,
-    retargeting: ["fb", "google", "tiktok"]
-  }
-];
+/** Demo seeds removed — short links are loaded from the server API. */
+export const initialSmartLinks: SmartLink[] = [];
 
 export const initialQRCodes: QRCodeItem[] = [
   {

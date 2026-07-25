@@ -7,7 +7,6 @@ import {
   initialContacts,
   initialWhatsAppCampaigns,
   initialWhatsAppTemplates,
-  initialSmartLinks,
   initialQRCodes,
   initialTemplates,
   initialIntegrations,
@@ -52,6 +51,7 @@ import {
 import { syncPublishPrimaryUrlForVerifiedDomain } from "./lib/publishDomainSync";
 import { fetchPlatformSubdomains } from "./lib/platformSubdomainApi";
 import { fetchLinkRotators } from "./lib/linkRotatorApi";
+import { fetchShortLinks } from "./lib/shortLinkApi";
 import DashboardScreen from "./components/DashboardScreen";
 import BioPagesScreen from "./components/BioPagesScreen";
 import ContactsScreen from "./components/ContactsScreen";
@@ -627,7 +627,9 @@ export default function App() {
   const [whatsAppTemplates, setWhatsAppTemplates] = useState<WhatsAppTemplate[]>(() =>
     readLocalStorage("acnlink_whatsapp_templates", initialWhatsAppTemplates)
   );
-  const [links, setLinks] = useState<SmartLink[]>(() => readLocalStorage("acnlink_smart_links", initialSmartLinks));
+  const [links, setLinks] = useState<SmartLink[]>([]);
+  const [linksLoading, setLinksLoading] = useState(false);
+  const [linksLoadError, setLinksLoadError] = useState<string | null>(null);
   const [qrCodes, setQrCodes] = useState<QRCodeItem[]>(() => readLocalStorage("acnlink_qr_codes", initialQRCodes));
   const [templates] = useState<TemplateItem[]>(initialTemplates);
   
@@ -666,7 +668,6 @@ export default function App() {
   React.useEffect(() => writeLocalStorage("acnlink_contacts", contacts), [contacts]);
   React.useEffect(() => writeLocalStorage("acnlink_whatsapp_campaigns", whatsAppCampaigns), [whatsAppCampaigns]);
   React.useEffect(() => writeLocalStorage("acnlink_whatsapp_templates", whatsAppTemplates), [whatsAppTemplates]);
-  React.useEffect(() => writeLocalStorage("acnlink_smart_links", links), [links]);
   React.useEffect(() => writeLocalStorage("acnlink_qr_codes", qrCodes), [qrCodes]);
 
   const [integrations, setIntegrations] = useState<IntegrationItem[]>(() =>
@@ -718,6 +719,20 @@ export default function App() {
     }
   }, []);
 
+  const loadShortLinks = React.useCallback(async () => {
+    if (!getAccessToken() || isPreviewToken(getAccessToken())) return;
+    setLinksLoading(true);
+    setLinksLoadError(null);
+    try {
+      setLinks(await fetchShortLinks());
+    } catch (error) {
+      setLinks([]);
+      setLinksLoadError(error instanceof Error ? error.message : "Unable to load short links.");
+    } finally {
+      setLinksLoading(false);
+    }
+  }, []);
+
   const loadDomains = React.useCallback(async () => {
     if (!getAccessToken() || isPreviewToken(getAccessToken())) return;
     setDomainsLoading(true);
@@ -745,12 +760,14 @@ export default function App() {
       void loadDomains();
       void loadPlatformSubdomains();
       void loadLinkRotators();
+      void loadShortLinks();
     } else {
       setDomains([]);
       setPlatformSubdomains([]);
       setLinkRotators([]);
+      setLinks([]);
     }
-  }, [isLoggedIn, loadDomains, loadPlatformSubdomains, loadLinkRotators]);
+  }, [isLoggedIn, loadDomains, loadPlatformSubdomains, loadLinkRotators, loadShortLinks]);
   const [articles] = useState<HelpArticle[]>(initialHelpArticles);
 
   // Push browser workspace fields → Railway → Supabase normalized tables
@@ -1167,34 +1184,6 @@ export default function App() {
     setWhatsAppCampaigns((current) => current.filter((item) => item.id !== id));
   };
 
-  const handleCreateLink = (
-    title: string,
-    slug: string,
-    shortUrl: string,
-    destinationUrl: string,
-    retargeting: SmartLink["retargeting"]
-  ) => {
-    const newLink: SmartLink = {
-      id: `l_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      title,
-      slug,
-      shortUrl,
-      destinationUrl: normalizeExternalUrl(destinationUrl),
-      status: "Live",
-      retargeting,
-      clicks: 0
-    };
-    setLinks((current) => [newLink, ...current]);
-  };
-
-  const handleDeleteLink = (id: string) => {
-    setLinks((current) => current.filter((link) => link.id !== id));
-  };
-
-  const handleUpdateLink = (updated: SmartLink) => {
-    setLinks((current) => current.map((link) => (link.id === updated.id ? updated : link)));
-  };
-
   const handleGenerateQR = (name: string, targetUrl: string, customColor: string) => {
     const normalizedTargetUrl = normalizeExternalUrl(targetUrl);
     const newQR: QRCodeItem = {
@@ -1565,9 +1554,19 @@ export default function App() {
         return (
           <LinksScreen
             links={links}
-            onCreateLink={handleCreateLink}
-            onDeleteLink={handleDeleteLink}
-            onUpdateLink={handleUpdateLink}
+            domains={domains}
+            onReload={loadShortLinks}
+            onUpsertLink={(link) => {
+              setLinks((prev) => {
+                const index = prev.findIndex((item) => item.id === link.id);
+                if (index < 0) return [link, ...prev];
+                const next = [...prev];
+                next[index] = link;
+                return next;
+              });
+            }}
+            loading={linksLoading}
+            loadError={linksLoadError}
           />
         );
       case ScreenId.LINK_ROTATOR:

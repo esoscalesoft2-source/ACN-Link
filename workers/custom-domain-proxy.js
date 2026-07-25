@@ -128,10 +128,10 @@ export default {
 
       const response = await fetchUpstream(request, host);
 
-      // Link rotator (/r/:slug):
+      // Link rotator (/r/:slug) + short links (/l/:slug):
       // - External 302 → pass Location through (browser leaves customer host)
       // - 200 HTML redirect page → pass body through unchanged (never rewrite)
-      if (url.pathname.startsWith("/r/")) {
+      if (url.pathname.startsWith("/r/") || url.pathname.startsWith("/l/")) {
         const headers = new Headers(response.headers);
         headers.set("cache-control", "no-store");
         if (

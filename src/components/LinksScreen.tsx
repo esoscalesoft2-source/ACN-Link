@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from "react";
-import { SmartLink } from "../types";
+import React, { useEffect, useMemo, useState } from "react";
+import type { CustomDomain, ShortLinkAnalytics, SmartLink } from "../types";
 import {
   Link2,
   TrendingUp,
@@ -11,7 +11,6 @@ import {
   Smartphone,
   Monitor,
   Tablet,
-  Globe,
   Trash2,
   Edit2,
   Sparkles,
@@ -19,21 +18,25 @@ import {
   Search,
   ExternalLink
 } from "lucide-react";
-import PageShell, { PageHeader, Workspace } from "./layout/PageShell";
+import PageShell, { PageHeader, SectionCard, Workspace } from "./layout/PageShell";
+import {
+  createShortLink,
+  deleteShortLink,
+  fetchShortLinkAnalytics,
+  ShortLinkApiError,
+  updateShortLink
+} from "../lib/shortLinkApi";
+import { PRIMARY_DOMAIN } from "../storage/publishStorage";
 
 type RetargetPixel = "fb" | "google" | "tiktok";
 
 interface LinksScreenProps {
   links: SmartLink[];
-  onCreateLink: (
-    title: string,
-    slug: string,
-    shortUrl: string,
-    destinationUrl: string,
-    retargeting: SmartLink["retargeting"]
-  ) => void;
-  onDeleteLink: (id: string) => void;
-  onUpdateLink: (updated: SmartLink) => void;
+  domains?: CustomDomain[];
+  onReload: () => Promise<void>;
+  onUpsertLink?: (link: SmartLink) => void;
+  loading?: boolean;
+  loadError?: string | null;
 }
 
 const RETARGET_OPTIONS: Array<{ id: RetargetPixel; label: string }> = [
@@ -41,18 +44,6 @@ const RETARGET_OPTIONS: Array<{ id: RetargetPixel; label: string }> = [
   { id: "google", label: "Google Ads" },
   { id: "tiktok", label: "TikTok Pixel" }
 ];
-
-const DEVICE_SHARES = {
-  MOBILE: 0.72,
-  DESKTOP: 0.2,
-  TABLET: 0.08
-} as const;
-
-const GEO_SHARES = [
-  { name: "United States", share: 0.55 },
-  { name: "United Kingdom", share: 0.25 },
-  { name: "Germany", share: 0.2 }
-] as const;
 
 function normalizeSlug(value: string): string {
   return value
@@ -77,14 +68,17 @@ function isValidDestination(value: string): boolean {
 
 export default function LinksScreen({
   links,
-  onCreateLink,
-  onDeleteLink,
-  onUpdateLink
+  domains = [],
+  onReload,
+  onUpsertLink,
+  loading = false,
+  loadError = null
 }: LinksScreenProps) {
   const [isAdding, setIsAdding] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newSlug, setNewSlug] = useState("");
   const [newTarget, setNewTarget] = useState("");
+  const [newHostDomain, setNewHostDomain] = useState(PRIMARY_DOMAIN);
   const [newRetargeting, setNewRetargeting] = useState<RetargetPixel[]>(["fb", "google"]);
   const [createError, setCreateError] = useState("");
   const [isCreating, setIsCreating] = useState(false);
@@ -93,6 +87,7 @@ export default function LinksScreen({
   const [editTitle, setEditTitle] = useState("");
   const [editTarget, setEditTarget] = useState("");
   const [editSlug, setEditSlug] = useState("");
+  const [editHostDomain, setEditHostDomain] = useState(PRIMARY_DOMAIN);
   const [editStatus, setEditStatus] = useState<"Live" | "Paused">("Live");
   const [editRetargeting, setEditRetargeting] = useState<RetargetPixel[]>([]);
   const [editError, setEditError] = useState("");
@@ -101,8 +96,44 @@ export default function LinksScreen({
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"All" | "Live" | "Paused">("All");
   const [showFilters, setShowFilters] = useState(false);
-  const [activeDevice, setActiveDevice] = useState<keyof typeof DEVICE_SHARES>("MOBILE");
   const [toast, setToast] = useState<string | null>(null);
+  const [analyticsById, setAnalyticsById] = useState<Record<string, ShortLinkAnalytics>>({});
+  const [activeDevice, setActiveDevice] = useState<"mobile" | "desktop" | "tablet">("mobile");
+
+  const hostOptions = useMemo(() => {
+    const custom = domains
+      .filter((domain) => domain.status === "Verified" || domain.status === "DNS Verified")
+      .map((domain) => domain.domainName.trim().toLowerCase())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
+    const uniqueCustom = Array.from(new Set(custom));
+    return [
+      { value: PRIMARY_DOMAIN, label: `Acnlink (${PRIMARY_DOMAIN})` },
+      ...uniqueCustom.map((host) => ({ value: host, label: host }))
+    ];
+  }, [domains]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const next: Record<string, ShortLinkAnalytics> = {};
+      await Promise.all(
+        links.slice(0, 40).map(async (link) => {
+          try {
+            next[link.id] = await fetchShortLinkAnalytics(link.id);
+          } catch {
+            // Keep page usable if analytics lag.
+          }
+        })
+      );
+      if (!cancelled) setAnalyticsById(next);
+    };
+    if (links.length > 0) void load();
+    else setAnalyticsById({});
+    return () => {
+      cancelled = true;
+    };
+  }, [links]);
 
   const triggerToast = (msg: string) => {
     setToast(msg);
@@ -133,29 +164,60 @@ export default function LinksScreen({
     });
   }, [links, searchQuery, statusFilter]);
 
-  const totalClicks = links.reduce((acc, curr) => acc + curr.clicks, 0);
+  const totalClicks = links.reduce((acc, curr) => acc + (curr.clicks || 0), 0);
   const activeLinks = links.filter((link) => link.status === "Live").length;
   const avgClicks = links.length > 0 ? totalClicks / links.length : 0;
-  const clickInteraction =
-    links.length === 0 ? "0%" : `${Math.min(100, Math.round((avgClicks / Math.max(avgClicks, 10)) * 100))}%`;
 
-  const deviceClicks = Math.round(totalClicks * DEVICE_SHARES[activeDevice]);
+  const analyticsList = useMemo(
+    () => Object.values(analyticsById) as ShortLinkAnalytics[],
+    [analyticsById]
+  );
 
-  const geoBreakdown = GEO_SHARES.map((country) => ({
-    name: country.name,
-    clicks: Math.round(deviceClicks * country.share),
-    percentage: deviceClicks > 0 ? Math.round(country.share * 100) : 0
-  }));
+  const aggregatedDevices = useMemo(() => {
+    const devices = { mobile: 0, desktop: 0, tablet: 0, other: 0 };
+    for (const analytics of analyticsList) {
+      devices.mobile += analytics.devices?.mobile || 0;
+      devices.desktop += analytics.devices?.desktop || 0;
+      devices.tablet += analytics.devices?.tablet || 0;
+      devices.other += analytics.devices?.other || 0;
+    }
+    return devices;
+  }, [analyticsList]);
+
+  const deviceTotal =
+    aggregatedDevices.mobile +
+    aggregatedDevices.desktop +
+    aggregatedDevices.tablet +
+    aggregatedDevices.other;
+  const deviceClicks = aggregatedDevices[activeDevice] || 0;
 
   const clickTrendPoints = useMemo(() => {
-    const weights = [0.1, 0.15, 0.12, 0.22, 0.18, 0.35, 0.45];
-    const weightSum = weights.reduce((sum, weight) => sum + weight, 0);
-    const labels = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+    const labels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const totals = labels.map(() => 0);
+    for (const analytics of analyticsList) {
+      for (const point of analytics.daily || []) {
+        const index = labels.indexOf(point.label);
+        if (index >= 0) totals[index] += point.value || 0;
+      }
+    }
+    const sample = analyticsList[0]?.daily;
+    if (sample?.length) {
+      const map = new Map<string, number>();
+      for (const analytics of analyticsList) {
+        for (const point of analytics.daily || []) {
+          map.set(point.label, (map.get(point.label) || 0) + (point.value || 0));
+        }
+      }
+      return sample.map((point) => ({
+        label: point.label.toUpperCase(),
+        value: map.get(point.label) || 0
+      }));
+    }
     return labels.map((label, index) => ({
-      label,
-      value: Math.round((totalClicks * weights[index]) / weightSum)
+      label: label.toUpperCase(),
+      value: totals[index]
     }));
-  }, [totalClicks]);
+  }, [analyticsList]);
 
   const maxVal = Math.max(...clickTrendPoints.map((point) => point.value), 1);
   const chartHeight = 150;
@@ -163,7 +225,10 @@ export default function LinksScreen({
   const padding = 25;
   const pointsString = clickTrendPoints
     .map((point, index) => {
-      const x = padding + (index * (chartWidth - padding * 2)) / (clickTrendPoints.length - 1);
+      const x =
+        clickTrendPoints.length <= 1
+          ? chartWidth / 2
+          : padding + (index * (chartWidth - padding * 2)) / (clickTrendPoints.length - 1);
       const y = chartHeight - padding - (point.value / maxVal) * (chartHeight - padding * 2);
       return `${x},${y}`;
     })
@@ -173,6 +238,7 @@ export default function LinksScreen({
     setNewTitle("");
     setNewSlug("");
     setNewTarget("");
+    setNewHostDomain(PRIMARY_DOMAIN);
     setNewRetargeting(["fb", "google"]);
     setCreateError("");
   };
@@ -187,7 +253,8 @@ export default function LinksScreen({
     setEditingLink(link);
     setEditTitle(link.title);
     setEditTarget(link.destinationUrl || "");
-    setEditSlug(link.shortUrl.replace(/^acn\.link\//i, "").replace(/^\//, "") || normalizeSlug(link.slug));
+    setEditSlug(normalizeSlug(link.slug) || link.slug.replace(/^\//, ""));
+    setEditHostDomain(link.hostDomain || PRIMARY_DOMAIN);
     setEditStatus(link.status);
     setEditRetargeting((link.retargeting || []).filter((item): item is RetargetPixel =>
       ["fb", "google", "tiktok"].includes(item)
@@ -201,7 +268,7 @@ export default function LinksScreen({
     setEditError("");
   };
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setCreateError("");
 
@@ -221,22 +288,32 @@ export default function LinksScreen({
       setCreateError("Short slug is required.");
       return;
     }
-    if (links.some((link) => normalizeSlug(link.slug) === cleanSlug || link.shortUrl.endsWith(`/${cleanSlug}`))) {
-      setCreateError("That short slug is already in use.");
-      return;
-    }
 
     setIsCreating(true);
-    window.setTimeout(() => {
-      onCreateLink(title, `/${cleanSlug}`, `acn.link/${cleanSlug}`, target, newRetargeting);
-      setIsCreating(false);
+    try {
+      const saved = await createShortLink({
+        title,
+        slug: cleanSlug,
+        hostDomain: newHostDomain || PRIMARY_DOMAIN,
+        destinationUrl: target,
+        status: "Live",
+        retargeting: newRetargeting
+      });
+      onUpsertLink?.(saved);
       setIsAdding(false);
       resetCreateForm();
-      triggerToast("Smart link created successfully.");
-    }, 300);
+      triggerToast("Short link created — copy and share the live URL.");
+      void onReload();
+    } catch (error) {
+      setCreateError(
+        error instanceof ShortLinkApiError ? error.message : "Unable to create short link."
+      );
+    } finally {
+      setIsCreating(false);
+    }
   };
 
-  const handleSaveEdit = (event: React.FormEvent) => {
+  const handleSaveEdit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!editingLink) return;
     setEditError("");
@@ -257,47 +334,69 @@ export default function LinksScreen({
       setEditError("Short slug is required.");
       return;
     }
-    if (
-      links.some(
-        (link) =>
-          link.id !== editingLink.id &&
-          (normalizeSlug(link.slug) === cleanSlug || link.shortUrl.endsWith(`/${cleanSlug}`))
-      )
-    ) {
-      setEditError("That short slug is already in use.");
-      return;
-    }
 
     setIsSavingEdit(true);
-    window.setTimeout(() => {
-      onUpdateLink({
-        ...editingLink,
+    try {
+      const saved = await updateShortLink(editingLink.id, {
         title,
-        slug: `/${cleanSlug}`,
-        shortUrl: `acn.link/${cleanSlug}`,
+        slug: cleanSlug,
+        hostDomain: editHostDomain || PRIMARY_DOMAIN,
         destinationUrl: target,
         status: editStatus,
         retargeting: editRetargeting
       });
-      setIsSavingEdit(false);
+      onUpsertLink?.(saved);
       setEditingLink(null);
-      triggerToast("Link configuration saved.");
-    }, 300);
+      triggerToast("Short link saved.");
+      void onReload();
+    } catch (error) {
+      setEditError(
+        error instanceof ShortLinkApiError ? error.message : "Unable to save short link."
+      );
+    } finally {
+      setIsSavingEdit(false);
+    }
   };
 
-  const handleToggleStatus = (link: SmartLink) => {
+  const handleToggleStatus = async (link: SmartLink) => {
     const nextStatus = link.status === "Live" ? "Paused" : "Live";
-    onUpdateLink({ ...link, status: nextStatus });
-    triggerToast(`Status switched to ${nextStatus}.`);
+    try {
+      const saved = await updateShortLink(link.id, {
+        title: link.title,
+        slug: normalizeSlug(link.slug) || link.slug.replace(/^\//, ""),
+        hostDomain: link.hostDomain || PRIMARY_DOMAIN,
+        destinationUrl: link.destinationUrl || "",
+        status: nextStatus,
+        retargeting: link.retargeting || []
+      });
+      onUpsertLink?.(saved);
+      triggerToast(`Status switched to ${nextStatus}.`);
+      void onReload();
+    } catch (error) {
+      triggerToast(error instanceof ShortLinkApiError ? error.message : "Unable to update status.");
+    }
   };
 
-  const handleSimulateClick = (link: SmartLink) => {
+  const handleDelete = async (link: SmartLink) => {
+    const confirmed = window.confirm(
+      `Delete "${link.title}"?\n\n${link.shortUrl} will stop working.`
+    );
+    if (!confirmed) return;
+    try {
+      await deleteShortLink(link.id);
+      triggerToast("Short link deleted.");
+      void onReload();
+    } catch (error) {
+      triggerToast(error instanceof ShortLinkApiError ? error.message : "Unable to delete.");
+    }
+  };
+
+  const openShortUrl = (link: SmartLink) => {
     if (link.status !== "Live") {
-      triggerToast("Paused links cannot receive clicks. Set the link to Live first.");
+      triggerToast("Paused links do not redirect. Set the link to Live first.");
       return;
     }
-    onUpdateLink({ ...link, clicks: link.clicks + 1 });
-    triggerToast(`Simulated click registered on ${link.shortUrl}.`);
+    window.open(link.shortUrl, "_blank", "noopener,noreferrer");
   };
 
   const openDestination = (destinationUrl?: string) => {
@@ -331,7 +430,7 @@ export default function LinksScreen({
 
       <PageHeader
         title="Smart Short Links"
-        subtitle="Deploy, brand, and track lightning-fast URLs with integrated dynamic routing."
+        subtitle="Create a real short URL that redirects to your destination and tracks live clicks."
         actions={
           <button
             type="button"
@@ -343,6 +442,15 @@ export default function LinksScreen({
           </button>
         }
       />
+
+      {loadError && (
+        <SectionCard className="border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-700">
+          {loadError}
+        </SectionCard>
+      )}
+      {loading && (
+        <p className="text-xs font-semibold text-slate-400">Loading short links…</p>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
         <div className="bg-white border border-slate-200/60 rounded-2xl p-5 shadow-sm flex items-center justify-between min-w-0">
@@ -380,10 +488,12 @@ export default function LinksScreen({
         <div className="bg-white border border-slate-200/60 rounded-2xl p-5 shadow-sm flex items-center justify-between min-w-0">
           <div className="min-w-0">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Avg. Engagement</p>
-            <h3 className="font-display font-black text-3xl text-slate-900 mt-1">{clickInteraction}</h3>
+            <h3 className="font-display font-black text-3xl text-slate-900 mt-1">
+              {avgClicks.toFixed(1)}
+            </h3>
             <span className="text-xs text-indigo-600 font-bold flex items-center gap-1 mt-1.5">
               <Sparkles className="h-3.5 w-3.5" />
-              {avgClicks.toFixed(1)} clicks / link
+              Avg clicks / link
             </span>
           </div>
           <div className="h-12 w-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
@@ -526,10 +636,10 @@ export default function LinksScreen({
                       <div className="flex items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => handleSimulateClick(link)}
+                          onClick={() => openShortUrl(link)}
                           className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2.5 py-1.5 rounded-xl text-[10px] font-black"
                         >
-                          Simulate click
+                          Open short URL
                         </button>
                         <button
                           type="button"
@@ -549,12 +659,7 @@ export default function LinksScreen({
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            if (window.confirm(`Delete shortened URL "${link.shortUrl}"?`)) {
-                              onDeleteLink(link.id);
-                              triggerToast("Link deleted.");
-                            }
-                          }}
+                          onClick={() => void handleDelete(link)}
                           className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl"
                           aria-label={`Delete ${link.title}`}
                         >
@@ -671,12 +776,12 @@ export default function LinksScreen({
                             <div className="flex items-center justify-center gap-1.5">
                               <button
                                 type="button"
-                                onClick={() => handleSimulateClick(link)}
+                                onClick={() => openShortUrl(link)}
                                 className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 p-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 shrink-0"
-                                title="Simulate user click"
+                                title="Open live short URL"
                               >
-                                <Sparkles className="h-3 w-3 text-amber-500" />
-                                <span className="text-[9px] font-black">Click</span>
+                                <ExternalLink className="h-3 w-3" />
+                                <span className="text-[9px] font-black">Open</span>
                               </button>
                               <button
                                 type="button"
@@ -696,12 +801,7 @@ export default function LinksScreen({
                               </button>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  if (window.confirm(`Delete shortened URL "${link.shortUrl}"?`)) {
-                                    onDeleteLink(link.id);
-                                    triggerToast("Link deleted.");
-                                  }
-                                }}
+                                onClick={() => void handleDelete(link)}
                                 className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl"
                                 title="Delete link"
                               >
@@ -731,7 +831,7 @@ export default function LinksScreen({
                 <div className="h-44 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200 flex flex-col items-center justify-center p-4 text-center">
                   <p className="text-xs font-bold text-slate-700">Waiting for short-link traffic</p>
                   <p className="text-[10px] text-slate-400 mt-1 max-w-sm">
-                    Use Simulate click on a live link to register activity and update this chart.
+                    Share a Live short URL. Real visits to /l/your-slug update this chart automatically.
                   </p>
                 </div>
               ) : (
@@ -765,7 +865,10 @@ export default function LinksScreen({
                   />
                   {clickTrendPoints.map((point, index) => {
                     const x =
-                      padding + (index * (chartWidth - padding * 2)) / (clickTrendPoints.length - 1);
+                      clickTrendPoints.length <= 1
+                        ? chartWidth / 2
+                        : padding +
+                          (index * (chartWidth - padding * 2)) / (clickTrendPoints.length - 1);
                     const y =
                       chartHeight - padding - (point.value / maxVal) * (chartHeight - padding * 2);
                     return (
@@ -797,60 +900,62 @@ export default function LinksScreen({
 
         <Workspace stack className="min-w-0">
           <Workspace panel stack className="bg-white border border-slate-200/60 rounded-2xl shadow-sm">
-            <h3 className="font-display font-black text-slate-900 text-base">Handoff Diagnostics</h3>
+            <h3 className="font-display font-black text-slate-900 text-base">Click insights</h3>
 
-            <div className="space-y-4">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  Traffic by region
-                </p>
-                <span className="text-[10px] font-mono text-slate-500">
-                  {activeDevice}: {deviceClicks} clicks
-                </span>
+            <div className="space-y-3">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                Period totals
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {(
+                  [
+                    [
+                      "Today",
+                      analyticsList.reduce((sum, item) => sum + (item.summary?.today || 0), 0)
+                    ],
+                    [
+                      "Week",
+                      analyticsList.reduce((sum, item) => sum + (item.summary?.week || 0), 0)
+                    ],
+                    [
+                      "Month",
+                      analyticsList.reduce((sum, item) => sum + (item.summary?.month || 0), 0)
+                    ],
+                    ["All time", totalClicks]
+                  ] as const
+                ).map(([label, value]) => (
+                  <div key={label} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                      {label}
+                    </p>
+                    <p className="mt-1 text-lg font-extrabold tabular-nums text-slate-900">{value}</p>
+                  </div>
+                ))}
               </div>
-
-              {geoBreakdown.map((country) => (
-                <div key={country.name} className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-bold text-slate-700 flex items-center gap-1.5">
-                      <Globe className="h-4 w-4 text-slate-400" />
-                      {country.name}
-                    </span>
-                    <span className="font-mono font-black text-slate-900">
-                      {country.percentage}% · {country.clicks}
-                    </span>
-                  </div>
-                  <div className="w-full bg-slate-50 h-2 rounded-full overflow-hidden border border-slate-100">
-                    <div
-                      className="bg-indigo-600 h-full rounded-full transition-all duration-500"
-                      style={{ width: `${country.percentage}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-              {totalClicks === 0 && (
-                <p className="text-[11px] text-slate-400">
-                  Region estimates appear after your links receive clicks.
-                </p>
-              )}
             </div>
 
-            <div className="space-y-6 pt-4 border-t border-slate-100">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                Device profiling
-              </p>
+            <div className="space-y-4 pt-4 border-t border-slate-100">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                  Devices (from real visits)
+                </p>
+                <span className="text-[10px] font-mono text-slate-500">
+                  {activeDevice}: {deviceClicks}
+                </span>
+              </div>
               <div className="grid grid-cols-3 gap-2">
                 {(
                   [
-                    { name: "MOBILE" as const, icon: Smartphone },
-                    { name: "DESKTOP" as const, icon: Monitor },
-                    { name: "TABLET" as const, icon: Tablet }
+                    { name: "mobile" as const, icon: Smartphone },
+                    { name: "desktop" as const, icon: Monitor },
+                    { name: "tablet" as const, icon: Tablet }
                   ]
                 ).map((device) => {
                   const DevIcon = device.icon;
                   const isSelected = activeDevice === device.name;
+                  const count = aggregatedDevices[device.name] || 0;
                   const percentage =
-                    totalClicks > 0 ? `${Math.round(DEVICE_SHARES[device.name] * 100)}%` : "0%";
+                    deviceTotal > 0 ? `${Math.round((count / deviceTotal) * 100)}%` : "0%";
                   return (
                     <button
                       key={device.name}
@@ -864,14 +969,17 @@ export default function LinksScreen({
                       }`}
                     >
                       <DevIcon className={`h-4.5 w-4.5 mb-1 ${isSelected ? "text-white" : "text-slate-400"}`} />
-                      <span className="text-[8px] font-black tracking-wider leading-none">{device.name}</span>
+                      <span className="text-[8px] font-black tracking-wider leading-none uppercase">
+                        {device.name}
+                      </span>
                       <span className="text-xs font-black mt-1 font-mono leading-none">{percentage}</span>
+                      <span className="text-[10px] font-semibold mt-0.5 opacity-80">{count}</span>
                     </button>
                   );
                 })}
               </div>
               <p className="text-[11px] text-slate-400">
-                Selecting a device updates the regional breakdown for that profile.
+                Device share is measured from User-Agent on each /l/ redirect.
               </p>
             </div>
           </Workspace>
@@ -940,11 +1048,28 @@ export default function LinksScreen({
 
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
+                  Domain
+                </label>
+                <select
+                  value={newHostDomain}
+                  onChange={(event) => setNewHostDomain(event.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-xl py-2.5 px-3.5 text-xs focus:outline-none"
+                >
+                  {hostOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
                   Short slug
                 </label>
-                <div className="flex items-center">
-                  <span className="bg-slate-100 border border-slate-200 border-r-0 rounded-l-xl px-3 py-2.5 text-xs text-slate-400 font-mono">
-                    acn.link/
+                <div className="flex min-w-0 items-center">
+                  <span className="max-w-[55%] truncate bg-slate-100 border border-slate-200 border-r-0 rounded-l-xl px-3 py-2.5 text-[10px] text-slate-400 font-mono">
+                    {newHostDomain || PRIMARY_DOMAIN}/l/
                   </span>
                   <input
                     type="text"
@@ -952,14 +1077,17 @@ export default function LinksScreen({
                     placeholder="winter-sale"
                     value={newSlug}
                     onChange={(event) => setNewSlug(normalizeSlug(event.target.value))}
-                    className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-r-xl py-2.5 px-3.5 text-xs focus:outline-none"
+                    className="w-full min-w-0 bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-r-xl py-2.5 px-3.5 text-xs focus:outline-none"
                   />
                 </div>
+                <p className="mt-1.5 text-[11px] text-slate-500">
+                  Live URL: https://{newHostDomain || PRIMARY_DOMAIN}/l/{newSlug || "your-slug"}
+                </p>
               </div>
 
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
-                  Retargeting pixels
+                  Retargeting tags (optional labels)
                 </label>
                 <div className="flex gap-2">
                   {RETARGET_OPTIONS.map((pixel) => {
@@ -1060,18 +1188,39 @@ export default function LinksScreen({
 
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
+                  Domain
+                </label>
+                <select
+                  value={editHostDomain}
+                  onChange={(event) => setEditHostDomain(event.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-xl py-2.5 px-3.5 text-xs focus:outline-none"
+                >
+                  {hostOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                  {editHostDomain &&
+                    !hostOptions.some((option) => option.value === editHostDomain) && (
+                      <option value={editHostDomain}>{editHostDomain}</option>
+                    )}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
                   Custom short slug
                 </label>
-                <div className="flex items-center">
-                  <span className="bg-slate-100 border border-slate-200 border-r-0 rounded-l-xl px-3 py-2.5 text-xs text-slate-400 font-mono">
-                    acn.link/
+                <div className="flex min-w-0 items-center">
+                  <span className="max-w-[55%] truncate bg-slate-100 border border-slate-200 border-r-0 rounded-l-xl px-3 py-2.5 text-[10px] text-slate-400 font-mono">
+                    {editHostDomain || PRIMARY_DOMAIN}/l/
                   </span>
                   <input
                     type="text"
                     required
                     value={editSlug}
                     onChange={(event) => setEditSlug(normalizeSlug(event.target.value))}
-                    className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-r-xl py-2.5 px-3.5 text-xs focus:outline-none"
+                    className="w-full min-w-0 bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-r-xl py-2.5 px-3.5 text-xs focus:outline-none"
                   />
                 </div>
               </div>

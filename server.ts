@@ -43,6 +43,18 @@ import {
   normalizeLinkRotatorHost
 } from "./server/linkRotators/publicUrl";
 import { buildLinkRotatorRedirectHtml } from "./server/linkRotators/redirectPage";
+import { createShortLinksRouter } from "./server/shortLinks/routes";
+import {
+  recordShortLinkClick,
+  resolvePublicShortLink
+} from "./server/shortLinks/repository";
+import { toAbsoluteHttpUrl as toShortLinkAbsoluteUrl } from "./server/shortLinks/validation";
+import { normalizeShortLinkSlug } from "./server/shortLinks/slug";
+import {
+  normalizeShortLinkHost,
+  shortLinkPlatformHostname
+} from "./server/shortLinks/publicUrl";
+import { buildShortLinkRedirectHtml } from "./server/shortLinks/redirectPage";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -185,6 +197,7 @@ app.use("/api/auth", createAuthRouter());
 app.use("/api/domains", createDomainsRouter());
 app.use("/api/platform-subdomains", createPlatformSubdomainsRouter());
 app.use("/api/link-rotators", createLinkRotatorsRouter());
+app.use("/api/short-links", createShortLinksRouter());
 
 function pickRequestHostname(req: express.Request) {
   const pick = (value: unknown) =>
@@ -254,6 +267,60 @@ app.get("/r/:slug", (req, res) => {
     res.status(200).type("html").send(buildLinkRotatorRedirectHtml(target));
   } catch (error) {
     console.error("Link rotator redirect failed:", error);
+    res.status(503).type("html").send("<!doctype html><title>Unavailable</title><h1>Temporarily unavailable</h1>");
+  }
+});
+
+/** Public short link redirect: /l/:slug → destination URL */
+app.get("/l/:slug", (req, res) => {
+  const rateKey = `short-link:${clientIp(req)}`;
+  if (!consumeRateLimit(rateKey, 180, 60_000)) {
+    res.status(429).type("html").send("<!doctype html><title>Too many requests</title><h1>Too many requests</h1>");
+    return;
+  }
+
+  const slug = normalizeShortLinkSlug(req.params.slug);
+  if (!slug) {
+    res.status(404).type("html").send("<!doctype html><title>Not found</title><h1>Short link not found</h1>");
+    return;
+  }
+
+  try {
+    const hostname = normalizeShortLinkHost(pickRequestHostname(req));
+    const record = resolvePublicShortLink(slug, hostname, shortLinkPlatformHostname());
+    if (!record || record.status !== "Live") {
+      res
+        .status(404)
+        .type("html")
+        .send("<!doctype html><title>Unavailable</title><h1>This short link is not available</h1>");
+      return;
+    }
+
+    const target = toShortLinkAbsoluteUrl(record.destinationUrl);
+    if (!target) {
+      res
+        .status(503)
+        .type("html")
+        .send("<!doctype html><title>Unavailable</title><h1>Destination not configured</h1>");
+      return;
+    }
+
+    recordShortLinkClick(record.id, {
+      userAgent: String(req.headers["user-agent"] || ""),
+      referer: String(req.headers.referer || req.headers.referrer || "")
+    });
+
+    const wantsHeadersOnly = req.method === "HEAD";
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    if (wantsHeadersOnly) {
+      res.setHeader("Location", target);
+      res.status(302).end();
+      return;
+    }
+    res.status(200).type("html").send(buildShortLinkRedirectHtml(target));
+  } catch (error) {
+    console.error("Short link redirect failed:", error);
     res.status(503).type("html").send("<!doctype html><title>Unavailable</title><h1>Temporarily unavailable</h1>");
   }
 });
@@ -673,7 +740,12 @@ function isStaticAssetPath(pathname: string) {
  * SPA renders the correct published page at the branded URL.
  */
 app.use(async (req, res, next) => {
-  if (req.path.startsWith("/api/") || req.path.startsWith("/r/") || req.method !== "GET") {
+  if (
+    req.path.startsWith("/api/") ||
+    req.path.startsWith("/r/") ||
+    req.path.startsWith("/l/") ||
+    req.method !== "GET"
+  ) {
     next();
     return;
   }

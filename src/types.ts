@@ -73,12 +73,37 @@ export interface SmartLink {
   id: string;
   title: string;
   slug: string;
+  /** Hostname used in the public short URL (platform or custom domain). */
+  hostDomain: string;
   shortUrl: string;
   destinationUrl?: string;
   status: "Live" | "Paused";
   clicks: number;
   retargeting: ("fb" | "google" | "tiktok" | "snapchat")[];
+  createdAt?: string;
+  updatedAt?: string;
 }
+
+export type ShortLinkPeriodCounts = {
+  total: number;
+  today: number;
+  week: number;
+  month: number;
+};
+
+export type ShortLinkDeviceBreakdown = {
+  mobile: number;
+  desktop: number;
+  tablet: number;
+  other: number;
+};
+
+export type ShortLinkAnalytics = {
+  link: SmartLink;
+  summary: ShortLinkPeriodCounts;
+  devices: ShortLinkDeviceBreakdown;
+  daily: Array<{ label: string; value: number }>;
+};
 
 export interface LinkRotatorDestination {
   id: string;

@@ -1,7 +1,15 @@
 import { Router, type Request, type Response } from "express";
 import { randomBytes } from "node:crypto";
 import { requireAuth } from "../auth/routes";
-import { buildLinkRotatorPublicUrl } from "./publicUrl";
+import { flushRootStore } from "../db/rootStore";
+import { findDomainByHostname, listDomains } from "../domains/repository";
+import { normalizeHostname } from "../domains/hostname";
+import {
+  buildLinkRotatorPublicUrl,
+  isPlatformLinkRotatorHost,
+  linkRotatorPlatformHostname,
+  normalizeLinkRotatorHost
+} from "./publicUrl";
 import {
   createLinkRotator,
   findLinkRotatorById,
@@ -31,12 +39,14 @@ function parseStatus(value: unknown): LinkRotatorStatus {
 }
 
 function publicRecord(record: LinkRotatorRecord) {
+  const hostDomain = normalizeLinkRotatorHost(record.hostDomain);
   return {
     id: record.id,
     name: record.name,
     description: record.description || "",
     slug: record.slug,
-    rotatorUrl: buildLinkRotatorPublicUrl(record.slug),
+    hostDomain,
+    rotatorUrl: buildLinkRotatorPublicUrl(record.slug, hostDomain),
     status: record.status,
     destinations: record.destinations,
     totalClicks: record.totalClicks || 0,
@@ -45,15 +55,68 @@ function publicRecord(record: LinkRotatorRecord) {
   };
 }
 
-function allocateUniqueSlug(preferred?: string): string {
+function allocateUniqueSlug(hostDomain: string, preferred?: string): string {
   let slug = preferred ? normalizeRotatorSlug(preferred) : generateRotatorSlug();
   if (!slug) slug = generateRotatorSlug();
   let attempt = 0;
-  while (isLinkRotatorSlugTaken(slug) && attempt < 12) {
-    slug = generateRotatorSlug();
+  while (isLinkRotatorSlugTaken(slug, hostDomain) && attempt < 12) {
+    slug = preferred && attempt === 0 ? `${slug}${generateRotatorSlug(4)}` : generateRotatorSlug();
     attempt += 1;
   }
   return slug;
+}
+
+const ALLOWED_ROTATOR_HOST_STATUSES = new Set([
+  "Verified",
+  "DNS Verified",
+  "Provisioning SSL"
+]);
+
+async function resolveAllowedHostDomain(
+  ownerUserId: string,
+  requestedHost: unknown
+): Promise<{ hostDomain?: string; error?: string }> {
+  const platformHost = linkRotatorPlatformHostname();
+  const host = normalizeHostname(requestedHost) || platformHost;
+
+  if (host === platformHost || isPlatformLinkRotatorHost(host)) {
+    return { hostDomain: platformHost };
+  }
+
+  try {
+    const domains = await listDomains(ownerUserId);
+    const match = domains.find(
+      (domain) =>
+        normalizeHostname(domain.domainName) === host &&
+        domain.ownerUserId === ownerUserId &&
+        ALLOWED_ROTATOR_HOST_STATUSES.has(domain.status)
+    );
+    if (match) {
+      return { hostDomain: normalizeHostname(match.domainName) };
+    }
+
+    // Fallback when list filtering misses an alias / casing edge case.
+    const byHostname = await findDomainByHostname(host);
+    if (
+      byHostname &&
+      byHostname.ownerUserId === ownerUserId &&
+      ALLOWED_ROTATOR_HOST_STATUSES.has(byHostname.status)
+    ) {
+      return { hostDomain: normalizeHostname(byHostname.domainName) };
+    }
+
+    return {
+      error: "Select Acnlink or one of your verified custom domains from Custom Domains."
+    };
+  } catch (error) {
+    // If domain lookup is temporarily unavailable, still allow a well-formed custom host
+    // so Edit → Save changes is not blocked after the UI already listed that domain.
+    if (host.includes(".") && host !== platformHost) {
+      console.warn("[link-rotators] host validation fallback:", errorMessage(error));
+      return { hostDomain: host };
+    }
+    return { error: errorMessage(error) };
+  }
 }
 
 export function createLinkRotatorsRouter() {
@@ -94,15 +157,20 @@ export function createLinkRotatorsRouter() {
     }
   });
 
-  router.post("/", (req: AuthedRequest, res: Response) => {
+  router.post("/", async (req: AuthedRequest, res: Response) => {
     try {
       const name = String(req.body?.name || "").trim();
       const description = String(req.body?.description || "").trim();
       const status = parseStatus(req.body?.status);
       const destinationResult = normalizeDestinations(req.body?.destinations);
+      const hostResult = await resolveAllowedHostDomain(req.authUser!.id, req.body?.hostDomain);
 
       if (!name) {
         res.status(400).json({ error: "Rotator name is required." });
+        return;
+      }
+      if (hostResult.error || !hostResult.hostDomain) {
+        res.status(400).json({ error: hostResult.error || "Select a valid host domain." });
         return;
       }
       if (destinationResult.error || !destinationResult.destinations) {
@@ -110,37 +178,42 @@ export function createLinkRotatorsRouter() {
         return;
       }
 
-      const preferredSlug = normalizeRotatorSlug(req.body?.slug);
+      const preferredSlug = normalizeRotatorSlug(req.body?.slug || name);
       if (preferredSlug) {
         const slugError = validateRotatorSlug(preferredSlug);
         if (slugError) {
-          res.status(400).json({ error: slugError });
-          return;
-        }
-        if (isLinkRotatorSlugTaken(preferredSlug)) {
-          res.status(409).json({ error: "That rotator slug is already in use." });
-          return;
+          // Fall back to generated slug when name is not slug-friendly
         }
       }
 
-      const slug = allocateUniqueSlug(preferredSlug || undefined);
+      let slugCandidate = preferredSlug && !validateRotatorSlug(preferredSlug) ? preferredSlug : "";
+      if (slugCandidate && isLinkRotatorSlugTaken(slugCandidate, hostResult.hostDomain)) {
+        res.status(409).json({
+          error: `A rotator named "${slugCandidate}" already exists on ${hostResult.hostDomain}.`
+        });
+        return;
+      }
+
+      const slug = allocateUniqueSlug(hostResult.hostDomain, slugCandidate || undefined);
       const record = createLinkRotator({
         id: recordId(),
         ownerUserId: req.authUser!.id,
         name,
         description,
         slug,
+        hostDomain: hostResult.hostDomain,
         status,
         destinations: destinationResult.destinations
       });
 
+      await flushRootStore();
       res.status(201).json({ rotator: publicRecord(record) });
     } catch (error) {
       res.status(500).json({ error: errorMessage(error), code: "LINK_ROTATOR_CREATE_FAILED" });
     }
   });
 
-  router.patch("/:id", (req: AuthedRequest, res: Response) => {
+  router.patch("/:id", async (req: AuthedRequest, res: Response) => {
     try {
       const existing = findLinkRotatorById(req.params.id, req.authUser!.id);
       if (!existing) {
@@ -162,6 +235,39 @@ export function createLinkRotatorsRouter() {
         return;
       }
 
+      let hostDomain = normalizeLinkRotatorHost(existing.hostDomain);
+      if (req.body?.hostDomain !== undefined) {
+        const hostResult = await resolveAllowedHostDomain(req.authUser!.id, req.body.hostDomain);
+        if (hostResult.error || !hostResult.hostDomain) {
+          res.status(400).json({ error: hostResult.error || "Select a valid host domain." });
+          return;
+        }
+        hostDomain = hostResult.hostDomain;
+      }
+
+      // Keep public URL in sync with edits: slug comes from rotator name (same as create preview).
+      const preferredSlug = normalizeRotatorSlug(
+        req.body?.slug !== undefined ? req.body.slug : name
+      );
+      let slug = existing.slug;
+      if (preferredSlug && !validateRotatorSlug(preferredSlug)) {
+        if (isLinkRotatorSlugTaken(preferredSlug, hostDomain, existing.id)) {
+          res.status(409).json({
+            error: `A rotator named "${preferredSlug}" already exists on ${hostDomain}.`
+          });
+          return;
+        }
+        slug = preferredSlug;
+      } else if (
+        hostDomain !== normalizeLinkRotatorHost(existing.hostDomain) &&
+        isLinkRotatorSlugTaken(existing.slug, hostDomain, existing.id)
+      ) {
+        res.status(409).json({
+          error: `A rotator with this name already exists on ${hostDomain}.`
+        });
+        return;
+      }
+
       let destinations = existing.destinations;
       if (req.body?.destinations !== undefined) {
         const destinationResult = normalizeDestinations(req.body.destinations);
@@ -176,12 +282,15 @@ export function createLinkRotatorsRouter() {
         name,
         description,
         status,
+        hostDomain,
+        slug,
         destinations
       });
       if (!updated) {
         res.status(404).json({ error: "Link rotator not found." });
         return;
       }
+      await flushRootStore();
       res.json({ rotator: publicRecord(updated) });
     } catch (error) {
       res.status(500).json({ error: errorMessage(error), code: "LINK_ROTATOR_UPDATE_FAILED" });

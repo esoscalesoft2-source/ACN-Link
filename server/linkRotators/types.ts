@@ -12,6 +12,8 @@ export type LinkRotatorRecord = {
   name: string;
   description: string;
   slug: string;
+  /** Platform host or verified custom domain hostname. */
+  hostDomain: string;
   status: LinkRotatorStatus;
   destinations: LinkRotatorDestinationRecord[];
   totalClicks: number;

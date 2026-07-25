@@ -16,8 +16,19 @@ export function shouldExposeAuthTokens() {
   return exposeTokens();
 }
 
-function smtpConfigured() {
+export function isSmtpConfigured() {
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_FROM);
+}
+
+/** Email verification is required only when explicitly enabled, or when SMTP can deliver mail. */
+export function requireEmailVerification() {
+  if (process.env.AUTH_REQUIRE_EMAIL_VERIFICATION === "true") return true;
+  if (process.env.AUTH_REQUIRE_EMAIL_VERIFICATION === "false") return false;
+  return isSmtpConfigured();
+}
+
+function smtpConfigured() {
+  return isSmtpConfigured();
 }
 
 async function getTransport() {

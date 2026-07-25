@@ -91,6 +91,8 @@ export interface LinkRotator {
   name: string;
   description?: string;
   slug: string;
+  /** Hostname used in the public rotator URL (platform or custom domain). */
+  hostDomain: string;
   rotatorUrl: string;
   status: "Active" | "Inactive";
   destinations: LinkRotatorDestination[];

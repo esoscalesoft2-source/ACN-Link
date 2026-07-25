@@ -1574,7 +1574,17 @@ export default function App() {
         return (
           <LinkRotatorScreen
             rotators={linkRotators}
+            domains={domains}
             onReload={loadLinkRotators}
+            onUpsertRotator={(rotator) => {
+              setLinkRotators((prev) => {
+                const index = prev.findIndex((item) => item.id === rotator.id);
+                if (index < 0) return [rotator, ...prev];
+                const next = [...prev];
+                next[index] = rotator;
+                return next;
+              });
+            }}
             loading={linkRotatorsLoading}
             loadError={linkRotatorsLoadError}
           />

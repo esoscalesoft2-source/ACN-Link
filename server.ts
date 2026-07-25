@@ -35,6 +35,7 @@ import {
 } from "./server/linkRotators/repository";
 import { pickDestinationByProbability } from "./server/linkRotators/validation";
 import { normalizeRotatorSlug } from "./server/linkRotators/slug";
+import { normalizeLinkRotatorHost } from "./server/linkRotators/publicUrl";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -178,7 +179,7 @@ app.use("/api/domains", createDomainsRouter());
 app.use("/api/platform-subdomains", createPlatformSubdomainsRouter());
 app.use("/api/link-rotators", createLinkRotatorsRouter());
 
-/** Public link rotator redirect: /r/:slug → weighted destination */
+/** Public link rotator redirect: /r/:slug → weighted destination (platform or custom domain host) */
 app.get("/r/:slug", (req, res) => {
   const rateKey = `link-rotator:${clientIp(req)}`;
   if (!consumeRateLimit(rateKey, 180, 60_000)) {
@@ -193,7 +194,8 @@ app.get("/r/:slug", (req, res) => {
   }
 
   try {
-    const record = findLinkRotatorBySlug(slug);
+    const hostname = normalizeLinkRotatorHost(requestHostname(req));
+    const record = findLinkRotatorBySlug(slug, hostname);
     if (!record || record.status !== "Active") {
       res
         .status(404)

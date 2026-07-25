@@ -36,10 +36,10 @@ export const NAV_CATEGORIES: NavCategory[] = [
       { id: ScreenId.DASHBOARD, label: "Dashboard", icon: LayoutDashboard },
       { id: ScreenId.BIO_PAGES, label: "Bio Pages", icon: Smartphone },
       { id: ScreenId.CONTACTS, label: "Contacts", icon: Users },
-      { id: ScreenId.WHATSAPP, label: "WhatsApp", icon: MessageCircle, pro: true },
-      { id: ScreenId.LINKS, label: "Links", icon: Link2, pro: true },
+      { id: ScreenId.WHATSAPP, label: "WhatsApp", icon: MessageCircle },
+      { id: ScreenId.LINKS, label: "Links", icon: Link2 },
       { id: ScreenId.LINK_ROTATOR, label: "Link Rotator", icon: Shuffle },
-      { id: ScreenId.QR_CODES, label: "QR Codes", icon: QrCode, pro: true },
+      { id: ScreenId.QR_CODES, label: "QR Codes", icon: QrCode },
       { id: ScreenId.TEMPLATES, label: "Templates", icon: FileText },
       { id: ScreenId.INTEGRATIONS, label: "Integrations", icon: Puzzle }
     ]

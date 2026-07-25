@@ -10,7 +10,7 @@ import {
   Shuffle,
   Trash2
 } from "lucide-react";
-import type { LinkRotator, LinkRotatorDestination } from "../types";
+import type { CustomDomain, LinkRotator, LinkRotatorDestination } from "../types";
 import {
   createLinkRotator,
   deleteLinkRotator,
@@ -18,13 +18,17 @@ import {
   updateLinkRotator,
   type LinkRotatorInput
 } from "../lib/linkRotatorApi";
+import { PRIMARY_DOMAIN } from "../storage/publishStorage";
 import PageShell, { PageHeader, SectionCard, Workspace } from "./layout/PageShell";
 
 type ScreenMode = "list" | "form" | "view";
 
 interface LinkRotatorScreenProps {
   rotators: LinkRotator[];
+  domains?: CustomDomain[];
   onReload: () => Promise<void>;
+  /** Apply create/update response immediately so list/edit show saved URL without stale state. */
+  onUpsertRotator?: (rotator: LinkRotator) => void;
   loading?: boolean;
   loadError?: string | null;
 }
@@ -43,13 +47,23 @@ function newDestinationDraft(probability = ""): DestinationDraft {
   };
 }
 
-function emptyForm() {
+function emptyForm(defaultHost = PRIMARY_DOMAIN) {
   return {
     name: "",
     description: "",
+    hostDomain: defaultHost,
     status: "Active" as "Active" | "Inactive",
     destinations: [newDestinationDraft("50"), newDestinationDraft("50")]
   };
+}
+
+function slugPreviewFromName(name: string): string {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "")
+    .slice(0, 32);
+  return slug || "yourname";
 }
 
 function isValidHttpUrl(value: string): boolean {
@@ -88,6 +102,9 @@ function probabilityTotal(destinations: DestinationDraft[]): number {
 
 function validateForm(form: ReturnType<typeof emptyForm>): string | null {
   if (!form.name.trim()) return "Rotator name is required.";
+  if (slugPreviewFromName(form.name).length < 3) {
+    return "Rotator name needs at least 3 letters or numbers for the URL (example: summer-sale).";
+  }
   if (form.destinations.length === 0) return "Add at least one destination URL.";
 
   for (let index = 0; index < form.destinations.length; index += 1) {
@@ -112,9 +129,12 @@ function validateForm(form: ReturnType<typeof emptyForm>): string | null {
 }
 
 function toInput(form: ReturnType<typeof emptyForm>): LinkRotatorInput {
+  const name = form.name.trim();
   return {
-    name: form.name.trim(),
+    name,
     description: form.description.trim(),
+    hostDomain: form.hostDomain.trim() || PRIMARY_DOMAIN,
+    slug: slugPreviewFromName(name),
     status: form.status,
     destinations: form.destinations.map((item) => ({
       url: normalizeUrl(item.url),
@@ -125,13 +145,33 @@ function toInput(form: ReturnType<typeof emptyForm>): LinkRotatorInput {
 
 export default function LinkRotatorScreen({
   rotators,
+  domains = [],
   onReload,
+  onUpsertRotator,
   loading = false,
   loadError = null
 }: LinkRotatorScreenProps) {
   const [mode, setMode] = useState<ScreenMode>("list");
   const [searchQuery, setSearchQuery] = useState("");
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState(() => emptyForm(PRIMARY_DOMAIN));
+
+  const hostOptions = useMemo(() => {
+    const custom = domains
+      .filter((domain) => domain.status === "Verified" || domain.status === "DNS Verified")
+      .map((domain) => domain.domainName.trim().toLowerCase())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
+    const uniqueCustom = Array.from(new Set(custom));
+    const options = [
+      { value: PRIMARY_DOMAIN, label: `Acnlink (${PRIMARY_DOMAIN})` },
+      ...uniqueCustom.map((host) => ({ value: host, label: host }))
+    ];
+    const currentHost = (form.hostDomain || "").trim().toLowerCase();
+    if (currentHost && !options.some((option) => option.value === currentHost)) {
+      options.push({ value: currentHost, label: currentHost });
+    }
+    return options;
+  }, [domains, form.hostDomain]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [viewing, setViewing] = useState<LinkRotator | null>(null);
   const [formError, setFormError] = useState("");
@@ -150,6 +190,7 @@ export default function LinkRotatorScreen({
       return (
         item.name.toLowerCase().includes(query) ||
         item.slug.toLowerCase().includes(query) ||
+        item.hostDomain?.toLowerCase().includes(query) ||
         item.rotatorUrl.toLowerCase().includes(query) ||
         (item.description || "").toLowerCase().includes(query) ||
         item.status.toLowerCase().includes(query)
@@ -164,11 +205,12 @@ export default function LinkRotatorScreen({
   }, [rotators, viewing?.id]);
 
   const totalProbability = Math.round(probabilityTotal(form.destinations) * 100) / 100;
+  const previewUrl = `https://${form.hostDomain || PRIMARY_DOMAIN}/r/${slugPreviewFromName(form.name)}`;
 
   const openCreate = () => {
     setEditingId(null);
     setViewing(null);
-    setForm(emptyForm());
+    setForm(emptyForm(PRIMARY_DOMAIN));
     setFormError("");
     setMode("form");
   };
@@ -179,6 +221,7 @@ export default function LinkRotatorScreen({
     setForm({
       name: rotator.name,
       description: rotator.description || "",
+      hostDomain: rotator.hostDomain || PRIMARY_DOMAIN,
       status: rotator.status,
       destinations: rotator.destinations.map((destination) => ({
         key: destination.id || newDestinationDraft().key,
@@ -195,12 +238,12 @@ export default function LinkRotatorScreen({
     setMode("view");
   };
 
-  const backToList = () => {
-    if (isSaving) return;
+  const backToList = (options?: { force?: boolean }) => {
+    if (isSaving && !options?.force) return;
     setMode("list");
     setEditingId(null);
     setViewing(null);
-    setForm(emptyForm());
+    setForm(emptyForm(PRIMARY_DOMAIN));
     setFormError("");
   };
 
@@ -251,15 +294,18 @@ export default function LinkRotatorScreen({
     setFormError("");
     try {
       const payload = toInput(form);
-      if (editingId) {
-        await updateLinkRotator(editingId, payload);
-        triggerToast("Link rotator updated.");
-      } else {
-        await createLinkRotator(payload);
-        triggerToast("Link rotator created.");
+      const saved = editingId
+        ? await updateLinkRotator(editingId, payload)
+        : await createLinkRotator(payload);
+      onUpsertRotator?.(saved);
+      triggerToast(editingId ? "Link rotator updated." : "Link rotator created.");
+      try {
+        await onReload();
+      } catch {
+        /* upsert already applied */
       }
-      await onReload();
-      backToList();
+      // Force leave even while isSaving — otherwise Back is a no-op and it looks unsaved.
+      backToList({ force: true });
     } catch (err) {
       setFormError(
         err instanceof LinkRotatorApiError ? err.message : "Unable to save link rotator."
@@ -308,6 +354,29 @@ export default function LinkRotatorScreen({
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block sm:col-span-2">
                   <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                    Domain <span className="text-rose-500">*</span>
+                  </span>
+                  <select
+                    value={form.hostDomain}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, hostDomain: event.target.value }))
+                    }
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100"
+                    required
+                  >
+                    {hostOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1.5 text-xs text-slate-500">
+                    Default is Acnlink. Verified custom domains from Custom Domains also appear here.
+                  </p>
+                </label>
+
+                <label className="block sm:col-span-2">
+                  <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">
                     Rotator Name <span className="text-rose-500">*</span>
                   </span>
                   <input
@@ -315,10 +384,23 @@ export default function LinkRotatorScreen({
                     value={form.name}
                     onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
                     className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100"
-                    placeholder="Summer campaign rotator"
+                    placeholder="summer-sale"
                     required
                   />
                 </label>
+
+                <div className="sm:col-span-2 rounded-xl border border-indigo-100 bg-indigo-50/60 px-3.5 py-3">
+                  <p className="text-xs font-bold uppercase tracking-wide text-indigo-600">
+                    Rotator URL {editingId ? "(saves on Save changes)" : ""}
+                  </p>
+                  <p className="mt-1 break-all font-mono text-sm font-semibold text-slate-800">
+                    {previewUrl}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Domain + rotator name become the live URL after you save. Example:
+                    rog.acnfashionshop.com/r/yourname
+                  </p>
+                </div>
 
                 <label className="block sm:col-span-2">
                   <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -512,7 +594,11 @@ export default function LinkRotatorScreen({
           <SectionCard className="p-5 sm:p-6 space-y-5">
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Rotator URL</p>
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Domain</p>
+                <p className="mt-1.5 text-sm font-bold text-slate-900">
+                  {viewing.hostDomain || PRIMARY_DOMAIN}
+                </p>
+                <p className="mt-3 text-xs font-bold uppercase tracking-wide text-slate-500">Rotator URL</p>
                 <div className="mt-1.5 flex min-w-0 items-center gap-2">
                   <a
                     href={viewing.rotatorUrl}

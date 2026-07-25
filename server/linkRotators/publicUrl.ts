@@ -1,18 +1,19 @@
-import { resolvePlatformHostname } from "../domains/hostname";
+import { normalizeHostname, resolvePlatformHostname } from "../domains/hostname";
 
-export function linkRotatorPublicBase(): string {
-  const fromEnv = (process.env.APP_URL || process.env.API_URL || "").trim().replace(/\/$/, "");
-  if (fromEnv) {
-    try {
-      const url = new URL(fromEnv.includes("://") ? fromEnv : `https://${fromEnv}`);
-      return `${url.protocol}//${url.host}`;
-    } catch {
-      /* fall through */
-    }
-  }
-  return `https://${resolvePlatformHostname()}`;
+export function linkRotatorPlatformHostname(): string {
+  return resolvePlatformHostname();
 }
 
-export function buildLinkRotatorPublicUrl(slug: string): string {
-  return `${linkRotatorPublicBase()}/r/${slug}`;
+export function normalizeLinkRotatorHost(value: unknown): string {
+  const host = normalizeHostname(value);
+  return host || linkRotatorPlatformHostname();
+}
+
+export function isPlatformLinkRotatorHost(hostname: string): boolean {
+  return normalizeLinkRotatorHost(hostname) === linkRotatorPlatformHostname();
+}
+
+export function buildLinkRotatorPublicUrl(slug: string, hostDomain?: string): string {
+  const host = normalizeLinkRotatorHost(hostDomain);
+  return `https://${host}/r/${slug}`;
 }

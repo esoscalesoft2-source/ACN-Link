@@ -30,6 +30,7 @@ import {
   validateRegistration
 } from "./validation";
 import {
+  requireEmailVerification,
   sendPasswordResetOtp,
   sendVerificationEmail,
   shouldExposeAuthTokens
@@ -271,6 +272,7 @@ export function createAuthRouter() {
       githubClientId,
       appUrl: appOrigin(),
       exposeTokens: shouldExposeAuthTokens(),
+      emailVerificationRequired: requireEmailVerification(),
       allowDevOAuth: allowDevOAuth(),
       demoHint:
         process.env.NODE_ENV !== "production" && process.env.AUTH_SEED_DEMO !== "false"
@@ -328,6 +330,7 @@ export function createAuthRouter() {
 
       const { salt, hash } = hashPassword(String(body.password));
       const now = new Date().toISOString();
+      const verificationRequired = requireEmailVerification();
       const user: AuthUserRecord = {
         id: createId("user"),
         email,
@@ -341,8 +344,8 @@ export function createAuthRouter() {
         country: String(body.country).trim(),
         avatarUrl: defaultAvatarUrlForEmail(email),
         plan: "Free Plan",
-        isVerified: false,
-        emailVerified: false,
+        isVerified: !verificationRequired,
+        emailVerified: !verificationRequired,
         status: "active",
         mfaEnabled: false,
         newsletterOptIn: Boolean(body.newsletterOptIn),
@@ -350,31 +353,59 @@ export function createAuthRouter() {
         lockedUntil: null,
         createdAt: now,
         updatedAt: now,
-        lastLoginAt: null
+        lastLoginAt: verificationRequired ? null : now
       };
 
-      const verifyToken = randomToken(32);
-      store.emailVerificationTokens.unshift({
-        id: createId("verify"),
-        userId: user.id,
-        email: user.email,
-        tokenHash: hashToken(verifyToken),
-        createdAt: now,
-        expiresAt: new Date(Date.now() + VERIFY_TTL_MS).toISOString(),
-        usedAt: null
-      });
+      let verifyToken: string | undefined;
+      if (verificationRequired) {
+        verifyToken = randomToken(32);
+        store.emailVerificationTokens.unshift({
+          id: createId("verify"),
+          userId: user.id,
+          email: user.email,
+          tokenHash: hashToken(verifyToken),
+          createdAt: now,
+          expiresAt: new Date(Date.now() + VERIFY_TTL_MS).toISOString(),
+          usedAt: null
+        });
+      }
 
       store.users.unshift(user);
-      audit(store, "user.register", user.id, { email });
+      audit(store, "user.register", user.id, {
+        email,
+        emailVerified: user.emailVerified,
+        verificationRequired
+      });
+
+      // Ready-to-use accounts: issue session so the client can sign in immediately.
+      let tokens: { accessToken: string; refreshToken: string } | null = null;
+      if (!verificationRequired) {
+        tokens = issueSession(store, user, req, false);
+      }
+
       writeAuthStore(store);
 
-      await sendVerificationEmail(email, verifyToken);
+      if (verificationRequired && verifyToken) {
+        await sendVerificationEmail(email, verifyToken);
+      }
+
+      if (tokens) {
+        setAuthCookies(res, tokens.accessToken, tokens.refreshToken, false);
+      }
 
       res.status(201).json({
         success: true,
-        message: "Account created. Please verify your email.",
+        message: verificationRequired
+          ? "Account created. Please verify your email."
+          : "Account created. You can sign in now.",
         user: publicUser(user),
-        verificationToken: shouldExposeAuthTokens() ? verifyToken : undefined
+        canLogin: !verificationRequired,
+        emailVerificationRequired: verificationRequired,
+        accessToken: tokens?.accessToken,
+        refreshToken: tokens?.refreshToken,
+        expiresIn: tokens ? ACCESS_TTL_SEC : undefined,
+        verificationToken:
+          verificationRequired && shouldExposeAuthTokens() ? verifyToken : undefined
       });
     } catch (error) {
       console.error("Register error:", error);
@@ -427,6 +458,13 @@ export function createAuthRouter() {
         writeAuthStore(store);
         res.status(401).json({ error: "Invalid email or password.", code: "INVALID_CREDENTIALS" });
         return;
+      }
+
+      // Unblock accounts created before auto-verify when SMTP/verification is not required.
+      if (!user.emailVerified && !requireEmailVerification()) {
+        user.emailVerified = true;
+        user.isVerified = true;
+        user.updatedAt = new Date().toISOString();
       }
 
       const loginable = assertAccountLoginable(user);

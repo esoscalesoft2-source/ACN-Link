@@ -36,6 +36,8 @@ export interface AuthConfig {
   githubClientId: string;
   appUrl: string;
   exposeTokens: boolean;
+  /** When false, new accounts can sign in immediately without email verification. */
+  emailVerificationRequired?: boolean;
   allowDevOAuth: boolean;
   demoHint: { email: string; password: string } | null;
   idleTimeoutMs: number;
@@ -290,6 +292,11 @@ export async function registerRequest(input: Record<string, unknown>) {
     success: boolean;
     message: string;
     user: AuthUser;
+    canLogin?: boolean;
+    emailVerificationRequired?: boolean;
+    accessToken?: string;
+    refreshToken?: string;
+    expiresIn?: number;
     verificationToken?: string;
   }>(
     "/api/auth/register",

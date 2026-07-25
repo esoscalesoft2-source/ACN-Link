@@ -1,16 +1,21 @@
 import { getRootStore, setRootStore } from "../db/rootStore";
-import type { LinkRotatorRecord, LinkRotatorStatus } from "./types";
-import type { LinkRotatorDestinationRecord } from "./types";
+import { normalizeLinkRotatorHost } from "./publicUrl";
+import type { LinkRotatorDestinationRecord, LinkRotatorRecord, LinkRotatorStatus } from "./types";
 
 const STORE_KEY = "link_rotators";
 
 function readAll(): LinkRotatorRecord[] {
   const raw = getRootStore()[STORE_KEY];
   if (!Array.isArray(raw)) return [];
-  return raw.filter(
-    (item): item is LinkRotatorRecord =>
-      Boolean(item) && typeof item === "object" && typeof (item as LinkRotatorRecord).id === "string"
-  );
+  return raw
+    .filter(
+      (item): item is LinkRotatorRecord =>
+        Boolean(item) && typeof item === "object" && typeof (item as LinkRotatorRecord).id === "string"
+    )
+    .map((item) => ({
+      ...item,
+      hostDomain: normalizeLinkRotatorHost(item.hostDomain)
+    }));
 }
 
 function writeAll(rows: LinkRotatorRecord[]) {
@@ -31,14 +36,31 @@ export function findLinkRotatorById(
   return readAll().find((row) => row.id === id && row.ownerUserId === ownerUserId) || null;
 }
 
-export function findLinkRotatorBySlug(slug: string): LinkRotatorRecord | null {
+export function findLinkRotatorBySlug(slug: string, hostDomain?: string): LinkRotatorRecord | null {
   const normalized = slug.trim().toLowerCase();
-  return readAll().find((row) => row.slug === normalized) || null;
+  const host = hostDomain ? normalizeLinkRotatorHost(hostDomain) : "";
+  return (
+    readAll().find((row) => {
+      if (row.slug !== normalized) return false;
+      if (!host) return true;
+      return normalizeLinkRotatorHost(row.hostDomain) === host;
+    }) || null
+  );
 }
 
-export function isLinkRotatorSlugTaken(slug: string, excludeId?: string): boolean {
+export function isLinkRotatorSlugTaken(
+  slug: string,
+  hostDomain: string,
+  excludeId?: string
+): boolean {
   const normalized = slug.trim().toLowerCase();
-  return readAll().some((row) => row.slug === normalized && row.id !== excludeId);
+  const host = normalizeLinkRotatorHost(hostDomain);
+  return readAll().some(
+    (row) =>
+      row.slug === normalized &&
+      normalizeLinkRotatorHost(row.hostDomain) === host &&
+      row.id !== excludeId
+  );
 }
 
 export function createLinkRotator(input: {
@@ -47,6 +69,7 @@ export function createLinkRotator(input: {
   name: string;
   description: string;
   slug: string;
+  hostDomain: string;
   status: LinkRotatorStatus;
   destinations: LinkRotatorDestinationRecord[];
 }): LinkRotatorRecord {
@@ -57,6 +80,7 @@ export function createLinkRotator(input: {
     name: input.name,
     description: input.description,
     slug: input.slug,
+    hostDomain: normalizeLinkRotatorHost(input.hostDomain),
     status: input.status,
     destinations: input.destinations,
     totalClicks: 0,
@@ -74,6 +98,8 @@ export function updateLinkRotator(
     name?: string;
     description?: string;
     status?: LinkRotatorStatus;
+    hostDomain?: string;
+    slug?: string;
     destinations?: LinkRotatorDestinationRecord[];
   }
 ): LinkRotatorRecord | null {
@@ -87,6 +113,11 @@ export function updateLinkRotator(
     name: patch.name ?? current.name,
     description: patch.description ?? current.description,
     status: patch.status ?? current.status,
+    slug: patch.slug ?? current.slug,
+    hostDomain:
+      patch.hostDomain !== undefined
+        ? normalizeLinkRotatorHost(patch.hostDomain)
+        : current.hostDomain,
     destinations: patch.destinations ?? current.destinations,
     updatedAt: new Date().toISOString()
   };

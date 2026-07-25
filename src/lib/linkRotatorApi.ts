@@ -22,6 +22,9 @@ export class LinkRotatorApiError extends Error {
 export type LinkRotatorInput = {
   name: string;
   description?: string;
+  hostDomain: string;
+  /** Public path segment for /r/:slug — kept in sync with rotator name on save. */
+  slug?: string;
   status: "Active" | "Inactive";
   destinations: Array<Pick<LinkRotatorDestination, "url" | "probability"> & { id?: string }>;
 };

@@ -357,15 +357,25 @@ export default function LoginScreen({
         acceptPrivacy,
         newsletterOptIn
       });
+
+      // Ready-to-use account: sign in immediately with tokens from register.
+      if (result.canLogin && result.accessToken && result.refreshToken && result.user) {
+        finishLogin(result.user, result.accessToken, result.refreshToken, false);
+        return;
+      }
+
       if (result.verificationToken && config?.exposeTokens) {
         setVerifyToken(result.verificationToken);
         setInfo(`Dev verification token: ${result.verificationToken}`);
-      } else {
+      } else if (result.emailVerificationRequired) {
         setInfo("We sent a verification link to your email.");
+      } else {
+        setInfo("Account created. Sign in with your email and password.");
       }
       setView("register-success");
     } catch (err) {
-      setError((err as AuthApiError).message || "Unable to create account.");
+      const apiError = err as AuthApiError;
+      setError(apiError.message || "Unable to create account.");
     } finally {
       setLoading(false);
     }
@@ -1058,12 +1068,14 @@ export default function LoginScreen({
             </div>
             <p className="text-sm text-slate-600" role="status">
               {view === "register-success"
-                ? "Account created. Check your email for a verification link to activate and sign in."
+                ? config?.emailVerificationRequired
+                  ? "Account created. Check your email for a verification link to activate and sign in."
+                  : "Account created. Sign in with your email and password to use ACN Link."
                 : view === "reset-success"
                   ? "Password updated successfully. You can sign in with your new password."
                   : "Email verified successfully. You can now sign in."}
             </p>
-            {view === "register-success" && (
+            {view === "register-success" && config?.emailVerificationRequired && (
               <button
                 type="button"
                 onClick={() => setView("verify")}
@@ -1082,7 +1094,9 @@ export default function LoginScreen({
               }}
               className="acn-btn-primary"
             >
-              Back to login
+              {view === "register-success" && !config?.emailVerificationRequired
+                ? "Sign in"
+                : "Back to login"}
             </button>
           </div>
         )}

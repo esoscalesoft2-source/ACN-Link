@@ -1833,7 +1833,7 @@ export default function App() {
           </div>
 
           {isLoggedIn && (
-            <footer className="acn-footer-bar px-4 sm:px-6 py-3.5 flex items-center justify-between font-mono shrink-0 select-none relative z-[1] mt-8">
+            <footer className="acn-footer-bar px-4 sm:px-6 py-3.5 flex items-center justify-between font-mono shrink-0 select-none relative z-[1] pt-2">
               <div className="flex min-w-0">
                 <span className="flex items-center truncate" aria-live="polite">
                   <span

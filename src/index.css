@@ -1138,6 +1138,14 @@ body::-webkit-scrollbar,
   transform: scale(0.97);
 }
 
+.acn-btn-chip:disabled,
+.acn-btn-chip[disabled] {
+  opacity: 0.65;
+  cursor: wait;
+  transform: none;
+  box-shadow: none;
+}
+
 .acn-nav-active {
   background: var(--acn-segment-active-bg);
   border: 1px solid var(--acn-border-strong);

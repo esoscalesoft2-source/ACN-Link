@@ -115,13 +115,13 @@ function validateForm(form: ReturnType<typeof emptyForm>): string | null {
     if (!isValidHttpUrl(url)) {
       return `Destination ${index + 1}: enter a valid URL.`;
     }
-    if (!Number.isFinite(probability) || probability < 0 || probability > 100) {
-      return `Destination ${index + 1}: probability must be between 0 and 100.`;
+    if (!Number.isFinite(probability) || !Number.isInteger(probability) || probability < 0 || probability > 100) {
+      return `Destination ${index + 1}: probability must be a whole number between 0 and 100.`;
     }
   }
 
-  const total = Math.round(probabilityTotal(form.destinations) * 100) / 100;
-  if (Math.abs(total - 100) > 0.01) {
+  const total = Math.round(probabilityTotal(form.destinations));
+  if (total !== 100) {
     return `Total probability must equal exactly 100%. Current total: ${total}%.`;
   }
 
@@ -138,7 +138,7 @@ function toInput(form: ReturnType<typeof emptyForm>): LinkRotatorInput {
     status: form.status,
     destinations: form.destinations.map((item) => ({
       url: normalizeUrl(item.url),
-      probability: Number(item.probability)
+      probability: Math.round(Number(item.probability))
     }))
   };
 }
@@ -272,6 +272,23 @@ export default function LinkRotatorScreen({
     }));
   };
 
+  const distributeEvenly = () => {
+    setForm((current) => {
+      const count = current.destinations.length;
+      if (count === 0) return current;
+      const base = Math.floor(100 / count);
+      let remainder = 100 - base * count;
+      return {
+        ...current,
+        destinations: current.destinations.map((item) => {
+          const extra = remainder > 0 ? 1 : 0;
+          if (remainder > 0) remainder -= 1;
+          return { ...item, probability: String(base + extra) };
+        })
+      };
+    });
+  };
+
   const removeDestination = (key: string) => {
     setForm((current) => ({
       ...current,
@@ -299,18 +316,15 @@ export default function LinkRotatorScreen({
         : await createLinkRotator(payload);
       onUpsertRotator?.(saved);
       triggerToast(editingId ? "Link rotator updated." : "Link rotator created.");
-      try {
-        await onReload();
-      } catch {
-        /* upsert already applied */
-      }
-      // Force leave even while isSaving — otherwise Back is a no-op and it looks unsaved.
+      // Clear loading before leaving the form so the button never sticks on "Saving…".
+      setIsSaving(false);
       backToList({ force: true });
+      // Refresh list in the background — do not block Save on slow network/reload.
+      void onReload();
     } catch (err) {
       setFormError(
         err instanceof LinkRotatorApiError ? err.message : "Unable to save link rotator."
       );
-    } finally {
       setIsSaving(false);
     }
   };
@@ -516,14 +530,23 @@ export default function LinkRotatorScreen({
                   ))}
                 </div>
 
-                <button
-                  type="button"
-                  onClick={addDestination}
-                  className="inline-flex items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-2.5 text-xs font-bold text-slate-600 hover:border-indigo-300 hover:text-indigo-600"
-                >
-                  <Plus className="h-4 w-4" />
-                  Add destination
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={addDestination}
+                    className="inline-flex items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-2.5 text-xs font-bold text-slate-600 hover:border-indigo-300 hover:text-indigo-600"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add destination
+                  </button>
+                  <button
+                    type="button"
+                    onClick={distributeEvenly}
+                    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                  >
+                    Split evenly to 100%
+                  </button>
+                </div>
               </div>
 
               {formError && (

@@ -206,7 +206,10 @@ export function createLinkRotatorsRouter() {
         destinations: destinationResult.destinations
       });
 
-      await flushRootStore();
+      // Do not block the API response on slow Supabase flush — that freezes Save changes in the UI.
+      void flushRootStore().catch((error) =>
+        console.error("[link-rotators] flush after create failed:", errorMessage(error))
+      );
       res.status(201).json({ rotator: publicRecord(record) });
     } catch (error) {
       res.status(500).json({ error: errorMessage(error), code: "LINK_ROTATOR_CREATE_FAILED" });
@@ -290,7 +293,9 @@ export function createLinkRotatorsRouter() {
         res.status(404).json({ error: "Link rotator not found." });
         return;
       }
-      await flushRootStore();
+      void flushRootStore().catch((error) =>
+        console.error("[link-rotators] flush after update failed:", errorMessage(error))
+      );
       res.json({ rotator: publicRecord(updated) });
     } catch (error) {
       res.status(500).json({ error: errorMessage(error), code: "LINK_ROTATOR_UPDATE_FAILED" });

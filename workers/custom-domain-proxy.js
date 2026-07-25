@@ -46,6 +46,17 @@ function samePathRedirect(location, requestUrl) {
   }
 }
 
+function isExternalRedirect(location, requestUrl) {
+  if (!location) return false;
+  try {
+    const loc = new URL(location, requestUrl);
+    const req = new URL(requestUrl);
+    return loc.hostname.toLowerCase() !== req.hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
 async function fetchUpstream(request, customerHost) {
   const url = new URL(request.url);
   const upstreamUrl = new URL(request.url);
@@ -73,9 +84,14 @@ async function fetchUpstream(request, customerHost) {
 
   // Same-path 3xx (often https://customer-host/same-path) → retry without
   // X-Forwarded-Host so Railway returns the real app response.
+  // Never do this for external redirects (link rotator destinations).
   if (response.status >= 300 && response.status < 400) {
     const location = response.headers.get("Location") || "";
-    if (location && samePathRedirect(location, request.url)) {
+    if (
+      location &&
+      samePathRedirect(location, request.url) &&
+      !isExternalRedirect(location, request.url)
+    ) {
       const retryHeaders = new Headers(request.headers);
       retryHeaders.set("Host", PLATFORM_HOST);
       retryHeaders.delete("X-Forwarded-Host");
@@ -110,7 +126,22 @@ export default {
         });
       }
 
-      return await fetchUpstream(request, host);
+      const response = await fetchUpstream(request, host);
+
+      // Link rotator (/r/:slug) must return the upstream 302 Location as-is so the
+      // browser navigates to the destination host (never proxy destination HTML).
+      if (
+        url.pathname.startsWith("/r/") &&
+        response.status >= 300 &&
+        response.status < 400 &&
+        isExternalRedirect(response.headers.get("Location") || "", request.url)
+      ) {
+        const headers = new Headers(response.headers);
+        headers.set("cache-control", "no-store");
+        return new Response(null, { status: response.status, headers });
+      }
+
+      return response;
     } catch (_error) {
       return new Response(
         "ACN Link edge proxy temporarily unavailable. Please retry in a moment.",

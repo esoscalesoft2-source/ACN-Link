@@ -48,6 +48,47 @@ export function findLinkRotatorBySlug(slug: string, hostDomain?: string): LinkRo
   );
 }
 
+/**
+ * Resolve an active rotator for a public /r/:slug hit.
+ * Cloudflare Origin Rules may rewrite Host → platform host, so when the request
+ * host is the platform we also accept a unique slug match on a custom-domain rotator.
+ */
+export function resolvePublicLinkRotator(
+  slug: string,
+  requestHostname: string,
+  platformHostname: string
+): LinkRotatorRecord | null {
+  const normalized = slug.trim().toLowerCase();
+  if (!normalized) return null;
+
+  const host = normalizeLinkRotatorHost(requestHostname);
+  const platform = normalizeLinkRotatorHost(platformHostname);
+
+  const exact = findLinkRotatorBySlug(normalized, host);
+  if (exact?.status === "Active") return exact;
+
+  const matches = readAll().filter(
+    (row) => row.slug === normalized && row.status === "Active"
+  );
+  if (matches.length === 0) return null;
+
+  // Prefer exact host, then platform-bound, then sole active match when Host was rewritten.
+  const byHost = matches.find((row) => normalizeLinkRotatorHost(row.hostDomain) === host);
+  if (byHost) return byHost;
+
+  if (host === platform) {
+    if (matches.length === 1) return matches[0];
+    const platformBound = matches.find(
+      (row) => normalizeLinkRotatorHost(row.hostDomain) === platform
+    );
+    if (platformBound) return platformBound;
+    // Host rewrite dropped customer host — still serve the only/custom rotator by slug.
+    return matches[0];
+  }
+
+  return null;
+}
+
 export function isLinkRotatorSlugTaken(
   slug: string,
   hostDomain: string,

@@ -30,12 +30,18 @@ import {
 } from "./server/platformSubdomains/slug";
 import { createLinkRotatorsRouter } from "./server/linkRotators/routes";
 import {
-  findLinkRotatorBySlug,
-  incrementLinkRotatorClicks
+  incrementLinkRotatorClicks,
+  resolvePublicLinkRotator
 } from "./server/linkRotators/repository";
-import { pickDestinationByProbability } from "./server/linkRotators/validation";
+import {
+  pickDestinationByProbability,
+  toAbsoluteHttpUrl
+} from "./server/linkRotators/validation";
 import { normalizeRotatorSlug } from "./server/linkRotators/slug";
-import { normalizeLinkRotatorHost } from "./server/linkRotators/publicUrl";
+import {
+  linkRotatorPlatformHostname,
+  normalizeLinkRotatorHost
+} from "./server/linkRotators/publicUrl";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -179,6 +185,21 @@ app.use("/api/domains", createDomainsRouter());
 app.use("/api/platform-subdomains", createPlatformSubdomainsRouter());
 app.use("/api/link-rotators", createLinkRotatorsRouter());
 
+function pickRequestHostname(req: express.Request) {
+  const pick = (value: unknown) =>
+    String(value || "")
+      .split(",")[0]
+      .trim()
+      .toLowerCase()
+      .replace(/:\d+$/, "");
+
+  return (
+    pick(req.headers["acn-customer-host"]) ||
+    pick(req.headers["x-forwarded-host"]) ||
+    pick(req.headers.host)
+  );
+}
+
 /** Public link rotator redirect: /r/:slug → weighted destination (platform or custom domain host) */
 app.get("/r/:slug", (req, res) => {
   const rateKey = `link-rotator:${clientIp(req)}`;
@@ -194,8 +215,8 @@ app.get("/r/:slug", (req, res) => {
   }
 
   try {
-    const hostname = normalizeLinkRotatorHost(requestHostname(req));
-    const record = findLinkRotatorBySlug(slug, hostname);
+    const hostname = normalizeLinkRotatorHost(pickRequestHostname(req));
+    const record = resolvePublicLinkRotator(slug, hostname, linkRotatorPlatformHostname());
     if (!record || record.status !== "Active") {
       res
         .status(404)
@@ -207,7 +228,8 @@ app.get("/r/:slug", (req, res) => {
     }
 
     const destination = pickDestinationByProbability(record.destinations);
-    if (!destination?.url) {
+    const target = destination?.url ? toAbsoluteHttpUrl(destination.url) : null;
+    if (!target) {
       res
         .status(503)
         .type("html")
@@ -216,7 +238,9 @@ app.get("/r/:slug", (req, res) => {
     }
 
     incrementLinkRotatorClicks(record.id);
-    res.redirect(302, destination.url);
+    // Absolute external Location so browsers (and Cloudflare) leave the custom host.
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.redirect(302, target);
   } catch (error) {
     console.error("Link rotator redirect failed:", error);
     res.status(503).type("html").send("<!doctype html><title>Unavailable</title><h1>Temporarily unavailable</h1>");

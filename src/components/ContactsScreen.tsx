@@ -12,11 +12,7 @@ import {
   Pencil,
   Trash2,
   Users,
-  Globe,
-  LayoutTemplate,
-  Clock,
-  FileText,
-  Sparkles
+  FileText
 } from "lucide-react";
 import PageShell, { PageHeader, SectionCard, StatCard, StatCardGrid, Workspace } from "./layout/PageShell";
 
@@ -46,63 +42,6 @@ function parseCapturedTime(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function formatRelativeCaptured(value: string): string {
-  const time = parseCapturedTime(value);
-  if (!time) return "—";
-  const diffMs = Date.now() - time;
-  const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return "Just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return formatCapturedAt(value);
-}
-
-const AVATAR_PALETTES = [
-  "from-indigo-500 to-violet-500",
-  "from-sky-500 to-cyan-500",
-  "from-amber-500 to-orange-500",
-  "from-emerald-500 to-teal-500",
-  "from-rose-500 to-pink-500",
-  "from-fuchsia-500 to-purple-500",
-  "from-blue-500 to-indigo-500",
-  "from-teal-500 to-emerald-500"
-];
-
-function hashString(value: string): number {
-  let hash = 0;
-  for (let i = 0; i < value.length; i++) {
-    hash = (hash << 5) - hash + value.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash);
-}
-
-function getAvatarGradient(seed: string): string {
-  return AVATAR_PALETTES[hashString(seed || "x") % AVATAR_PALETTES.length];
-}
-
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-function getSourceStyle(source: string): { badge: string; dot: string } {
-  const normalized = (source || "").toUpperCase();
-  if (normalized.includes("SMART")) {
-    return { badge: "bg-violet-50 border-violet-100 text-violet-600", dot: "bg-violet-500" };
-  }
-  if (normalized.includes("MANUAL")) {
-    return { badge: "bg-slate-50 border-slate-200 text-slate-600", dot: "bg-slate-400" };
-  }
-  return { badge: "bg-indigo-50 border-indigo-100 text-[#4F46E5]", dot: "bg-[#4F46E5]" };
-}
-
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
@@ -115,6 +54,30 @@ function emptyForm() {
     tag: "",
     marketingOptIn: true
   };
+}
+
+function contactInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
+
+function sourceTone(source: string): string {
+  const key = source.toUpperCase();
+  if (key.includes("SMART")) return "acn-contact-source--smart";
+  if (key.includes("MANUAL")) return "acn-contact-source--manual";
+  if (key.includes("BIO") || key.includes("FORM")) return "acn-contact-source--bio";
+  return "acn-contact-source--default";
+}
+
+function visibleTags(contact: Contact): string[] {
+  return (contact.tags || []).filter((tag) => {
+    const lower = tag.toLowerCase();
+    if (lower.startsWith("domain:")) return false;
+    if (lower.startsWith("template:")) return false;
+    return true;
+  });
 }
 
 export default function ContactsScreen({
@@ -130,6 +93,7 @@ export default function ContactsScreen({
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
+  const [detailContact, setDetailContact] = useState<Contact | null>(null);
   const [form, setForm] = useState(emptyForm());
   const [formError, setFormError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -526,15 +490,15 @@ export default function ContactsScreen({
         <StatCard label="MARKETING OPT-INS" value={stats.optIns} sub="consented" />
       </StatCardGrid>
 
-      <SectionCard className="flex flex-col">
-        <Workspace className="border-b border-gray-50 flex flex-col gap-3">
+      <SectionCard className="acn-contacts-panel flex flex-col overflow-hidden">
+        <Workspace className="acn-contacts-toolbar border-b border-slate-100 flex flex-col gap-3">
           <div className="acn-icon-field w-full">
             <span className="acn-icon-field__icon">
               <Search className="h-4 w-4" />
             </span>
             <input
               type="search"
-              placeholder="Search by name, email, phone, or tag..."
+              placeholder="Search by name, email, phone, domain, or tag..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="acn-icon-field__input w-full bg-slate-50 border border-slate-100 rounded-xl py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:bg-white transition-all"
@@ -585,6 +549,15 @@ export default function ContactsScreen({
               </button>
             )}
           </div>
+
+          {contacts.length > 0 && (
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                {filteredContacts.length} record{filteredContacts.length === 1 ? "" : "s"}
+                {hasActiveFilters ? " matched" : ""}
+              </p>
+            </div>
+          )}
         </Workspace>
 
         {contacts.length === 0 ? (
@@ -610,357 +583,389 @@ export default function ContactsScreen({
         ) : filteredContacts.length === 0 ? (
           <Workspace>
             <div className="py-12 text-center text-gray-400 text-sm space-y-3">
-            <p>No contacts match the selected filters.</p>
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="text-[#4F46E5] font-semibold hover:underline"
-            >
-              Clear filters
-            </button>
+              <p>No contacts match the selected filters.</p>
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="text-[#4F46E5] font-semibold hover:underline"
+              >
+                Clear filters
+              </button>
             </div>
           </Workspace>
         ) : (
-          <Workspace>
-          <>
-            {/* Mobile / tablet — record cards */}
-            <div className="lg:hidden space-y-3">
+          <Workspace className="acn-contacts-workspace !p-0 sm:!p-0">
+            <div className="lg:hidden divide-y divide-slate-100">
               {filteredContacts.map((contact) => {
                 const isUnmasked = !!unmaskedIds[contact.id];
-                const sourceStyle = getSourceStyle(contact.source);
-                const hasDetails =
-                  contact.formFields?.length ||
-                  contact.notes ||
-                  contact.pageTitle ||
-                  contact.blockLabel ||
-                  contact.sourceDomain ||
-                  contact.templateName;
+                const tags = visibleTags(contact);
                 return (
-                  <div
-                    key={contact.id}
-                    className="acn-contact-card rounded-2xl border border-slate-100 bg-white p-4 shadow-sm"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-start gap-3 min-w-0">
-                        <div
-                          className={`shrink-0 h-10 w-10 rounded-full bg-gradient-to-br ${getAvatarGradient(
-                            contact.email || contact.id
-                          )} flex items-center justify-center text-white font-bold text-xs shadow-sm`}
-                        >
-                          {getInitials(contact.name)}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-display font-bold text-gray-900 text-sm truncate">{contact.name}</p>
-                          <p className="text-xs text-gray-500 font-mono mt-0.5 break-all">
-                            {isUnmasked ? contact.email : contact.maskedEmail}
-                          </p>
-                          <p className="text-xs text-gray-500 font-mono break-all">
-                            {isUnmasked ? contact.phone : contact.maskedPhone}
-                          </p>
-                        </div>
+                  <article key={contact.id} className="acn-contact-card p-4 space-y-3">
+                    <div className="flex items-start gap-3">
+                      <div className="acn-contact-avatar" aria-hidden>
+                        {contactInitials(contact.name)}
                       </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => toggleMask(contact.id)}
-                          className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600"
-                          title={isUnmasked ? "Mask credentials" : "Show credentials"}
-                          aria-label={isUnmasked ? "Mask credentials" : "Show credentials"}
-                        >
-                          {isUnmasked ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openEditModal(contact)}
-                          className="p-2 hover:bg-indigo-50 rounded-lg text-gray-400 hover:text-[#4F46E5]"
-                          title="Edit contact"
-                          aria-label={`Edit ${contact.name}`}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(contact)}
-                          className="p-2 hover:bg-rose-50 rounded-lg text-gray-400 hover:text-rose-600"
-                          title="Delete contact"
-                          aria-label={`Delete ${contact.name}`}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-1.5 mt-3">
-                      <span
-                        className={`inline-flex items-center gap-1 border text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide ${sourceStyle.badge}`}
-                      >
-                        <span className={`h-1.5 w-1.5 rounded-full ${sourceStyle.dot}`} />
-                        {contact.source}
-                      </span>
-                      {contact.marketingOptIn && (
-                        <span className="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
-                          Opt-in
-                        </span>
-                      )}
-                      {contact.tags.map((tag) => (
-                        <span
-                          key={tag}
-                          className="inline-flex items-center gap-1 bg-slate-50 text-slate-500 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-slate-100"
-                        >
-                          <Tag className="h-2.5 w-2.5 text-slate-400" />
-                          {tag}
-                        </span>
-                      ))}
-                      <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-gray-400 font-semibold">
-                        <Clock className="h-3 w-3" />
-                        {formatRelativeCaptured(contact.capturedAt)}
-                      </span>
-                    </div>
-
-                    {hasDetails ? (
-                      <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 space-y-1.5">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                          <FileText className="h-3 w-3" />
-                          {contact.source === "SMART FORM"
-                            ? "Smart Form submission"
-                            : contact.source === "MANUAL ENTRY"
-                              ? "Manual lead block"
-                              : "Form submission"}
-                          {contact.blockLabel ? ` · ${contact.blockLabel}` : ""}
-                        </p>
-                        {contact.formFields && contact.formFields.length > 0
-                          ? contact.formFields.map((field) => (
-                              <div key={`${contact.id}-${field.label}`} className="text-xs text-slate-600">
-                                <span className="font-semibold text-slate-700">{field.label}: </span>
-                                <span className="break-all">{field.value || "—"}</span>
-                              </div>
-                            ))
-                          : contact.notes
-                            ? (
-                                <p className="text-xs text-slate-600 whitespace-pre-wrap break-words">
-                                  {contact.notes}
-                                </p>
-                              )
-                            : null}
-                        {contact.pageTitle ? (
-                          <p className="text-[10px] text-slate-400 pt-1">From bio page: {contact.pageTitle}</p>
-                        ) : null}
-                        {(contact.sourceDomain || contact.templateName) && (
-                          <div className="flex flex-wrap gap-x-3 gap-y-0.5 pt-0.5">
-                            {contact.sourceDomain ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] text-slate-500 font-mono">
-                                <Globe className="h-2.5 w-2.5 text-slate-400" />
-                                {contact.sourceDomain}
-                              </span>
-                            ) : null}
-                            {contact.templateName ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] text-slate-500">
-                                <LayoutTemplate className="h-2.5 w-2.5 text-slate-400" />
-                                {contact.templateName}
-                              </span>
-                            ) : null}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-display font-semibold text-slate-900 text-sm truncate">
+                              {contact.name}
+                            </p>
+                            <p className="text-xs text-slate-500 font-mono mt-0.5 truncate">
+                              {isUnmasked ? contact.email : contact.maskedEmail}
+                            </p>
+                            <p className="text-xs text-slate-500 font-mono truncate">
+                              {isUnmasked ? contact.phone : contact.maskedPhone}
+                            </p>
                           </div>
-                        )}
+                          <div className="flex items-center gap-0.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => toggleMask(contact.id)}
+                              className="acn-contact-icon-btn"
+                              title={isUnmasked ? "Mask credentials" : "Show credentials"}
+                              aria-label={isUnmasked ? "Mask credentials" : "Show credentials"}
+                            >
+                              {isUnmasked ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDetailContact(contact)}
+                              className="acn-contact-icon-btn"
+                              title="View record"
+                              aria-label={`View ${contact.name}`}
+                            >
+                              <FileText className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(contact)}
+                              className="acn-contact-icon-btn acn-contact-icon-btn--edit"
+                              title="Edit contact"
+                              aria-label={`Edit ${contact.name}`}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(contact)}
+                              className="acn-contact-icon-btn acn-contact-icon-btn--danger"
+                              title="Delete contact"
+                              aria-label={`Delete ${contact.name}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                          <span className={`acn-contact-source ${sourceTone(contact.source)}`}>
+                            {contact.source}
+                          </span>
+                          {contact.marketingOptIn && (
+                            <span className="acn-contact-chip acn-contact-chip--optin">Opt-in</span>
+                          )}
+                          {tags.slice(0, 2).map((tag) => (
+                            <span key={tag} className="acn-contact-chip">
+                              {tag}
+                            </span>
+                          ))}
+                          {tags.length > 2 && (
+                            <span className="acn-contact-chip">+{tags.length - 2}</span>
+                          )}
+                        </div>
+
+                        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-400">
+                          {contact.sourceDomain ? <span>{contact.sourceDomain}</span> : null}
+                          {contact.templateName ? <span>{contact.templateName}</span> : null}
+                          <span>{formatCapturedAt(contact.capturedAt)}</span>
+                        </div>
                       </div>
-                    ) : null}
-                  </div>
+                    </div>
+                  </article>
                 );
               })}
             </div>
 
-            {/* Desktop — polished record table */}
             <div className="hidden lg:block overflow-x-auto">
-              <div className="min-w-[1080px]">
-                <div className="grid grid-cols-[2.1fr_100px_1.9fr_1.4fr_1.1fr_110px_92px] gap-3 px-4 pb-3">
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Contact</span>
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Source</span>
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                    Lead details
-                  </span>
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                    Domain / Template
-                  </span>
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Tags</span>
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Captured</span>
-                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest text-right">
-                    Actions
-                  </span>
-                </div>
-
-                <div className="space-y-2.5">
+              <table className="acn-contacts-table">
+                <thead>
+                  <tr>
+                    <th className="acn-contacts-table__reveal">
+                      <span className="sr-only">Reveal</span>
+                    </th>
+                    <th>Contact</th>
+                    <th>Phone</th>
+                    <th>Source</th>
+                    <th>Origin</th>
+                    <th>Tags</th>
+                    <th>Captured</th>
+                    <th className="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
                   {filteredContacts.map((contact) => {
                     const isUnmasked = !!unmaskedIds[contact.id];
-                    const sourceStyle = getSourceStyle(contact.source);
+                    const tags = visibleTags(contact);
+
                     return (
-                      <div
-                        key={contact.id}
-                        className="acn-contact-row grid grid-cols-[2.1fr_100px_1.9fr_1.4fr_1.1fr_110px_92px] gap-3 items-center rounded-2xl border border-slate-100 bg-white px-4 py-3.5 shadow-sm hover:shadow-md hover:border-indigo-100 transition-all"
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div
-                            className={`shrink-0 h-10 w-10 rounded-full bg-gradient-to-br ${getAvatarGradient(
-                              contact.email || contact.id
-                            )} flex items-center justify-center text-white font-bold text-xs shadow-sm`}
+                      <tr key={contact.id}>
+                        <td className="acn-contacts-table__reveal">
+                          <button
+                            type="button"
+                            onClick={() => toggleMask(contact.id)}
+                            className="acn-contact-icon-btn"
+                            title={isUnmasked ? "Mask credentials" : "Show credentials"}
+                            aria-label={isUnmasked ? "Mask credentials" : "Show credentials"}
                           >
-                            {getInitials(contact.name)}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="font-display font-bold text-gray-900 text-sm truncate">
-                              {contact.name}
-                            </p>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              <p className="text-[11px] text-gray-500 font-mono truncate">
+                            {isUnmasked ? (
+                              <EyeOff className="h-4 w-4" />
+                            ) : (
+                              <Eye className="h-4 w-4" />
+                            )}
+                          </button>
+                        </td>
+                        <td>
+                          <div className="acn-contact-identity">
+                            <div className="acn-contact-avatar" aria-hidden>
+                              {contactInitials(contact.name)}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="acn-contact-name">{contact.name}</p>
+                              <p className="acn-contact-email">
                                 {isUnmasked ? contact.email : contact.maskedEmail}
                               </p>
-                              <button
-                                type="button"
-                                onClick={() => toggleMask(contact.id)}
-                                className="shrink-0 p-0.5 text-gray-300 hover:text-gray-500 transition-colors"
-                                title={isUnmasked ? "Mask credentials" : "Show credentials"}
-                                aria-label={isUnmasked ? "Mask credentials" : "Show credentials"}
-                              >
-                                {isUnmasked ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                              </button>
                             </div>
-                            <p className="text-[11px] text-gray-400 font-mono truncate">
-                              {isUnmasked ? contact.phone : contact.maskedPhone}
-                            </p>
                           </div>
-                        </div>
-
-                        <div>
-                          <span
-                            className={`inline-flex items-center gap-1 border text-[10px] font-bold px-2 py-1 rounded-full tracking-wide uppercase ${sourceStyle.badge}`}
-                          >
-                            <span className={`h-1.5 w-1.5 rounded-full ${sourceStyle.dot}`} />
+                        </td>
+                        <td>
+                          <span className="acn-contact-mono">
+                            {isUnmasked ? contact.phone : contact.maskedPhone}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`acn-contact-source ${sourceTone(contact.source)}`}>
                             {contact.source}
                           </span>
-                        </div>
-
-                        <div className="min-w-0">
-                          {contact.formFields && contact.formFields.length > 0 ? (
-                            <div className="space-y-0.5">
-                              {contact.formFields.slice(0, 3).map((field) => (
-                                <p
-                                  key={`${contact.id}-t-${field.label}`}
-                                  className="text-[11px] text-slate-600 truncate"
-                                >
-                                  <span className="font-semibold text-slate-700">{field.label}:</span>{" "}
-                                  <span>{field.value || "—"}</span>
-                                </p>
-                              ))}
-                              {contact.formFields.length > 3 && (
-                                <p className="text-[10px] text-indigo-400 font-semibold">
-                                  +{contact.formFields.length - 3} more
-                                </p>
-                              )}
-                              {contact.pageTitle ? (
-                                <p className="text-[10px] text-slate-400 pt-0.5 truncate">
-                                  Page: {contact.pageTitle}
-                                  {contact.blockLabel ? ` · ${contact.blockLabel}` : ""}
-                                </p>
+                        </td>
+                        <td>
+                          {contact.sourceDomain || contact.templateName || contact.pageTitle ? (
+                            <div className="acn-contact-origin">
+                              {contact.sourceDomain ? (
+                                <span className="acn-contact-origin__domain">{contact.sourceDomain}</span>
+                              ) : null}
+                              {contact.templateName ? (
+                                <span className="acn-contact-origin__template">{contact.templateName}</span>
+                              ) : contact.pageTitle ? (
+                                <span className="acn-contact-origin__template">{contact.pageTitle}</span>
                               ) : null}
                             </div>
-                          ) : contact.notes ? (
-                            <div>
-                              <p className="text-[11px] text-slate-500 line-clamp-2 break-words">
-                                {contact.notes}
-                              </p>
-                              {contact.pageTitle ? (
-                                <p className="text-[10px] text-slate-400 pt-0.5 truncate">
-                                  Page: {contact.pageTitle}
-                                </p>
-                              ) : null}
-                            </div>
-                          ) : contact.pageTitle ? (
-                            <p className="text-[11px] text-slate-500 truncate">Page: {contact.pageTitle}</p>
                           ) : (
-                            <span className="text-gray-300 text-xs">—</span>
+                            <span className="acn-contact-empty">—</span>
                           )}
-                        </div>
-
-                        <div className="min-w-0 space-y-1">
-                          {contact.sourceDomain ? (
-                            <p className="inline-flex items-center gap-1 text-[11px] text-slate-600 font-mono truncate w-full">
-                              <Globe className="h-3 w-3 text-slate-400 shrink-0" />
-                              <span className="truncate">{contact.sourceDomain}</span>
-                            </p>
-                          ) : null}
-                          {contact.templateName ? (
-                            <p className="inline-flex items-center gap-1 text-[11px] text-slate-500 truncate w-full">
-                              <LayoutTemplate className="h-3 w-3 text-slate-400 shrink-0" />
-                              <span className="truncate">{contact.templateName}</span>
-                            </p>
-                          ) : null}
-                          {!contact.sourceDomain && !contact.templateName && (
-                            <span className="text-gray-300 text-xs">—</span>
-                          )}
-                        </div>
-
-                        <div className="flex flex-wrap gap-1 min-w-0">
-                          {contact.marketingOptIn && (
-                            <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-100">
-                              <Sparkles className="h-2.5 w-2.5" />
-                              Opt-in
-                            </span>
-                          )}
-                          {contact.tags.slice(0, 1).map((tag) => (
-                            <span
-                              key={tag}
-                              className="inline-flex items-center gap-1 bg-slate-50 text-slate-500 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-slate-100 truncate max-w-full"
+                        </td>
+                        <td>
+                          <div className="acn-contact-tags">
+                            {contact.marketingOptIn && (
+                              <span className="acn-contact-chip acn-contact-chip--optin">Opt-in</span>
+                            )}
+                            {tags.slice(0, 2).map((tag) => (
+                              <span key={tag} className="acn-contact-chip">
+                                <Tag className="h-2.5 w-2.5" />
+                                {tag}
+                              </span>
+                            ))}
+                            {tags.length > 2 && (
+                              <span className="acn-contact-chip">+{tags.length - 2}</span>
+                            )}
+                            {tags.length === 0 && !contact.marketingOptIn && (
+                              <span className="acn-contact-empty">—</span>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <span className="acn-contact-date">{formatCapturedAt(contact.capturedAt)}</span>
+                        </td>
+                        <td>
+                          <div className="acn-contact-actions">
+                            <button
+                              type="button"
+                              onClick={() => setDetailContact(contact)}
+                              className="acn-contact-icon-btn"
+                              title="View submission"
+                              aria-label={`View ${contact.name} details`}
                             >
-                              <Tag className="h-2.5 w-2.5 text-slate-400 shrink-0" />
-                              <span className="truncate">{tag}</span>
-                            </span>
-                          ))}
-                          {contact.tags.length > 1 && (
-                            <span className="inline-flex items-center text-[10px] font-semibold text-slate-400">
-                              +{contact.tags.length - 1}
-                            </span>
-                          )}
-                          {contact.tags.length === 0 && !contact.marketingOptIn && (
-                            <span className="text-gray-300 text-xs">—</span>
-                          )}
-                        </div>
-
-                        <div
-                          className="flex items-center gap-1 text-[11px] text-gray-400 font-semibold"
-                          title={formatCapturedAt(contact.capturedAt)}
-                        >
-                          <Clock className="h-3 w-3 shrink-0" />
-                          <span className="truncate">{formatRelativeCaptured(contact.capturedAt)}</span>
-                        </div>
-
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            type="button"
-                            onClick={() => openEditModal(contact)}
-                            className="p-2 hover:bg-indigo-50 rounded-lg text-slate-400 hover:text-[#4F46E5] transition-colors"
-                            title="Edit"
-                            aria-label={`Edit ${contact.name}`}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(contact)}
-                            className="p-2 hover:bg-rose-50 rounded-lg text-slate-400 hover:text-rose-600 transition-colors"
-                            title="Delete"
-                            aria-label={`Delete ${contact.name}`}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </div>
+                              <FileText className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(contact)}
+                              className="acn-contact-icon-btn acn-contact-icon-btn--edit"
+                              title="Edit"
+                              aria-label={`Edit ${contact.name}`}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(contact)}
+                              className="acn-contact-icon-btn acn-contact-icon-btn--danger"
+                              title="Delete"
+                              aria-label={`Delete ${contact.name}`}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
                     );
                   })}
-                </div>
-              </div>
+                </tbody>
+              </table>
             </div>
-          </>
           </Workspace>
         )}
       </SectionCard>
+
+      {detailContact && (
+        <div
+          className="acn-contact-detail-overlay fixed inset-0 z-[110] flex items-center justify-center p-4"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setDetailContact(null);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="contact-detail-title"
+            className="acn-contact-detail-dialog"
+          >
+            <div className="acn-contact-detail-dialog__head">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="acn-contact-avatar acn-contact-avatar--lg" aria-hidden>
+                  {contactInitials(detailContact.name)}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-indigo-500">
+                    Contact record
+                  </p>
+                  <h3
+                    id="contact-detail-title"
+                    className="font-display text-xl font-black text-slate-900 truncate"
+                  >
+                    {detailContact.name}
+                  </h3>
+                  <p className="mt-1 text-sm text-slate-500 font-mono truncate">{detailContact.email}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailContact(null)}
+                className="acn-contact-icon-btn"
+                aria-label="Close details"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="acn-contact-detail-dialog__body">
+              <div className="acn-contact-detail-grid">
+                <div>
+                  <span>Phone</span>
+                  <strong>{detailContact.phone}</strong>
+                </div>
+                <div>
+                  <span>Source</span>
+                  <strong>{detailContact.source}</strong>
+                </div>
+                <div>
+                  <span>Captured</span>
+                  <strong>{formatCapturedAt(detailContact.capturedAt)}</strong>
+                </div>
+                <div>
+                  <span>Marketing</span>
+                  <strong>{detailContact.marketingOptIn ? "Opted in" : "Not opted in"}</strong>
+                </div>
+                {detailContact.sourceDomain ? (
+                  <div>
+                    <span>Domain</span>
+                    <strong className="font-mono">{detailContact.sourceDomain}</strong>
+                  </div>
+                ) : null}
+                {detailContact.templateName ? (
+                  <div>
+                    <span>Template</span>
+                    <strong>{detailContact.templateName}</strong>
+                  </div>
+                ) : null}
+                {detailContact.pageTitle ? (
+                  <div>
+                    <span>Bio page</span>
+                    <strong>{detailContact.pageTitle}</strong>
+                  </div>
+                ) : null}
+                {detailContact.blockLabel ? (
+                  <div>
+                    <span>Block</span>
+                    <strong>{detailContact.blockLabel}</strong>
+                  </div>
+                ) : null}
+              </div>
+
+              {(detailContact.formFields?.length || detailContact.notes) && (
+                <div className="acn-contact-detail-fields">
+                  <p className="acn-contact-detail-fields__label">Submission data</p>
+                  {detailContact.formFields && detailContact.formFields.length > 0 ? (
+                    <dl>
+                      {detailContact.formFields.map((field) => (
+                        <div key={`${detailContact.id}-d-${field.label}`}>
+                          <dt>{field.label}</dt>
+                          <dd>{field.value || "—"}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  ) : (
+                    <p className="text-sm text-slate-600 whitespace-pre-wrap">{detailContact.notes}</p>
+                  )}
+                </div>
+              )}
+
+              {visibleTags(detailContact).length > 0 && (
+                <div className="acn-contact-tags pt-1">
+                  {visibleTags(detailContact).map((tag) => (
+                    <span key={tag} className="acn-contact-chip">
+                      <Tag className="h-2.5 w-2.5" />
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="acn-contact-detail-dialog__foot">
+              <button
+                type="button"
+                onClick={() => setDetailContact(null)}
+                className="rounded-xl px-4 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-50"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const contact = detailContact;
+                  setDetailContact(null);
+                  openEditModal(contact);
+                }}
+                className="inline-flex items-center gap-2 rounded-xl bg-[#4F46E5] px-4 py-2.5 text-sm font-bold text-white hover:bg-[#4338CA]"
+              >
+                <Pencil className="h-4 w-4" />
+                Edit contact
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && (
         <div className="fixed bottom-6 right-6 z-[100] bg-slate-900 text-white px-5 py-3.5 rounded-2xl shadow-2xl border border-slate-800 text-sm font-bold">

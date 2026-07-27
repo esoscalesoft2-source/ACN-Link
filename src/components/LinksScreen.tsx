@@ -1,22 +1,20 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { CustomDomain, ShortLinkAnalytics, SmartLink } from "../types";
 import {
-  ArrowRight,
+  BarChart2,
   Copy,
-  Edit2,
+  Edit3,
   ExternalLink,
   Link2,
-  MousePointerClick,
+  PauseCircle,
+  PlayCircle,
   Plus,
+  RefreshCw,
   Search,
-  Share2,
-  Smartphone,
-  Monitor,
-  Tablet,
   Trash2,
   X
 } from "lucide-react";
-import PageShell, { PageHeader, SectionCard, Workspace } from "./layout/PageShell";
+import PageShell, { PageHeader, Workspace } from "./layout/PageShell";
 import {
   createShortLink,
   deleteShortLink,
@@ -64,13 +62,8 @@ function isValidDestination(value: string): boolean {
   }
 }
 
-function FieldLabel({ children, hint }: { children: React.ReactNode; hint?: string }) {
-  return (
-    <div className="mb-1.5">
-      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{children}</p>
-      {hint && <p className="mt-0.5 text-[11px] text-slate-400">{hint}</p>}
-    </div>
-  );
+function shortDisplayUrl(url: string): string {
+  return url.replace(/^https?:\/\//i, "");
 }
 
 export default function LinksScreen({
@@ -104,6 +97,8 @@ export default function LinksScreen({
   const [statusFilter, setStatusFilter] = useState<"All" | "Live" | "Paused">("All");
   const [toast, setToast] = useState<string | null>(null);
   const [analyticsById, setAnalyticsById] = useState<Record<string, ShortLinkAnalytics>>({});
+  const [analyticsLink, setAnalyticsLink] = useState<SmartLink | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const hostOptions = useMemo(() => {
     const custom = domains
@@ -127,7 +122,7 @@ export default function LinksScreen({
           try {
             next[link.id] = await fetchShortLinkAnalytics(link.id);
           } catch {
-            // Keep page usable if analytics lag.
+            // Keep list usable if analytics lag.
           }
         })
       );
@@ -142,7 +137,7 @@ export default function LinksScreen({
 
   const triggerToast = (msg: string) => {
     setToast(msg);
-    window.setTimeout(() => setToast(null), 3000);
+    window.setTimeout(() => setToast(null), 2800);
   };
 
   const copyText = async (value: string, successMessage: string) => {
@@ -150,7 +145,7 @@ export default function LinksScreen({
       await navigator.clipboard.writeText(value);
       triggerToast(successMessage);
     } catch {
-      triggerToast("Unable to copy. Please copy the URL manually.");
+      triggerToast("Unable to copy. Copy the URL manually.");
     }
   };
 
@@ -168,38 +163,7 @@ export default function LinksScreen({
     });
   }, [links, searchQuery, statusFilter]);
 
-  const totalClicks = links.reduce((acc, curr) => acc + (curr.clicks || 0), 0);
-  const activeLinks = links.filter((link) => link.status === "Live").length;
-
-  const analyticsList = useMemo(
-    () => Object.values(analyticsById) as ShortLinkAnalytics[],
-    [analyticsById]
-  );
-
-  const periodTotals = useMemo(() => {
-    return {
-      today: analyticsList.reduce((sum, item) => sum + (item.summary?.today || 0), 0),
-      week: analyticsList.reduce((sum, item) => sum + (item.summary?.week || 0), 0),
-      month: analyticsList.reduce((sum, item) => sum + (item.summary?.month || 0), 0)
-    };
-  }, [analyticsList]);
-
-  const aggregatedDevices = useMemo(() => {
-    const devices = { mobile: 0, desktop: 0, tablet: 0, other: 0 };
-    for (const analytics of analyticsList) {
-      devices.mobile += analytics.devices?.mobile || 0;
-      devices.desktop += analytics.devices?.desktop || 0;
-      devices.tablet += analytics.devices?.tablet || 0;
-      devices.other += analytics.devices?.other || 0;
-    }
-    return devices;
-  }, [analyticsList]);
-
-  const deviceTotal =
-    aggregatedDevices.mobile +
-    aggregatedDevices.desktop +
-    aggregatedDevices.tablet +
-    aggregatedDevices.other;
+  const hasActiveFilters = searchQuery.trim().length > 0 || statusFilter !== "All";
 
   const resetCreateForm = () => {
     setNewTitle("");
@@ -237,6 +201,15 @@ export default function LinksScreen({
     setEditError("");
   };
 
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await onReload();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setCreateError("");
@@ -246,7 +219,7 @@ export default function LinksScreen({
     const target = newTarget.trim();
 
     if (!title) {
-      setCreateError("Give this link a name.");
+      setCreateError("Link name is required.");
       return;
     }
     if (!isValidDestination(target)) {
@@ -254,7 +227,7 @@ export default function LinksScreen({
       return;
     }
     if (!cleanSlug) {
-      setCreateError("Short slug is required (example: summer-sale).");
+      setCreateError("Short slug is required.");
       return;
     }
 
@@ -271,7 +244,7 @@ export default function LinksScreen({
       onUpsertLink?.(saved);
       setIsAdding(false);
       resetCreateForm();
-      triggerToast("Short link ready — copy and share it.");
+      triggerToast("Short link created.");
       void onReload();
     } catch (error) {
       setCreateError(
@@ -339,7 +312,7 @@ export default function LinksScreen({
         retargeting: link.retargeting || []
       });
       onUpsertLink?.(saved);
-      triggerToast(nextStatus === "Live" ? "Link is Live — redirects work." : "Link paused — redirects stopped.");
+      triggerToast(nextStatus === "Live" ? "Link is Live." : "Link paused.");
       void onReload();
     } catch (error) {
       triggerToast(error instanceof ShortLinkApiError ? error.message : "Unable to update status.");
@@ -353,6 +326,7 @@ export default function LinksScreen({
     if (!confirmed) return;
     try {
       await deleteShortLink(link.id);
+      if (analyticsLink?.id === link.id) setAnalyticsLink(null);
       triggerToast("Short link deleted.");
       void onReload();
     } catch (error) {
@@ -368,15 +342,6 @@ export default function LinksScreen({
     window.open(link.shortUrl, "_blank", "noopener,noreferrer");
   };
 
-  const openDestination = (destinationUrl?: string) => {
-    if (!destinationUrl || !isValidDestination(destinationUrl)) {
-      triggerToast("This link has no valid destination URL.");
-      return;
-    }
-    const url = /^https?:\/\//i.test(destinationUrl) ? destinationUrl : `https://${destinationUrl}`;
-    window.open(url, "_blank", "noopener,noreferrer");
-  };
-
   const toggleRetarget = (
     current: RetargetPixel[],
     pixel: RetargetPixel,
@@ -388,9 +353,133 @@ export default function LinksScreen({
   };
 
   const previewUrl = `https://${newHostDomain || PRIMARY_DOMAIN}/l/${newSlug || "your-slug"}`;
+  const selectedAnalytics = analyticsLink ? analyticsById[analyticsLink.id] : null;
+
+  const renderLinkRow = (link: SmartLink) => {
+    const isCustomHost =
+      Boolean(link.hostDomain) &&
+      link.hostDomain.toLowerCase() !== PRIMARY_DOMAIN.toLowerCase();
+
+    return (
+      <div
+        key={link.id}
+        className={`acn-list-row min-w-0 ${isCustomHost ? "acn-list-row--custom-domain" : ""}`}
+      >
+        <div className="acn-list-row__main min-w-0 flex-1">
+          <div className="flex items-start gap-3 sm:gap-4 min-w-0">
+            <div
+              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:h-12 sm:w-12 ${
+                isCustomHost
+                  ? "bg-emerald-500/10 text-emerald-600"
+                  : "bg-indigo-500/10 text-indigo-500"
+              }`}
+            >
+              <Link2 className="h-5 w-5 sm:h-6 sm:w-6" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <h4 className="truncate font-display text-base font-semibold text-gray-950">
+                  {link.title}
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => void copyText(link.shortUrl, "Short URL copied.")}
+                className="mt-1 block max-w-full truncate font-mono text-xs font-semibold text-indigo-600 hover:underline"
+                title={link.shortUrl}
+              >
+                {shortDisplayUrl(link.shortUrl)}
+              </button>
+              {link.destinationUrl && (
+                <p className="mt-0.5 truncate text-[11px] text-slate-400" title={link.destinationUrl}>
+                  → {shortDisplayUrl(link.destinationUrl)}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="flex w-full flex-wrap items-center gap-4 sm:gap-6 lg:w-auto lg:justify-end pl-14 lg:pl-0">
+            <span
+              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                link.status === "Live"
+                  ? "bg-emerald-50 text-emerald-600"
+                  : "bg-slate-100 text-slate-600"
+              }`}
+            >
+              {link.status}
+            </span>
+
+            <div className="text-center">
+              <span className="block font-display text-2xl font-bold leading-none text-gray-950">
+                {link.clicks || 0}
+              </span>
+              <span className="mt-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                Clicks
+              </span>
+            </div>
+
+            <div className="mx-auto flex w-full max-w-[280px] flex-wrap items-center justify-center gap-1 rounded-xl border border-gray-100 bg-gray-50 p-1.5 shadow-sm sm:mx-0 sm:w-auto sm:max-w-none">
+              <button
+                type="button"
+                onClick={() => setAnalyticsLink(link)}
+                title="Analytics"
+                className="flex items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-[#6366f1]"
+              >
+                <BarChart2 className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void copyText(link.shortUrl, "Short URL copied.")}
+                title="Copy short URL"
+                className="flex items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-[#6366f1]"
+              >
+                <Copy className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => openShortUrl(link)}
+                title="Open short URL"
+                className="flex items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-[#6366f1]"
+              >
+                <ExternalLink className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => openEditModal(link)}
+                title="Edit"
+                className="flex items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-[#6366f1]"
+              >
+                <Edit3 className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleToggleStatus(link)}
+                title={link.status === "Live" ? "Pause" : "Set Live"}
+                className="flex items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-[#6366f1]"
+              >
+                {link.status === "Live" ? (
+                  <PauseCircle className="h-4 w-4" />
+                ) : (
+                  <PlayCircle className="h-4 w-4" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDelete(link)}
+                title="Delete"
+                className="flex items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-rose-600"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
-    <PageShell className="font-sans text-slate-800">
+    <PageShell>
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 rounded-2xl border border-slate-800 bg-slate-900 px-5 py-3.5 text-sm font-bold text-white shadow-2xl">
           {toast}
@@ -399,346 +488,158 @@ export default function LinksScreen({
 
       <PageHeader
         title="Smart Short Links"
-        subtitle="Turn a long website URL into a short shareable link — and see how many people click it."
+        subtitle={`Create short URLs to share anywhere · ${links.length} link${links.length !== 1 ? "s" : ""}`}
         actions={
-          <button
-            type="button"
-            onClick={() => setIsAdding(true)}
-            className="flex items-center gap-2 acn-btn-chip px-5 py-2.5 text-xs font-extrabold"
-          >
-            <Plus className="h-4 w-4" />
-            Create short link
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => void handleRefresh()}
+              disabled={isRefreshing || loading}
+              className="acn-btn-secondary px-4 py-2.5"
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshing || loading ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsAdding(true)}
+              className="acn-btn-accent px-5 py-2.5"
+            >
+              <Plus className="h-4 w-4" />
+              Create short link
+            </button>
+          </>
         }
       />
 
       {loadError && (
-        <SectionCard className="border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-700">
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
           {loadError}
-        </SectionCard>
+        </div>
       )}
 
-      {/* Section 1: How it works */}
-      <SectionCard className="p-5 sm:p-6">
-        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-indigo-600">How it works</p>
-            <h3 className="mt-1 font-display text-lg font-bold text-slate-900">
-              3 simple steps
-            </h3>
-          </div>
-          <p className="text-xs text-slate-500">
-            Need traffic split across many URLs? Use <span className="font-semibold">Link Rotator</span> instead.
-          </p>
-        </div>
-
-        <div className="mt-5 grid gap-3 sm:grid-cols-3">
-          {(
-            [
-              {
-                step: "1",
-                title: "Paste your long URL",
-                body: "Example: your product page, offer page, or WhatsApp link."
-              },
-              {
-                step: "2",
-                title: "Get a short link",
-                body: "You receive a link like …/l/summer-sale to copy and share."
-              },
-              {
-                step: "3",
-                title: "Track real clicks",
-                body: "When someone opens it, they go to your page and the click count updates."
-              }
-            ] as const
-          ).map((item) => (
-            <div
-              key={item.step}
-              className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-4"
-            >
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-sm font-extrabold text-white">
-                {item.step}
-              </div>
-              <p className="mt-3 text-sm font-bold text-slate-900">{item.title}</p>
-              <p className="mt-1 text-xs leading-relaxed text-slate-600">{item.body}</p>
+      <Workspace className="acn-section-card">
+        {links.length === 0 && !loading ? (
+          <div className="flex flex-col items-center justify-center px-4 py-14 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-500">
+              <Link2 className="h-7 w-7" />
             </div>
-          ))}
-        </div>
-
-        <div className="mt-5 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-3 text-xs text-slate-600">
-          <span className="font-semibold text-slate-800">Flow:</span>
-          <span className="rounded-lg bg-slate-100 px-2 py-1 font-mono text-[11px]">Long URL</span>
-          <ArrowRight className="h-3.5 w-3.5 text-slate-400" />
-          <span className="rounded-lg bg-indigo-50 px-2 py-1 font-mono text-[11px] font-semibold text-indigo-700">
-            Short URL /l/…
-          </span>
-          <ArrowRight className="h-3.5 w-3.5 text-slate-400" />
-          <span className="rounded-lg bg-emerald-50 px-2 py-1 font-semibold text-emerald-700">
-            Visitor lands on your page
-          </span>
-        </div>
-      </SectionCard>
-
-      {/* Section 2: Snapshot */}
-      <div>
-        <p className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-500">
-          Your snapshot
-        </p>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {(
-            [
-              ["Live links", activeLinks, "Redirecting now"],
-              ["All links", links.length, "Created in total"],
-              ["Total clicks", totalClicks, "All short links"],
-              ["Clicks today", periodTotals.today, "Since midnight"]
-            ] as const
-          ).map(([label, value, hint]) => (
-            <SectionCard key={label} className="p-4">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
-              <p className="mt-1.5 text-2xl font-extrabold tabular-nums text-slate-900">
-                {loading ? "…" : value.toLocaleString()}
-              </p>
-              <p className="mt-1 text-[11px] text-slate-500">{hint}</p>
-            </SectionCard>
-          ))}
-        </div>
-      </div>
-
-      {/* Section 3: Your links */}
-      <Workspace panel stack>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Your short links</p>
-            <h3 className="mt-1 font-display text-lg font-bold text-slate-900">
-              Manage & share
-            </h3>
-            <p className="mt-1 text-sm text-slate-600">
-              Copy the short URL to share. “Goes to” is the real page people land on.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setIsAdding(true)}
-            className="inline-flex items-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
-          >
-            <Plus className="h-4 w-4" />
-            New link
-          </button>
-        </div>
-
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <div className="acn-icon-field flex-1">
-            <span className="acn-icon-field__icon">
-              <Search className="h-4 w-4" />
-            </span>
-            <input
-              type="search"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search by name, short URL, or destination…"
-              className="acn-icon-field__input w-full"
-              aria-label="Search links"
-            />
-          </div>
-          <select
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value as "All" | "Live" | "Paused")}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700"
-            aria-label="Filter by status"
-          >
-            <option value="All">All status</option>
-            <option value="Live">Live only</option>
-            <option value="Paused">Paused only</option>
-          </select>
-        </div>
-
-        {links.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-5 py-10 text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
-              <Link2 className="h-6 w-6" />
-            </div>
-            <p className="mt-4 text-sm font-bold text-slate-800">No short links yet</p>
-            <p className="mx-auto mt-1 max-w-md text-xs text-slate-500">
-              Create your first short link, copy it, and share it anywhere. Clicks will show here
-              automatically.
+            <h3 className="mt-4 font-display text-lg font-bold text-slate-900">No short links yet</h3>
+            <p className="mt-1 max-w-xs text-sm text-slate-500">
+              Shorten a long URL, copy it, and share it. Clicks are tracked automatically.
             </p>
             <button
               type="button"
               onClick={() => setIsAdding(true)}
-              className="acn-btn-chip mt-5 inline-flex items-center gap-2 px-5 py-2.5 text-xs font-extrabold"
+              className="acn-btn-accent mt-4 px-4 py-2"
             >
               <Plus className="h-4 w-4" />
-              Create your first short link
-            </button>
-          </div>
-        ) : filteredLinks.length === 0 ? (
-          <div className="rounded-2xl border border-slate-200 bg-white px-5 py-8 text-center text-sm text-slate-500">
-            No links match your search.{" "}
-            <button
-              type="button"
-              onClick={() => {
-                setSearchQuery("");
-                setStatusFilter("All");
-              }}
-              className="font-semibold text-indigo-600 hover:underline"
-            >
-              Clear filters
+              Get Started
             </button>
           </div>
         ) : (
-          <div className="space-y-3">
-            {filteredLinks.map((link) => {
-              const analytics = analyticsById[link.id];
-              return (
-                <div
-                  key={link.id}
-                  className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5"
-                >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h4 className="truncate text-base font-bold text-slate-900">{link.title}</h4>
-                        <button
-                          type="button"
-                          onClick={() => void handleToggleStatus(link)}
-                          className={`rounded-full px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${
-                            link.status === "Live"
-                              ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"
-                              : "bg-slate-100 text-slate-500 ring-1 ring-slate-200"
-                          }`}
-                          title="Click to toggle Live / Paused"
-                        >
-                          {link.status}
-                        </button>
-                      </div>
-
-                      <div className="mt-3 space-y-2">
-                        <div>
-                          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                            Short URL — share this
-                          </p>
-                          <div className="mt-1 flex min-w-0 items-center gap-2">
-                            <a
-                              href={link.shortUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="truncate text-sm font-semibold text-indigo-600 hover:underline"
-                            >
-                              {link.shortUrl}
-                            </a>
-                            <button
-                              type="button"
-                              onClick={() => void copyText(link.shortUrl, "Short URL copied.")}
-                              className="shrink-0 rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
-                              title="Copy short URL"
-                            >
-                              <Copy className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
-
-                        <div>
-                          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                            Goes to — destination page
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => openDestination(link.destinationUrl)}
-                            className="mt-1 block max-w-full truncate text-left text-sm text-slate-700 hover:text-indigo-600 hover:underline"
-                          >
-                            {link.destinationUrl || "Not set"}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex shrink-0 flex-row items-end gap-4 sm:flex-col sm:items-end">
-                      <div className="text-right">
-                        <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                          Clicks
-                        </p>
-                        <p className="text-2xl font-extrabold tabular-nums text-slate-900">
-                          {link.clicks || 0}
-                        </p>
-                        {analytics && (
-                          <p className="text-[11px] font-semibold text-slate-500">
-                            Today {analytics.summary.today} · Week {analytics.summary.week}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
-                    <button
-                      type="button"
-                      onClick={() => void copyText(link.shortUrl, "Short URL copied — ready to share.")}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-50 px-3 py-2 text-[11px] font-bold text-indigo-700 hover:bg-indigo-100"
-                    >
-                      <Share2 className="h-3.5 w-3.5" />
-                      Copy to share
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openShortUrl(link)}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                      Test short URL
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openEditModal(link)}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-bold text-slate-700 hover:bg-slate-50"
-                    >
-                      <Edit2 className="h-3.5 w-3.5" />
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleDelete(link)}
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-[11px] font-bold text-rose-700 hover:bg-rose-100"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Delete
-                    </button>
-                  </div>
+          <div className="space-y-4">
+            <div className="acn-platform-bulk-toolbar">
+              <div className="acn-platform-bulk-toolbar__filters">
+                <div className="acn-platform-bulk-toolbar__search acn-icon-field">
+                  <span className="acn-icon-field__icon">
+                    <Search className="h-4 w-4" />
+                  </span>
+                  <input
+                    type="search"
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    placeholder="Search name, short URL, or destination…"
+                    className="acn-input acn-icon-field__input w-full py-2.5"
+                    aria-label="Search short links"
+                  />
                 </div>
-              );
-            })}
+                <select
+                  value={statusFilter}
+                  onChange={(event) =>
+                    setStatusFilter(event.target.value as "All" | "Live" | "Paused")
+                  }
+                  className="acn-platform-bulk-status-filter"
+                  aria-label="Filter by status"
+                >
+                  <option value="All">All statuses</option>
+                  <option value="Live">Live</option>
+                  <option value="Paused">Paused</option>
+                </select>
+                {hasActiveFilters && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery("");
+                      setStatusFilter("All");
+                    }}
+                    className="acn-platform-bulk-clear"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <p className="acn-platform-bulk-toolbar__meta">
+                Showing {filteredLinks.length} of {links.length}
+                {loading ? " · Loading…" : ""}
+              </p>
+            </div>
+
+            {filteredLinks.length === 0 ? (
+              <div className="acn-platform-bulk-empty px-4 py-10 text-center">
+                <p className="font-display text-base font-bold text-slate-800">No links match</p>
+                <p className="mt-1 text-sm text-slate-500">Try a different search or clear filters.</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setStatusFilter("All");
+                  }}
+                  className="mt-3 text-sm font-semibold text-indigo-600 hover:underline"
+                >
+                  Reset filters
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">{filteredLinks.map((link) => renderLinkRow(link))}</div>
+            )}
           </div>
         )}
       </Workspace>
 
-      {/* Section 4: Traffic */}
-      <Workspace panel stack>
-        <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Traffic overview</p>
-          <h3 className="mt-1 font-display text-lg font-bold text-slate-900">
-            Click performance
-          </h3>
-          <p className="mt-1 text-sm text-slate-600">
-            These numbers update when people open your short URLs (not from fake test buttons).
-          </p>
-        </div>
+      {/* Analytics modal */}
+      {analyticsLink && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-md rounded-3xl border border-slate-100 bg-white p-5 shadow-2xl sm:p-6"
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="truncate font-display text-lg font-bold text-slate-900">
+                  {analyticsLink.title}
+                </h3>
+                <p className="mt-1 truncate font-mono text-xs text-indigo-600">
+                  {shortDisplayUrl(analyticsLink.shortUrl)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAnalyticsLink(null)}
+                className="rounded-full p-1 text-slate-400 hover:text-slate-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
 
-        {totalClicks === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-8 text-center">
-            <MousePointerClick className="mx-auto h-8 w-8 text-slate-300" />
-            <p className="mt-3 text-sm font-bold text-slate-700">No clicks yet</p>
-            <p className="mt-1 text-xs text-slate-500">
-              Share a Live short URL, open it once yourself to test, then refresh this page.
-            </p>
-          </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3">
               {(
                 [
-                  ["Today", periodTotals.today],
-                  ["This week", periodTotals.week],
-                  ["This month", periodTotals.month],
-                  ["All time", totalClicks]
+                  ["All clicks", analyticsLink.clicks || 0],
+                  ["Today", selectedAnalytics?.summary.today ?? 0],
+                  ["This week", selectedAnalytics?.summary.week ?? 0],
+                  ["This month", selectedAnalytics?.summary.month ?? 0]
                 ] as const
               ).map(([label, value]) => (
                 <div key={label} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
@@ -750,40 +651,41 @@ export default function LinksScreen({
               ))}
             </div>
 
-            <div>
-              <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-slate-400">
-                Devices used by visitors
-              </p>
-              <div className="grid grid-cols-3 gap-2">
+            {selectedAnalytics && (
+              <div className="mt-4 grid grid-cols-3 gap-2 border-t border-slate-100 pt-4">
                 {(
                   [
-                    { key: "mobile" as const, label: "Mobile", icon: Smartphone },
-                    { key: "desktop" as const, label: "Desktop", icon: Monitor },
-                    { key: "tablet" as const, label: "Tablet", icon: Tablet }
-                  ]
-                ).map((device) => {
-                  const Icon = device.icon;
-                  const count = aggregatedDevices[device.key];
-                  const pct = deviceTotal > 0 ? Math.round((count / deviceTotal) * 100) : 0;
-                  return (
-                    <div
-                      key={device.key}
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-center"
-                    >
-                      <Icon className="mx-auto h-4 w-4 text-slate-400" />
-                      <p className="mt-1.5 text-[11px] font-bold text-slate-600">{device.label}</p>
-                      <p className="mt-0.5 text-lg font-extrabold tabular-nums text-slate-900">
-                        {count}
-                      </p>
-                      <p className="text-[11px] font-semibold text-slate-400">{pct}%</p>
-                    </div>
-                  );
-                })}
+                    ["Mobile", selectedAnalytics.devices.mobile],
+                    ["Desktop", selectedAnalytics.devices.desktop],
+                    ["Tablet", selectedAnalytics.devices.tablet]
+                  ] as const
+                ).map(([label, value]) => (
+                  <div key={label} className="rounded-xl border border-slate-100 px-2 py-2 text-center">
+                    <p className="text-[10px] font-bold uppercase text-slate-400">{label}</p>
+                    <p className="mt-0.5 text-base font-extrabold tabular-nums text-slate-900">
+                      {value}
+                    </p>
+                  </div>
+                ))}
               </div>
+            )}
+
+            <p className="mt-4 truncate text-[11px] text-slate-400" title={analyticsLink.destinationUrl}>
+              Destination: {analyticsLink.destinationUrl || "—"}
+            </p>
+
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setAnalyticsLink(null)}
+                className="acn-btn-secondary px-4 py-2 text-xs"
+              >
+                Close
+              </button>
             </div>
-          </>
-        )}
-      </Workspace>
+          </div>
+        </div>
+      )}
 
       {/* Create modal */}
       {isAdding && (
@@ -800,7 +702,7 @@ export default function LinksScreen({
                   Create short link
                 </h3>
                 <p className="mt-1 text-xs text-slate-500">
-                  Fill the long URL + a short name. We’ll give you a shareable link.
+                  Paste a long URL and choose a short slug to share.
                 </p>
               </div>
               <button
@@ -814,14 +716,14 @@ export default function LinksScreen({
 
             <form onSubmit={handleSubmit} className="space-y-4" noValidate>
               <div>
-                <FieldLabel hint="For your reference only (not shown to visitors).">
+                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
                   Link name
-                </FieldLabel>
+                </label>
                 <input
                   type="text"
                   required
                   autoFocus
-                  placeholder="e.g. Summer Sale Offer"
+                  placeholder="e.g. Summer Sale"
                   value={newTitle}
                   onChange={(event) => {
                     const title = event.target.value;
@@ -833,30 +735,32 @@ export default function LinksScreen({
                       return title;
                     });
                   }}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm focus:border-indigo-500 focus:outline-none"
+                  className="acn-input w-full"
                 />
               </div>
 
               <div>
-                <FieldLabel hint="The real page people should open.">
-                  Destination URL (long link)
-                </FieldLabel>
+                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  Destination URL
+                </label>
                 <input
                   type="url"
                   required
                   placeholder="https://yoursite.com/offer"
                   value={newTarget}
                   onChange={(event) => setNewTarget(event.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm focus:border-indigo-500 focus:outline-none"
+                  className="acn-input w-full"
                 />
               </div>
 
               <div>
-                <FieldLabel hint="Where the short URL is hosted.">Domain</FieldLabel>
+                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  Domain
+                </label>
                 <select
                   value={newHostDomain}
                   onChange={(event) => setNewHostDomain(event.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm focus:border-indigo-500 focus:outline-none"
+                  className="acn-input w-full"
                 >
                   {hostOptions.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -867,9 +771,9 @@ export default function LinksScreen({
               </div>
 
               <div>
-                <FieldLabel hint="Letters, numbers, hyphens — becomes part of the short URL.">
+                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
                   Short slug
-                </FieldLabel>
+                </label>
                 <div className="flex min-w-0 items-center">
                   <span className="max-w-[55%] truncate rounded-l-xl border border-r-0 border-slate-200 bg-slate-100 px-3 py-2.5 font-mono text-[10px] text-slate-400">
                     {newHostDomain || PRIMARY_DOMAIN}/l/
@@ -880,19 +784,18 @@ export default function LinksScreen({
                     placeholder="summer-sale"
                     value={newSlug}
                     onChange={(event) => setNewSlug(normalizeSlug(event.target.value))}
-                    className="w-full min-w-0 rounded-r-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm focus:border-indigo-500 focus:outline-none"
+                    className="acn-input w-full min-w-0 rounded-l-none"
                   />
                 </div>
-                <p className="mt-2 rounded-xl bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700">
-                  Your short URL will be:{" "}
-                  <span className="break-all font-mono">{previewUrl}</span>
+                <p className="mt-2 break-all rounded-xl bg-indigo-50 px-3 py-2 font-mono text-[11px] font-semibold text-indigo-700">
+                  {previewUrl}
                 </p>
               </div>
 
               <div>
-                <FieldLabel hint="Optional labels only — not live ad pixels.">
+                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
                   Campaign tags (optional)
-                </FieldLabel>
+                </label>
                 <div className="flex gap-2">
                   {RETARGET_OPTIONS.map((pixel) => {
                     const isSelected = newRetargeting.includes(pixel.id);
@@ -901,7 +804,7 @@ export default function LinksScreen({
                         key={pixel.id}
                         type="button"
                         onClick={() => toggleRetarget(newRetargeting, pixel.id, setNewRetargeting)}
-                        className={`flex-1 rounded-xl border px-3 py-2 text-[11px] font-bold transition-all ${
+                        className={`flex-1 rounded-xl border px-3 py-2 text-[11px] font-bold ${
                           isSelected
                             ? "border-slate-900 bg-slate-900 text-white"
                             : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
@@ -925,16 +828,16 @@ export default function LinksScreen({
                   type="button"
                   onClick={closeCreateModal}
                   disabled={isCreating}
-                  className="rounded-xl px-4 py-2.5 text-xs font-bold text-slate-500 hover:bg-slate-50"
+                  className="acn-btn-secondary px-4 py-2.5 text-xs"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isCreating}
-                  className="acn-btn-chip px-5 py-2.5 text-xs font-extrabold disabled:opacity-60"
+                  className="acn-btn-accent px-5 py-2.5 text-xs disabled:opacity-60"
                 >
-                  {isCreating ? "Creating…" : "Create & get short URL"}
+                  {isCreating ? "Creating…" : "Create short link"}
                 </button>
               </div>
             </form>
@@ -956,9 +859,7 @@ export default function LinksScreen({
                 <h3 id="edit-link-title" className="font-display text-xl font-bold text-slate-900">
                   Edit short link
                 </h3>
-                <p className="mt-1 text-xs text-slate-500">
-                  Change destination, slug, or pause redirects.
-                </p>
+                <p className="mt-1 text-xs text-slate-500">Update destination, slug, or status.</p>
               </div>
               <button
                 type="button"
@@ -971,33 +872,39 @@ export default function LinksScreen({
 
             <form onSubmit={handleSaveEdit} className="space-y-4" noValidate>
               <div>
-                <FieldLabel>Link name</FieldLabel>
+                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  Link name
+                </label>
                 <input
                   type="text"
                   required
                   value={editTitle}
                   onChange={(event) => setEditTitle(event.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm focus:border-indigo-500 focus:outline-none"
+                  className="acn-input w-full"
                 />
               </div>
 
               <div>
-                <FieldLabel hint="Where visitors should land.">Destination URL</FieldLabel>
+                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  Destination URL
+                </label>
                 <input
                   type="url"
                   required
                   value={editTarget}
                   onChange={(event) => setEditTarget(event.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm focus:border-indigo-500 focus:outline-none"
+                  className="acn-input w-full"
                 />
               </div>
 
               <div>
-                <FieldLabel>Domain</FieldLabel>
+                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  Domain
+                </label>
                 <select
                   value={editHostDomain}
                   onChange={(event) => setEditHostDomain(event.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm focus:border-indigo-500 focus:outline-none"
+                  className="acn-input w-full"
                 >
                   {hostOptions.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -1012,7 +919,9 @@ export default function LinksScreen({
               </div>
 
               <div>
-                <FieldLabel>Short slug</FieldLabel>
+                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  Short slug
+                </label>
                 <div className="flex min-w-0 items-center">
                   <span className="max-w-[55%] truncate rounded-l-xl border border-r-0 border-slate-200 bg-slate-100 px-3 py-2.5 font-mono text-[10px] text-slate-400">
                     {editHostDomain || PRIMARY_DOMAIN}/l/
@@ -1022,18 +931,20 @@ export default function LinksScreen({
                     required
                     value={editSlug}
                     onChange={(event) => setEditSlug(normalizeSlug(event.target.value))}
-                    className="w-full min-w-0 rounded-r-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm focus:border-indigo-500 focus:outline-none"
+                    className="acn-input w-full min-w-0 rounded-l-none"
                   />
                 </div>
               </div>
 
               <div>
-                <FieldLabel hint="Paused = short URL stops redirecting.">Status</FieldLabel>
+                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  Status
+                </label>
                 <div className="flex gap-2">
                   {(
                     [
-                      { id: "Live" as const, label: "Live — redirects on" },
-                      { id: "Paused" as const, label: "Paused — redirects off" }
+                      { id: "Live" as const, label: "Live" },
+                      { id: "Paused" as const, label: "Paused" }
                     ]
                   ).map((status) => (
                     <button
@@ -1053,7 +964,9 @@ export default function LinksScreen({
               </div>
 
               <div>
-                <FieldLabel hint="Optional labels only.">Campaign tags</FieldLabel>
+                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  Campaign tags
+                </label>
                 <div className="flex gap-2">
                   {RETARGET_OPTIONS.map((pixel) => {
                     const isSelected = editRetargeting.includes(pixel.id);
@@ -1086,14 +999,14 @@ export default function LinksScreen({
                   type="button"
                   onClick={closeEditModal}
                   disabled={isSavingEdit}
-                  className="rounded-xl px-4 py-2.5 text-xs font-bold text-slate-500 hover:bg-slate-50"
+                  className="acn-btn-secondary px-4 py-2.5 text-xs"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSavingEdit}
-                  className="rounded-xl bg-slate-900 px-5 py-2.5 text-xs font-extrabold text-white hover:bg-slate-950 disabled:opacity-60"
+                  className="acn-btn-accent px-5 py-2.5 text-xs disabled:opacity-60"
                 >
                   {isSavingEdit ? "Saving…" : "Save changes"}
                 </button>

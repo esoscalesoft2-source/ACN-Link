@@ -366,7 +366,8 @@ export default function LinksScreen({
         className={`acn-list-row min-w-0 ${isCustomHost ? "acn-list-row--custom-domain" : ""}`}
       >
         <div className="acn-list-row__main min-w-0 flex-1">
-          <div className="flex items-start gap-3 sm:gap-4 min-w-0">
+          {/* Identity — truncates so the meta column never gets squeezed */}
+          <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
             <div
               className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:h-12 sm:w-12 ${
                 isCustomHost
@@ -376,31 +377,33 @@ export default function LinksScreen({
             >
               <Link2 className="h-5 w-5 sm:h-6 sm:w-6" />
             </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <h4 className="truncate font-display text-base font-semibold text-gray-950">
-                  {link.title}
-                </h4>
-              </div>
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <h4 className="truncate font-display text-base font-semibold text-gray-950">
+                {link.title}
+              </h4>
               <button
                 type="button"
                 onClick={() => void copyText(link.shortUrl, "Short URL copied.")}
-                className="mt-1 block max-w-full truncate font-mono text-xs font-semibold text-indigo-600 hover:underline"
+                className="mt-1 block w-full truncate text-left font-mono text-xs font-semibold text-indigo-600 hover:underline"
                 title={link.shortUrl}
               >
                 {shortDisplayUrl(link.shortUrl)}
               </button>
               {link.destinationUrl && (
-                <p className="mt-0.5 truncate text-[11px] text-slate-400" title={link.destinationUrl}>
+                <p
+                  className="mt-0.5 truncate text-[11px] text-slate-400"
+                  title={link.destinationUrl}
+                >
                   → {shortDisplayUrl(link.destinationUrl)}
                 </p>
               )}
             </div>
           </div>
 
-          <div className="flex w-full flex-wrap items-center gap-4 sm:gap-6 lg:w-auto lg:justify-end pl-14 lg:pl-0">
+          {/* Meta + actions — single horizontal row on every card */}
+          <div className="flex w-full shrink-0 flex-nowrap items-center justify-between gap-3 sm:gap-5 lg:w-auto lg:justify-end">
             <span
-              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+              className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
                 link.status === "Live"
                   ? "bg-emerald-50 text-emerald-600"
                   : "bg-slate-100 text-slate-600"
@@ -409,7 +412,7 @@ export default function LinksScreen({
               {link.status}
             </span>
 
-            <div className="text-center">
+            <div className="shrink-0 text-center">
               <span className="block font-display text-2xl font-bold leading-none text-gray-950">
                 {link.clicks || 0}
               </span>
@@ -418,12 +421,12 @@ export default function LinksScreen({
               </span>
             </div>
 
-            <div className="mx-auto flex w-full max-w-[280px] flex-wrap items-center justify-center gap-1 rounded-xl border border-gray-100 bg-gray-50 p-1.5 shadow-sm sm:mx-0 sm:w-auto sm:max-w-none">
+            <div className="flex shrink-0 flex-nowrap items-center gap-0.5 rounded-xl border border-gray-100 bg-gray-50 p-1.5 shadow-sm">
               <button
                 type="button"
                 onClick={() => setAnalyticsLink(link)}
                 title="Analytics"
-                className="flex items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-[#6366f1]"
+                className="flex shrink-0 items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-[#6366f1]"
               >
                 <BarChart2 className="h-4 w-4" />
               </button>
@@ -431,7 +434,7 @@ export default function LinksScreen({
                 type="button"
                 onClick={() => void copyText(link.shortUrl, "Short URL copied.")}
                 title="Copy short URL"
-                className="flex items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-[#6366f1]"
+                className="flex shrink-0 items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-[#6366f1]"
               >
                 <Copy className="h-4 w-4" />
               </button>
@@ -439,7 +442,7 @@ export default function LinksScreen({
                 type="button"
                 onClick={() => openShortUrl(link)}
                 title="Open short URL"
-                className="flex items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-[#6366f1]"
+                className="flex shrink-0 items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-[#6366f1]"
               >
                 <ExternalLink className="h-4 w-4" />
               </button>
@@ -447,7 +450,7 @@ export default function LinksScreen({
                 type="button"
                 onClick={() => openEditModal(link)}
                 title="Edit"
-                className="flex items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-[#6366f1]"
+                className="flex shrink-0 items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-[#6366f1]"
               >
                 <Edit3 className="h-4 w-4" />
               </button>
@@ -455,7 +458,7 @@ export default function LinksScreen({
                 type="button"
                 onClick={() => void handleToggleStatus(link)}
                 title={link.status === "Live" ? "Pause" : "Set Live"}
-                className="flex items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-[#6366f1]"
+                className="flex shrink-0 items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-[#6366f1]"
               >
                 {link.status === "Live" ? (
                   <PauseCircle className="h-4 w-4" />
@@ -467,7 +470,7 @@ export default function LinksScreen({
                 type="button"
                 onClick={() => void handleDelete(link)}
                 title="Delete"
-                className="flex items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-rose-600"
+                className="flex shrink-0 items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-rose-600"
               >
                 <Trash2 className="h-4 w-4" />
               </button>

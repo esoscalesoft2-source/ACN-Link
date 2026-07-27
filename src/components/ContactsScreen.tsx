@@ -11,7 +11,12 @@ import {
   Tag,
   Pencil,
   Trash2,
-  Users
+  Users,
+  Globe,
+  LayoutTemplate,
+  Clock,
+  FileText,
+  Sparkles
 } from "lucide-react";
 import PageShell, { PageHeader, SectionCard, StatCard, StatCardGrid, Workspace } from "./layout/PageShell";
 
@@ -39,6 +44,63 @@ function formatCapturedAt(value: string): string {
 function parseCapturedTime(value: string): number {
   const parsed = new Date(value).getTime();
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatRelativeCaptured(value: string): string {
+  const time = parseCapturedTime(value);
+  if (!time) return "—";
+  const diffMs = Date.now() - time;
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return "Just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return formatCapturedAt(value);
+}
+
+const AVATAR_PALETTES = [
+  "from-indigo-500 to-violet-500",
+  "from-sky-500 to-cyan-500",
+  "from-amber-500 to-orange-500",
+  "from-emerald-500 to-teal-500",
+  "from-rose-500 to-pink-500",
+  "from-fuchsia-500 to-purple-500",
+  "from-blue-500 to-indigo-500",
+  "from-teal-500 to-emerald-500"
+];
+
+function hashString(value: string): number {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = (hash << 5) - hash + value.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function getAvatarGradient(seed: string): string {
+  return AVATAR_PALETTES[hashString(seed || "x") % AVATAR_PALETTES.length];
+}
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function getSourceStyle(source: string): { badge: string; dot: string } {
+  const normalized = (source || "").toUpperCase();
+  if (normalized.includes("SMART")) {
+    return { badge: "bg-violet-50 border-violet-100 text-violet-600", dot: "bg-violet-500" };
+  }
+  if (normalized.includes("MANUAL")) {
+    return { badge: "bg-slate-50 border-slate-200 text-slate-600", dot: "bg-slate-400" };
+  }
+  return { badge: "bg-indigo-50 border-indigo-100 text-[#4F46E5]", dot: "bg-[#4F46E5]" };
 }
 
 function isValidEmail(email: string): boolean {
@@ -561,20 +623,41 @@ export default function ContactsScreen({
         ) : (
           <Workspace>
           <>
-            <div className="lg:hidden divide-y divide-gray-50">
+            {/* Mobile / tablet — record cards */}
+            <div className="lg:hidden space-y-3">
               {filteredContacts.map((contact) => {
                 const isUnmasked = !!unmaskedIds[contact.id];
+                const sourceStyle = getSourceStyle(contact.source);
+                const hasDetails =
+                  contact.formFields?.length ||
+                  contact.notes ||
+                  contact.pageTitle ||
+                  contact.blockLabel ||
+                  contact.sourceDomain ||
+                  contact.templateName;
                 return (
-                  <div key={contact.id} className="p-4 sm:p-8 space-y-3">
+                  <div
+                    key={contact.id}
+                    className="acn-contact-card rounded-2xl border border-slate-100 bg-white p-4 shadow-sm"
+                  >
                     <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-display font-semibold text-gray-900 text-sm">{contact.name}</p>
-                        <p className="text-xs text-gray-500 font-mono mt-1 break-all">
-                          {isUnmasked ? contact.email : contact.maskedEmail}
-                        </p>
-                        <p className="text-xs text-gray-500 font-mono break-all">
-                          {isUnmasked ? contact.phone : contact.maskedPhone}
-                        </p>
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div
+                          className={`shrink-0 h-10 w-10 rounded-full bg-gradient-to-br ${getAvatarGradient(
+                            contact.email || contact.id
+                          )} flex items-center justify-center text-white font-bold text-xs shadow-sm`}
+                        >
+                          {getInitials(contact.name)}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-display font-bold text-gray-900 text-sm truncate">{contact.name}</p>
+                          <p className="text-xs text-gray-500 font-mono mt-0.5 break-all">
+                            {isUnmasked ? contact.email : contact.maskedEmail}
+                          </p>
+                          <p className="text-xs text-gray-500 font-mono break-all">
+                            {isUnmasked ? contact.phone : contact.maskedPhone}
+                          </p>
+                        </div>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         <button
@@ -606,36 +689,38 @@ export default function ContactsScreen({
                         </button>
                       </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="bg-indigo-50/60 border border-indigo-100 text-[#4F46E5] text-[10px] font-bold px-2 py-0.5 rounded uppercase">
+
+                    <div className="flex flex-wrap items-center gap-1.5 mt-3">
+                      <span
+                        className={`inline-flex items-center gap-1 border text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide ${sourceStyle.badge}`}
+                      >
+                        <span className={`h-1.5 w-1.5 rounded-full ${sourceStyle.dot}`} />
                         {contact.source}
                       </span>
                       {contact.marketingOptIn && (
-                        <span className="bg-emerald-50 border border-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded uppercase">
+                        <span className="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-100 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
                           Opt-in
                         </span>
                       )}
                       {contact.tags.map((tag) => (
                         <span
                           key={tag}
-                          className="inline-flex items-center gap-1 bg-slate-50 text-slate-500 text-[10px] font-semibold px-2 py-0.5 rounded border border-slate-100"
+                          className="inline-flex items-center gap-1 bg-slate-50 text-slate-500 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-slate-100"
                         >
                           <Tag className="h-2.5 w-2.5 text-slate-400" />
                           {tag}
                         </span>
                       ))}
+                      <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-gray-400 font-semibold">
+                        <Clock className="h-3 w-3" />
+                        {formatRelativeCaptured(contact.capturedAt)}
+                      </span>
                     </div>
-                    <p className="text-[11px] text-gray-400 font-mono">
-                      Captured {formatCapturedAt(contact.capturedAt)}
-                    </p>
-                    {(contact.formFields?.length ||
-                      contact.notes ||
-                      contact.pageTitle ||
-                      contact.blockLabel ||
-                      contact.sourceDomain ||
-                      contact.templateName) && (
-                      <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3 space-y-1.5">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+
+                    {hasDetails ? (
+                      <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 space-y-1.5">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                          <FileText className="h-3 w-3" />
                           {contact.source === "SMART FORM"
                             ? "Smart Form submission"
                             : contact.source === "MANUAL ENTRY"
@@ -660,185 +745,217 @@ export default function ContactsScreen({
                         {contact.pageTitle ? (
                           <p className="text-[10px] text-slate-400 pt-1">From bio page: {contact.pageTitle}</p>
                         ) : null}
-                        {contact.sourceDomain ? (
-                          <p className="text-[10px] text-slate-400">Domain: {contact.sourceDomain}</p>
-                        ) : null}
-                        {contact.templateName ? (
-                          <p className="text-[10px] text-slate-400">Template: {contact.templateName}</p>
-                        ) : null}
+                        {(contact.sourceDomain || contact.templateName) && (
+                          <div className="flex flex-wrap gap-x-3 gap-y-0.5 pt-0.5">
+                            {contact.sourceDomain ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] text-slate-500 font-mono">
+                                <Globe className="h-2.5 w-2.5 text-slate-400" />
+                                {contact.sourceDomain}
+                              </span>
+                            ) : null}
+                            {contact.templateName ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] text-slate-500">
+                                <LayoutTemplate className="h-2.5 w-2.5 text-slate-400" />
+                                {contact.templateName}
+                              </span>
+                            ) : null}
+                          </div>
+                        )}
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 );
               })}
             </div>
 
+            {/* Desktop — polished record table */}
             <div className="hidden lg:block overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-gray-50 bg-slate-50/50">
-                    <th className="py-4 px-6 w-12">
-                      <span className="sr-only">Reveal</span>
-                    </th>
-                    <th className="py-4 px-6 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                      Name
-                    </th>
-                    <th className="py-4 px-6 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                      Email
-                    </th>
-                    <th className="py-4 px-6 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                      Phone
-                    </th>
-                    <th className="py-4 px-6 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                      Source
-                    </th>
-                    <th className="py-4 px-6 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                      Form data
-                    </th>
-                    <th className="py-4 px-6 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                      Domain / Template
-                    </th>
-                    <th className="py-4 px-6 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                      Tags
-                    </th>
-                    <th className="py-4 px-6 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                      Captured
-                    </th>
-                    <th className="py-4 px-6 text-[10px] font-bold text-gray-400 uppercase tracking-widest text-right">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
+              <div className="min-w-[1080px]">
+                <div className="grid grid-cols-[2.1fr_100px_1.9fr_1.4fr_1.1fr_110px_92px] gap-3 px-4 pb-3">
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Contact</span>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Source</span>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                    Lead details
+                  </span>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                    Domain / Template
+                  </span>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Tags</span>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Captured</span>
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest text-right">
+                    Actions
+                  </span>
+                </div>
+
+                <div className="space-y-2.5">
                   {filteredContacts.map((contact) => {
                     const isUnmasked = !!unmaskedIds[contact.id];
+                    const sourceStyle = getSourceStyle(contact.source);
                     return (
-                      <tr key={contact.id} className="hover:bg-slate-50/40 transition-colors">
-                        <td className="py-4.5 px-6">
-                          <button
-                            type="button"
-                            onClick={() => toggleMask(contact.id)}
-                            className="p-1 hover:bg-gray-100 rounded text-gray-400 hover:text-gray-600 transition-colors"
-                            title={isUnmasked ? "Mask credentials" : "Show credentials"}
-                            aria-label={isUnmasked ? "Mask credentials" : "Show credentials"}
+                      <div
+                        key={contact.id}
+                        className="acn-contact-row grid grid-cols-[2.1fr_100px_1.9fr_1.4fr_1.1fr_110px_92px] gap-3 items-center rounded-2xl border border-slate-100 bg-white px-4 py-3.5 shadow-sm hover:shadow-md hover:border-indigo-100 transition-all"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div
+                            className={`shrink-0 h-10 w-10 rounded-full bg-gradient-to-br ${getAvatarGradient(
+                              contact.email || contact.id
+                            )} flex items-center justify-center text-white font-bold text-xs shadow-sm`}
                           >
-                            {isUnmasked ? (
-                              <EyeOff className="h-4.5 w-4.5" />
-                            ) : (
-                              <Eye className="h-4.5 w-4.5" />
-                            )}
-                          </button>
-                        </td>
-                        <td className="py-4.5 px-6 font-display font-semibold text-gray-900 text-sm">
-                          {contact.name}
-                        </td>
-                        <td className="py-4.5 px-6 text-sm text-gray-600 font-mono">
-                          {isUnmasked ? contact.email : contact.maskedEmail}
-                        </td>
-                        <td className="py-4.5 px-6 text-sm text-gray-600 font-mono">
-                          {isUnmasked ? contact.phone : contact.maskedPhone}
-                        </td>
-                        <td className="py-4.5 px-6">
-                          <span className="inline-block bg-indigo-50/60 border border-indigo-100 text-[#4F46E5] text-[10px] font-bold px-2 py-0.5 rounded tracking-wide uppercase">
+                            {getInitials(contact.name)}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-display font-bold text-gray-900 text-sm truncate">
+                              {contact.name}
+                            </p>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <p className="text-[11px] text-gray-500 font-mono truncate">
+                                {isUnmasked ? contact.email : contact.maskedEmail}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => toggleMask(contact.id)}
+                                className="shrink-0 p-0.5 text-gray-300 hover:text-gray-500 transition-colors"
+                                title={isUnmasked ? "Mask credentials" : "Show credentials"}
+                                aria-label={isUnmasked ? "Mask credentials" : "Show credentials"}
+                              >
+                                {isUnmasked ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                              </button>
+                            </div>
+                            <p className="text-[11px] text-gray-400 font-mono truncate">
+                              {isUnmasked ? contact.phone : contact.maskedPhone}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div>
+                          <span
+                            className={`inline-flex items-center gap-1 border text-[10px] font-bold px-2 py-1 rounded-full tracking-wide uppercase ${sourceStyle.badge}`}
+                          >
+                            <span className={`h-1.5 w-1.5 rounded-full ${sourceStyle.dot}`} />
                             {contact.source}
                           </span>
-                        </td>
-                        <td className="py-4.5 px-6 max-w-[280px]">
+                        </div>
+
+                        <div className="min-w-0">
                           {contact.formFields && contact.formFields.length > 0 ? (
                             <div className="space-y-0.5">
-                              {contact.formFields.map((field) => (
-                                <p key={`${contact.id}-t-${field.label}`} className="text-[11px] text-slate-600">
+                              {contact.formFields.slice(0, 3).map((field) => (
+                                <p
+                                  key={`${contact.id}-t-${field.label}`}
+                                  className="text-[11px] text-slate-600 truncate"
+                                >
                                   <span className="font-semibold text-slate-700">{field.label}:</span>{" "}
-                                  <span className="break-all">{field.value || "—"}</span>
+                                  <span>{field.value || "—"}</span>
                                 </p>
                               ))}
+                              {contact.formFields.length > 3 && (
+                                <p className="text-[10px] text-indigo-400 font-semibold">
+                                  +{contact.formFields.length - 3} more
+                                </p>
+                              )}
                               {contact.pageTitle ? (
-                                <p className="text-[10px] text-slate-400 pt-0.5">Page: {contact.pageTitle}</p>
-                              ) : null}
-                              {contact.blockLabel ? (
-                                <p className="text-[10px] text-slate-400">Block: {contact.blockLabel}</p>
+                                <p className="text-[10px] text-slate-400 pt-0.5 truncate">
+                                  Page: {contact.pageTitle}
+                                  {contact.blockLabel ? ` · ${contact.blockLabel}` : ""}
+                                </p>
                               ) : null}
                             </div>
                           ) : contact.notes ? (
                             <div>
-                              <p className="text-[11px] text-slate-500 whitespace-pre-wrap break-words">{contact.notes}</p>
+                              <p className="text-[11px] text-slate-500 line-clamp-2 break-words">
+                                {contact.notes}
+                              </p>
                               {contact.pageTitle ? (
-                                <p className="text-[10px] text-slate-400 pt-0.5">Page: {contact.pageTitle}</p>
+                                <p className="text-[10px] text-slate-400 pt-0.5 truncate">
+                                  Page: {contact.pageTitle}
+                                </p>
                               ) : null}
                             </div>
                           ) : contact.pageTitle ? (
-                            <p className="text-[11px] text-slate-500">Page: {contact.pageTitle}</p>
+                            <p className="text-[11px] text-slate-500 truncate">Page: {contact.pageTitle}</p>
                           ) : (
                             <span className="text-gray-300 text-xs">—</span>
                           )}
-                        </td>
-                        <td className="py-4.5 px-6 max-w-[180px]">
-                          {contact.sourceDomain || contact.templateName ? (
-                            <div className="space-y-0.5">
-                              {contact.sourceDomain ? (
-                                <p className="text-[11px] text-slate-600 font-mono break-all">
-                                  {contact.sourceDomain}
-                                </p>
-                              ) : null}
-                              {contact.templateName ? (
-                                <p className="text-[11px] text-slate-500">{contact.templateName}</p>
-                              ) : null}
-                            </div>
-                          ) : (
+                        </div>
+
+                        <div className="min-w-0 space-y-1">
+                          {contact.sourceDomain ? (
+                            <p className="inline-flex items-center gap-1 text-[11px] text-slate-600 font-mono truncate w-full">
+                              <Globe className="h-3 w-3 text-slate-400 shrink-0" />
+                              <span className="truncate">{contact.sourceDomain}</span>
+                            </p>
+                          ) : null}
+                          {contact.templateName ? (
+                            <p className="inline-flex items-center gap-1 text-[11px] text-slate-500 truncate w-full">
+                              <LayoutTemplate className="h-3 w-3 text-slate-400 shrink-0" />
+                              <span className="truncate">{contact.templateName}</span>
+                            </p>
+                          ) : null}
+                          {!contact.sourceDomain && !contact.templateName && (
                             <span className="text-gray-300 text-xs">—</span>
                           )}
-                        </td>
-                        <td className="py-4.5 px-6">
-                          <div className="flex flex-wrap gap-1">
-                            {contact.marketingOptIn && (
-                              <span className="inline-flex items-center bg-emerald-50 text-emerald-700 text-[10px] font-semibold px-2 py-0.5 rounded border border-emerald-100">
-                                Opt-in
-                              </span>
-                            )}
-                            {contact.tags.map((tag) => (
-                              <span
-                                key={tag}
-                                className="inline-flex items-center gap-1 bg-slate-50 text-slate-500 text-[10px] font-semibold px-2 py-0.5 rounded border border-slate-100"
-                              >
-                                <Tag className="h-2.5 w-2.5 text-slate-400" />
-                                {tag}
-                              </span>
-                            ))}
-                            {contact.tags.length === 0 && !contact.marketingOptIn && (
-                              <span className="text-gray-300 text-xs">-</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-4.5 px-6 text-xs text-gray-400 font-mono font-medium">
-                          {formatCapturedAt(contact.capturedAt)}
-                        </td>
-                        <td className="py-4.5 px-6">
-                          <div className="flex items-center justify-end gap-1">
-                            <button
-                              type="button"
-                              onClick={() => openEditModal(contact)}
-                              className="p-2 hover:bg-indigo-50 rounded-lg text-slate-400 hover:text-[#4F46E5] transition-colors"
-                              title="Edit"
-                              aria-label={`Edit ${contact.name}`}
+                        </div>
+
+                        <div className="flex flex-wrap gap-1 min-w-0">
+                          {contact.marketingOptIn && (
+                            <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-100">
+                              <Sparkles className="h-2.5 w-2.5" />
+                              Opt-in
+                            </span>
+                          )}
+                          {contact.tags.slice(0, 1).map((tag) => (
+                            <span
+                              key={tag}
+                              className="inline-flex items-center gap-1 bg-slate-50 text-slate-500 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-slate-100 truncate max-w-full"
                             >
-                              <Pencil className="h-4 w-4" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDelete(contact)}
-                              className="p-2 hover:bg-rose-50 rounded-lg text-slate-400 hover:text-rose-600 transition-colors"
-                              title="Delete"
-                              aria-label={`Delete ${contact.name}`}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
+                              <Tag className="h-2.5 w-2.5 text-slate-400 shrink-0" />
+                              <span className="truncate">{tag}</span>
+                            </span>
+                          ))}
+                          {contact.tags.length > 1 && (
+                            <span className="inline-flex items-center text-[10px] font-semibold text-slate-400">
+                              +{contact.tags.length - 1}
+                            </span>
+                          )}
+                          {contact.tags.length === 0 && !contact.marketingOptIn && (
+                            <span className="text-gray-300 text-xs">—</span>
+                          )}
+                        </div>
+
+                        <div
+                          className="flex items-center gap-1 text-[11px] text-gray-400 font-semibold"
+                          title={formatCapturedAt(contact.capturedAt)}
+                        >
+                          <Clock className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{formatRelativeCaptured(contact.capturedAt)}</span>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(contact)}
+                            className="p-2 hover:bg-indigo-50 rounded-lg text-slate-400 hover:text-[#4F46E5] transition-colors"
+                            title="Edit"
+                            aria-label={`Edit ${contact.name}`}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(contact)}
+                            className="p-2 hover:bg-rose-50 rounded-lg text-slate-400 hover:text-rose-600 transition-colors"
+                            title="Delete"
+                            aria-label={`Delete ${contact.name}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
                     );
                   })}
-                </tbody>
-              </table>
+                </div>
+              </div>
             </div>
           </>
           </Workspace>

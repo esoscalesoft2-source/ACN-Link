@@ -3827,7 +3827,9 @@ body.acn-editor-open header.acn-glass-header {
 }
 
 .acn-template-explore-phone__screen,
-.acn-template-explore-phone .acn-bio-page-theme-light.acn-phone-preview__screen {
+.acn-template-explore-phone .acn-bio-page-theme-light.acn-phone-preview__screen,
+.acn-template-explore-phone.acn-phone-preview--samsung .acn-bio-page-theme-light.acn-phone-preview__screen,
+.acn-template-explore-phone.acn-phone-preview--samsung .acn-bio-page-theme-dark.acn-phone-preview__screen {
   flex: 1 1 0 !important;
   min-height: 0 !important;
   height: auto !important;
@@ -3835,6 +3837,7 @@ body.acn-editor-open header.acn-glass-header {
   overflow-x: hidden !important;
   overflow-y: auto !important;
   overscroll-behavior: contain;
+  touch-action: pan-y !important;
   -webkit-overflow-scrolling: touch;
   background: #ffffff !important;
 }

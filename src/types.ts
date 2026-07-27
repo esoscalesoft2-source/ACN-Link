@@ -36,6 +36,13 @@ export interface BioPage {
   bio?: string;
   coverPhoto?: string;
   handle?: string;
+  /** True while editing a template before Save Draft / Publish — hidden from Bio Pages history. */
+  isUncommitted?: boolean;
+}
+
+export interface ContactFormFieldEntry {
+  label: string;
+  value: string;
 }
 
 export interface Contact {
@@ -49,6 +56,20 @@ export interface Contact {
   maskedEmail: string;
   maskedPhone: string;
   marketingOptIn?: boolean;
+  /** Full submitted form/smart-form field values for Contacts UI. */
+  formFields?: ContactFormFieldEntry[];
+  notes?: string;
+  pageId?: string;
+  pageTitle?: string;
+  blockId?: string;
+  blockLabel?: string;
+  ownerUserId?: string;
+  /** Hostname where the public bio form was submitted (e.g. custom domain). */
+  sourceDomain?: string;
+  /** Template used for the bio page when the lead was captured. */
+  templateId?: string;
+  templateName?: string;
+  pageSlug?: string;
 }
 
 export interface WhatsAppCampaign {
@@ -363,6 +384,9 @@ export interface BioPagePreviewDetails {
   handle?: string;
   pageTheme?: BioPagePreviewTheme;
   coverSettings?: BioCoverPhotoSettings;
+  /** Linked template used to build / last save this page. */
+  templateId?: string;
+  templateName?: string;
 }
 
 /** Full restorable editor state for drafts and templates */

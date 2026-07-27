@@ -1,18 +1,41 @@
-import React from "react";
-import { ArrowRight, Copy, MessageSquare, User } from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowRight, Copy, MessageSquare, MapPin, User, Phone, Mail, Megaphone } from "lucide-react";
 import {
   BlockRecord,
   DEFAULT_SHOP_PRODUCTS,
   destinationEmailFromBlock,
   downloadVCard,
   getCurrencySymbol,
-  getGalleryImages,
+  getFaqItems,
+  getFormFields,
+  getFormSelectOptions,
+  getFormSubmitLabel,
+  getFormSuccessButtonLabel,
+  getFormSuccessConnectLabel,
+  getFormSuccessConnectUrl,
+  getFormSuccessEmoji,
+  getFormSuccessMessage,
+  getFormSuccessTitle,
+  getGalleryItems,
+  getPricingPlanFeatures,
+  getPricingPlans,
+  getStatItems,
+  getBannerStyle,
+  getCallPhone,
+  getEmailAddress,
+  buildTelUrl,
+  buildMailtoUrl,
+  getTestimonials,
+  getTipOptions,
   getVideoThumbnail,
-  normalizeExternalUrl
+  normalizeExternalUrl,
+  resolveGoogleMap,
+  type FormSubmitPayload
 } from "../../lib/bioBlocks";
 import { getLinkArrowColor, getLinkButtonStyle, isDefaultBrightLink } from "../../lib/bioLinkColors";
 import type { BlockRendererContext, BlockRendererHandlers, BlockRenderMode } from "./blockTypes";
 import CountdownBlockView from "./CountdownBlockView";
+import FormSuccessOverlay from "./FormSuccessOverlay";
 import SocialLinksRow from "./SocialLinksRow";
 
 interface BlockViewProps {
@@ -380,54 +403,600 @@ export function SmartFormBlockView({ block, mode, context, handlers }: BlockView
   const compact = context.compact;
   const leadEmail = handlers.leadEmails?.[block.id] || "";
   const destinationEmail = destinationEmailFromBlock(block);
+  const successTitle = getFormSuccessTitle(block);
+  const successMessage = getFormSuccessMessage(block);
+  const successEmoji = getFormSuccessEmoji(block);
+  const successButtonLabel = getFormSuccessButtonLabel(block);
+  const successConnectLabel = getFormSuccessConnectLabel(block);
+  const successConnectUrl = getFormSuccessConnectUrl(block);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const anchorRef = useRef<HTMLDivElement>(null);
+
+  const dismissSuccess = () => setShowSuccess(false);
+
+  const handleConnect = (url: string) => {
+    if (mode === "preview") {
+      handlers.onToast?.(`🔗 Connect: ${url}`);
+      return;
+    }
+    if (url.includes("wa.me") || url.includes("whatsapp")) {
+      handlers.onWhatsApp?.(url);
+    } else {
+      handlers.onExternalLink?.(url, successConnectLabel || "Connect");
+    }
+  };
+
+  const handleSubmit = () => {
+    if (!leadEmail || !leadEmail.includes("@")) {
+      handlers.onToast?.(
+        mode === "preview" ? "❌ Please enter your email first." : "Please enter a valid email address."
+      );
+      return;
+    }
+    handlers.onLeadSubmit?.(block.id, leadEmail, destinationEmail);
+    handlers.onLeadEmailChange?.(block.id, "");
+    setShowSuccess(true);
+  };
+
+  return (
+    <>
+      <div
+        ref={anchorRef}
+        className={`bg-white border border-slate-200 text-left shadow-sm ${
+          compact ? "p-4 rounded-2xl space-y-2" : "p-4.5 rounded-2xl space-y-2.5"
+        }`}
+      >
+        <span
+          className={`font-bold block text-center text-slate-700 uppercase tracking-widest font-mono ${
+            compact ? "text-[9px]" : "text-[10px]"
+          }`}
+        >
+          {block.label}
+        </span>
+        <div className={compact ? "space-y-1.5" : "space-y-2"}>
+          <input
+            type="email"
+            required
+            value={leadEmail}
+            onChange={(e) => handlers.onLeadEmailChange?.(block.id, e.target.value)}
+            placeholder="Enter your email"
+            className={`w-full bg-slate-50 border border-slate-200 text-slate-800 focus:outline-none focus:ring-1 focus:ring-violet-500 ${
+              compact ? "rounded-lg py-1.5 px-3.5 text-xs" : "rounded-xl py-2 px-3 text-xs"
+            }`}
+          />
+          <button
+            type="button"
+            onClick={handleSubmit}
+            className={`w-full bg-[#7c3aed] hover:bg-[#6d28d9] text-white font-bold transition-colors shadow-md shadow-violet-500/25 ${
+              compact ? "py-1.5 rounded-lg text-xs" : "py-2 rounded-xl text-xs"
+            }`}
+          >
+            {mode === "preview" ? "Submit" : "Subscribe"}
+          </button>
+        </div>
+      </div>
+      <FormSuccessOverlay
+        open={showSuccess}
+        onClose={dismissSuccess}
+        title={successTitle}
+        message={successMessage}
+        emoji={successEmoji}
+        buttonLabel={successButtonLabel}
+        connectLabel={successConnectLabel}
+        connectUrl={successConnectUrl}
+        onConnect={handleConnect}
+        anchorRef={anchorRef}
+      />
+    </>
+  );
+}
+
+export function FormBlockView({ block, mode, context, handlers }: BlockViewProps) {
+  const compact = context.compact;
+  const destinationEmail = destinationEmailFromBlock(block);
+  const submitLabel = getFormSubmitLabel(block);
+  const successTitle = getFormSuccessTitle(block);
+  const successMessage = getFormSuccessMessage(block);
+  const successEmoji = getFormSuccessEmoji(block);
+  const successButtonLabel = getFormSuccessButtonLabel(block);
+  const successConnectLabel = getFormSuccessConnectLabel(block);
+  const successConnectUrl = getFormSuccessConnectUrl(block);
+  const description = typeof block.description === "string" ? block.description.trim() : "";
+  const fields = useMemo(() => getFormFields(block), [block]);
+
+  const emptyValues = useMemo(() => {
+    const next: FormSubmitPayload = {};
+    for (const field of fields) next[field.id] = field.type === "checkbox" ? "No" : "";
+    return next;
+  }, [fields]);
+
+  const [values, setValues] = useState<FormSubmitPayload>(emptyValues);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const anchorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setValues(emptyValues);
+    setShowSuccess(false);
+  }, [emptyValues]);
+
+  const dismissSuccess = () => setShowSuccess(false);
+
+  const handleConnect = (url: string) => {
+    if (mode === "preview") {
+      handlers.onToast?.(`🔗 Connect: ${url}`);
+      return;
+    }
+    if (url.includes("wa.me") || url.includes("whatsapp")) {
+      handlers.onWhatsApp?.(url);
+    } else {
+      handlers.onExternalLink?.(url, successConnectLabel || "Connect");
+    }
+  };
+
+  const inputClass = `w-full bg-slate-50 border border-slate-200 text-slate-800 focus:outline-none focus:ring-1 focus:ring-violet-500 ${
+    compact ? "rounded-lg py-1.5 px-3 text-xs" : "rounded-xl py-2 px-3 text-xs"
+  }`;
+
+  const updateField = (fieldId: string, value: string) => {
+    setValues((prev) => ({ ...prev, [fieldId]: value }));
+    setShowSuccess(false);
+  };
+
+  const handleSubmit = () => {
+    for (const field of fields) {
+      const raw = (values[field.id] || "").trim();
+      if (field.required) {
+        if (field.type === "checkbox") {
+          if (raw !== "Yes") {
+            handlers.onToast?.(
+              mode === "preview"
+                ? `❌ Please check "${field.label}".`
+                : `Please check "${field.label}".`
+            );
+            return;
+          }
+        } else if (!raw) {
+          handlers.onToast?.(
+            mode === "preview"
+              ? `❌ Please fill "${field.label}".`
+              : `Please fill "${field.label}".`
+          );
+          return;
+        }
+      }
+      if (field.type === "email" && raw && !raw.includes("@")) {
+        handlers.onToast?.(
+          mode === "preview" ? "❌ Please enter a valid email." : "Please enter a valid email address."
+        );
+        return;
+      }
+    }
+
+    const payload: FormSubmitPayload = {};
+    const labeled: FormSubmitPayload = {};
+    for (const field of fields) {
+      const raw = values[field.id] ?? "";
+      const value =
+        field.type === "checkbox" ? (raw === "Yes" ? "Yes" : "No") : String(raw).trim();
+      payload[field.id] = value;
+      labeled[field.label] = value;
+    }
+
+    if (handlers.onFormSubmit) {
+      handlers.onFormSubmit(block.id, labeled, destinationEmail);
+    } else {
+      const emailField = fields.find((f) => f.type === "email");
+      const email = emailField ? payload[emailField.id] : Object.values(payload).find((v) => v.includes("@"));
+      if (email) {
+        handlers.onLeadSubmit?.(block.id, email, destinationEmail);
+        track(handlers, "register", `Form Lead: ${block.label}`, { email });
+      }
+    }
+
+    setValues(emptyValues);
+    setShowSuccess(true);
+  };
+
+  return (
+    <>
+      <div
+        ref={anchorRef}
+        className={`bg-white border border-slate-200 text-left shadow-sm ${
+          compact ? "p-4 rounded-2xl space-y-2" : "p-4.5 rounded-2xl space-y-2.5"
+        }`}
+      >
+        <span className={`font-bold block text-center text-slate-800 ${compact ? "text-xs" : "text-sm"}`}>
+          {block.label}
+        </span>
+        {description ? (
+          <p className={`text-center text-slate-500 ${compact ? "text-[10px]" : "text-xs"}`}>{description}</p>
+        ) : null}
+
+        {fields.length === 0 ? (
+          <p className={`text-center text-slate-400 ${compact ? "text-[10px]" : "text-xs"}`}>
+            No form fields configured.
+          </p>
+        ) : (
+          <div className={compact ? "space-y-1.5" : "space-y-2"}>
+            {fields.map((field) => {
+              const value = values[field.id] ?? "";
+              if (field.type === "checkbox") {
+                return (
+                  <label
+                    key={field.id}
+                    className={`flex items-center gap-2 text-slate-700 cursor-pointer ${
+                      compact ? "text-[10px]" : "text-xs"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={value === "Yes"}
+                      onChange={(e) => updateField(field.id, e.target.checked ? "Yes" : "No")}
+                      className="rounded border-slate-300 accent-[#7c3aed]"
+                    />
+                    <span>
+                      {field.label}
+                      {field.required ? " *" : ""}
+                    </span>
+                  </label>
+                );
+              }
+
+              if (field.type === "select") {
+                const options = getFormSelectOptions(field);
+                return (
+                  <select
+                    key={field.id}
+                    value={value}
+                    onChange={(e) => updateField(field.id, e.target.value)}
+                    className={inputClass}
+                    aria-label={field.label}
+                  >
+                    <option value="">{field.placeholder || `Select ${field.label}`}</option>
+                    {options.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                );
+              }
+
+              if (field.type === "textarea") {
+                return (
+                  <textarea
+                    key={field.id}
+                    value={value}
+                    onChange={(e) => updateField(field.id, e.target.value)}
+                    placeholder={`${field.placeholder || field.label}${field.required ? " *" : ""}`}
+                    rows={compact ? 2 : 3}
+                    className={`${inputClass} resize-none`}
+                    aria-label={field.label}
+                  />
+                );
+              }
+
+              const inputType =
+                field.type === "email"
+                  ? "email"
+                  : field.type === "phone"
+                    ? "tel"
+                    : field.type === "number"
+                      ? "number"
+                      : field.type === "url"
+                        ? "url"
+                        : "text";
+
+              return (
+                <input
+                  key={field.id}
+                  type={inputType}
+                  value={value}
+                  onChange={(e) => updateField(field.id, e.target.value)}
+                  placeholder={`${field.placeholder || field.label}${field.required ? " *" : ""}`}
+                  className={inputClass}
+                  aria-label={field.label}
+                />
+              );
+            })}
+            <button
+              type="button"
+              onClick={handleSubmit}
+              className={`w-full bg-[#7c3aed] hover:bg-[#6d28d9] text-white font-bold transition-colors shadow-md shadow-violet-500/25 ${
+                compact ? "py-1.5 rounded-lg text-xs" : "py-2 rounded-xl text-xs"
+              }`}
+            >
+              {submitLabel}
+            </button>
+          </div>
+        )}
+      </div>
+      <FormSuccessOverlay
+        open={showSuccess}
+        onClose={dismissSuccess}
+        title={successTitle}
+        message={successMessage}
+        emoji={successEmoji}
+        buttonLabel={successButtonLabel}
+        connectLabel={successConnectLabel}
+        connectUrl={successConnectUrl}
+        onConnect={handleConnect}
+        anchorRef={anchorRef}
+      />
+    </>
+  );
+}
+
+export function FaqBlockView({ block, mode, context, handlers }: BlockViewProps) {
+  const compact = context.compact;
+  const items = getFaqItems(block);
+  const [openId, setOpenId] = useState<string | null>(items[0]?.id ?? null);
 
   return (
     <div
-      className={`bg-white border border-slate-200 text-left shadow-sm ${
-        compact ? "p-4 rounded-2xl space-y-2" : "p-4.5 rounded-2xl space-y-2.5"
+      className={`bg-white border border-slate-200 shadow-sm ${
+        compact ? "rounded-2xl p-3 space-y-2" : "rounded-2xl p-4 space-y-2.5"
       }`}
     >
-      <span
-        className={`font-bold block text-center text-slate-700 uppercase tracking-widest font-mono ${
-          compact ? "text-[9px]" : "text-[10px]"
-        }`}
-      >
+      <span className={`font-bold block text-center text-slate-800 ${compact ? "text-xs" : "text-sm"}`}>
         {block.label}
       </span>
-      <div className={compact ? "space-y-1.5" : "space-y-2"}>
-        <input
-          type="email"
-          required
-          value={leadEmail}
-          onChange={(e) => handlers.onLeadEmailChange?.(block.id, e.target.value)}
-          placeholder="Enter your email"
-          className={`w-full bg-slate-50 border border-slate-200 text-slate-800 focus:outline-none focus:ring-1 focus:ring-violet-500 ${
-            compact ? "rounded-lg py-1.5 px-3.5 text-xs" : "rounded-xl py-2 px-3 text-xs"
-          }`}
-        />
-        <button
-          type="button"
-          onClick={() => {
-            if (!leadEmail || !leadEmail.includes("@")) {
-              handlers.onToast?.(
-                mode === "preview" ? "❌ Please enter your email first." : "Please enter a valid email address."
-              );
-              return;
-            }
-            if (mode === "preview") {
-              handlers.onToast?.(`✅ Lead saved: ${leadEmail}`);
-              handlers.onLeadEmailChange?.(block.id, "");
-              return;
-            }
-            handlers.onLeadSubmit?.(block.id, leadEmail, destinationEmail);
-          }}
-          className={`w-full bg-[#7c3aed] hover:bg-[#6d28d9] text-white font-bold transition-colors shadow-md shadow-violet-500/25 ${
-            compact ? "py-1.5 rounded-lg text-xs" : "py-2 rounded-xl text-xs"
+      <div className="space-y-1.5">
+        {items.map((item) => {
+          const open = openId === item.id;
+          return (
+            <div key={item.id} className="border border-slate-100 rounded-xl overflow-hidden">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenId(open ? null : item.id);
+                  track(handlers, "click", `FAQ: ${item.question}`);
+                }}
+                className={`w-full text-left font-semibold text-slate-800 flex items-center justify-between gap-2 ${
+                  compact ? "px-2.5 py-2 text-[10px]" : "px-3 py-2.5 text-xs"
+                }`}
+              >
+                <span>{item.question}</span>
+                <span className="text-slate-400 shrink-0">{open ? "−" : "+"}</span>
+              </button>
+              {open && (
+                <p
+                  className={`text-slate-500 border-t border-slate-100 ${
+                    compact ? "px-2.5 py-2 text-[10px]" : "px-3 py-2.5 text-xs"
+                  }`}
+                >
+                  {item.answer}
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+export function TestimonialsBlockView({ block, context }: BlockViewProps) {
+  const compact = context.compact;
+  const items = getTestimonials(block);
+  return (
+    <div
+      className={`bg-white border border-slate-200 shadow-sm ${
+        compact ? "rounded-2xl p-3 space-y-2" : "rounded-2xl p-4 space-y-3"
+      }`}
+    >
+      <span className={`font-bold block text-center text-slate-800 ${compact ? "text-xs" : "text-sm"}`}>
+        {block.label}
+      </span>
+      {items.map((item) => (
+        <blockquote
+          key={item.id}
+          className={`bg-slate-50 border border-slate-100 rounded-xl ${
+            compact ? "p-2.5" : "p-3"
           }`}
         >
-          {mode === "preview" ? "Submit" : "Subscribe"}
+          <p className={`text-slate-700 italic ${compact ? "text-[10px]" : "text-xs"}`}>“{item.quote}”</p>
+          <footer className={`mt-1.5 text-slate-500 font-semibold ${compact ? "text-[9px]" : "text-[10px]"}`}>
+            — {item.author}
+            {item.role ? `, ${item.role}` : ""}
+          </footer>
+        </blockquote>
+      ))}
+    </div>
+  );
+}
+
+export function TipJarBlockView({ block, mode, context, handlers }: BlockViewProps) {
+  const compact = context.compact;
+  const options = getTipOptions(block);
+  return (
+    <div
+      className={`bg-white border border-slate-200 shadow-sm ${
+        compact ? "rounded-2xl p-3 space-y-2" : "rounded-2xl p-4 space-y-2.5"
+      }`}
+    >
+      <span className={`font-bold block text-center text-slate-800 ${compact ? "text-xs" : "text-sm"}`}>
+        {block.label}
+      </span>
+      {typeof block.description === "string" && block.description.trim() ? (
+        <p className={`text-center text-slate-500 ${compact ? "text-[10px]" : "text-xs"}`}>
+          {block.description}
+        </p>
+      ) : null}
+      <div className="space-y-1.5">
+        {options.map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            onClick={() => {
+              track(handlers, "click", `Tip: ${option.label}`);
+              openLink(handlers, mode, option.url || block.value || "", option.label);
+            }}
+            className={`w-full flex items-center justify-between gap-2 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 font-bold transition-colors ${
+              compact ? "rounded-lg px-2.5 py-2 text-[10px]" : "rounded-xl px-3 py-2.5 text-xs"
+            }`}
+          >
+            <span className="truncate">{option.label}</span>
+            {option.amount ? <span className="shrink-0 font-mono">{option.amount}</span> : null}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function MapBlockView({ block, mode, context, handlers }: BlockViewProps) {
+  const compact = context.compact;
+  const resolved = resolveGoogleMap(block);
+  const address = typeof block.address === "string" ? block.address.trim() : "";
+  const showAddress = String(block.showAddress ?? "Yes").toLowerCase() !== "no";
+  const buttonLabel =
+    (typeof block.buttonLabel === "string" && block.buttonLabel.trim()) || "Open in Google Maps";
+  const mapHeight =
+    block.mapHeight === "sm" ? (compact ? "h-28" : "h-32") : block.mapHeight === "lg" ? (compact ? "h-48" : "h-56") : compact ? "h-36" : "h-44";
+
+  const openMaps = () => {
+    track(handlers, "click", `Map: ${block.label}`);
+    openLink(handlers, mode, resolved.openUrl, block.label);
+  };
+
+  return (
+    <div
+      className={`bg-white border border-slate-200 shadow-sm overflow-hidden ${
+        compact ? "rounded-2xl" : "rounded-2xl"
+      }`}
+    >
+      <div className={compact ? "p-3 space-y-2" : "p-4 space-y-2.5"}>
+        <span className={`font-bold block text-center text-slate-800 ${compact ? "text-xs" : "text-sm"}`}>
+          {block.label}
+        </span>
+        {typeof block.subtext === "string" && block.subtext.trim() ? (
+          <p className={`text-center text-slate-500 ${compact ? "text-[10px]" : "text-xs"}`}>{block.subtext}</p>
+        ) : null}
+      </div>
+
+      {resolved.hasLocation && resolved.embedUrl ? (
+        <div className={`relative w-full ${mapHeight} bg-slate-100 border-y border-slate-100`}>
+          <iframe
+            title={`Map: ${resolved.queryLabel || block.label}`}
+            src={resolved.embedUrl}
+            className="absolute inset-0 h-full w-full border-0"
+            loading="lazy"
+            referrerPolicy="no-referrer-when-downgrade"
+            allowFullScreen
+          />
+        </div>
+      ) : (
+        <div
+          className={`mx-3 mb-3 flex flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-slate-200 bg-slate-50 text-slate-400 ${
+            compact ? "h-24 text-[10px]" : "h-28 text-xs"
+          }`}
+        >
+          <MapPin className="h-4 w-4 text-rose-400" />
+          <span>Add a Google Maps URL or address</span>
+        </div>
+      )}
+
+      <div className={compact ? "p-3 space-y-2" : "p-4 space-y-2.5"}>
+        {showAddress && (address || resolved.queryLabel) ? (
+          <div className={`flex items-start gap-2 text-slate-600 ${compact ? "text-[10px]" : "text-xs"}`}>
+            <MapPin className={`${compact ? "h-3.5 w-3.5" : "h-4 w-4"} text-rose-500 shrink-0 mt-0.5`} />
+            <span className="leading-snug">{address || resolved.queryLabel}</span>
+          </div>
+        ) : null}
+        <button
+          type="button"
+          onClick={openMaps}
+          disabled={!resolved.hasLocation && !resolved.openUrl}
+          className={`w-full bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white font-bold transition-colors ${
+            compact ? "rounded-lg py-1.5 text-[10px]" : "rounded-xl py-2 text-xs"
+          }`}
+        >
+          {buttonLabel}
         </button>
       </div>
+    </div>
+  );
+}
+
+export function ImageBlockView({ block, mode, context, handlers }: BlockViewProps) {
+  const compact = context.compact;
+  const imageUrl =
+    (typeof block.imageUrl === "string" && block.imageUrl.trim()) ||
+    (typeof block.value === "string" && block.value.trim()) ||
+    "";
+  const linkUrl = typeof block.linkUrl === "string" ? block.linkUrl.trim() : "";
+  const caption = typeof block.caption === "string" ? block.caption.trim() : "";
+  const altText =
+    (typeof block.altText === "string" && block.altText.trim()) || block.label || "Image";
+
+  const content = (
+    <>
+      {imageUrl ? (
+        <img
+          src={imageUrl}
+          alt={altText}
+          className={`w-full object-cover ${compact ? "max-h-36" : "max-h-48"}`}
+          referrerPolicy="no-referrer"
+        />
+      ) : (
+        <div
+          className={`w-full bg-slate-100 text-slate-400 flex items-center justify-center ${
+            compact ? "h-28 text-[10px]" : "h-36 text-xs"
+          }`}
+        >
+          Add an image URL
+        </div>
+      )}
+      {caption ? (
+        <p className={`text-center text-slate-500 px-2 py-1.5 ${compact ? "text-[10px]" : "text-xs"}`}>
+          {caption}
+        </p>
+      ) : null}
+    </>
+  );
+
+  if (linkUrl) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          track(handlers, "click", `Image: ${block.label}`);
+          openLink(handlers, mode, linkUrl, block.label);
+        }}
+        className="w-full bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm p-0 text-left"
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">{content}</div>;
+}
+
+export function DividerBlockView({ block, context }: BlockViewProps) {
+  const compact = context.compact;
+  const style = typeof block.style === "string" ? block.style : "line";
+  const spacing = typeof block.spacing === "string" ? block.spacing : "md";
+  const pad = spacing === "sm" ? (compact ? "py-1" : "py-2") : spacing === "lg" ? (compact ? "py-4" : "py-6") : compact ? "py-2" : "py-3";
+
+  if (style === "space") {
+    return <div className={pad} aria-hidden />;
+  }
+
+  if (style === "dots") {
+    return (
+      <div className={`flex items-center justify-center gap-1.5 text-slate-300 ${pad}`} aria-hidden>
+        <span>•</span>
+        <span>•</span>
+        <span>•</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={pad} aria-hidden>
+      <div className="h-px w-full bg-slate-200" />
     </div>
   );
 }
@@ -548,9 +1117,255 @@ export function MusicBlockView({ block, mode, context, handlers }: BlockViewProp
   );
 }
 
+export function CallBlockView({ block, mode, context, handlers }: BlockViewProps) {
+  const compact = context.compact;
+  const phone = getCallPhone(block);
+  const subtext = typeof block.subtext === "string" ? block.subtext.trim() : "";
+  const bgColor = (typeof block.bgColor === "string" && block.bgColor) || "#0f172a";
+  const textColor = (typeof block.textColor === "string" && block.textColor) || "#ffffff";
+
+  return (
+    <div className={compact ? "space-y-1" : "space-y-1.5"}>
+      <button
+        type="button"
+        className={`w-full font-bold flex items-center justify-center gap-2 transition-all shadow-sm active:scale-[0.98] border-0 ${
+          compact ? "py-2.5 rounded-xl text-xs gap-1.5" : "py-3.5 rounded-2xl text-sm"
+        }`}
+        style={{ backgroundColor: bgColor, color: textColor }}
+        onClick={() => {
+          if (!phone) {
+            handlers.onToast?.("Phone number is not configured yet.");
+            return;
+          }
+          track(handlers, "click", `Call: ${block.label}`);
+          if (mode === "preview") {
+            handlers.onToast?.(`📞 Calling ${phone}`);
+            return;
+          }
+          openLink(handlers, mode, buildTelUrl(phone), block.label);
+        }}
+      >
+        <Phone className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />
+        <span className="truncate">{block.label}</span>
+      </button>
+      {subtext ? (
+        <p className={`text-center opacity-70 ${compact ? "text-[10px]" : "text-xs"}`} style={{ color: textColor }}>
+          {subtext}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+export function EmailBlockView({ block, mode, context, handlers }: BlockViewProps) {
+  const compact = context.compact;
+  const email = getEmailAddress(block);
+  const subject = typeof block.subject === "string" ? block.subject : "";
+  const subtext = typeof block.subtext === "string" ? block.subtext.trim() : "";
+  const bgColor = (typeof block.bgColor === "string" && block.bgColor) || "#4f46e5";
+  const textColor = (typeof block.textColor === "string" && block.textColor) || "#ffffff";
+
+  return (
+    <div className={compact ? "space-y-1" : "space-y-1.5"}>
+      <button
+        type="button"
+        className={`w-full font-bold flex items-center justify-center gap-2 transition-all shadow-sm active:scale-[0.98] border-0 ${
+          compact ? "py-2.5 rounded-xl text-xs gap-1.5" : "py-3.5 rounded-2xl text-sm"
+        }`}
+        style={{ backgroundColor: bgColor, color: textColor }}
+        onClick={() => {
+          if (!email) {
+            handlers.onToast?.("Email address is not configured yet.");
+            return;
+          }
+          track(handlers, "click", `Email: ${block.label}`);
+          const mailUrl = buildMailtoUrl(email, subject);
+          if (mode === "preview") {
+            handlers.onToast?.(`✉️ Email to ${email}`);
+            return;
+          }
+          openLink(handlers, mode, mailUrl, block.label);
+        }}
+      >
+        <Mail className={compact ? "h-3.5 w-3.5" : "h-4 w-4"} />
+        <span className="truncate">{block.label}</span>
+      </button>
+      {subtext ? (
+        <p className={`text-center text-slate-500 ${compact ? "text-[10px]" : "text-xs"}`}>{subtext}</p>
+      ) : null}
+    </div>
+  );
+}
+
+const BANNER_STYLES: Record<string, { bg: string; border: string; title: string; body: string }> = {
+  info: { bg: "#eff6ff", border: "#bfdbfe", title: "#1e3a8a", body: "#1d4ed8" },
+  success: { bg: "#ecfdf5", border: "#a7f3d0", title: "#065f46", body: "#047857" },
+  warning: { bg: "#fffbeb", border: "#fde68a", title: "#92400e", body: "#b45309" },
+  promo: { bg: "#faf5ff", border: "#e9d5ff", title: "#581c87", body: "#7e22ce" }
+};
+
+export function BannerBlockView({ block, mode, context, handlers }: BlockViewProps) {
+  const compact = context.compact;
+  const styleKey = getBannerStyle(block);
+  const palette = BANNER_STYLES[styleKey] || BANNER_STYLES.info;
+  const emoji = typeof block.bannerEmoji === "string" ? block.bannerEmoji : "📢";
+  const title = typeof block.bannerTitle === "string" ? block.bannerTitle.trim() : block.label;
+  const message = typeof block.bannerMessage === "string" ? block.bannerMessage.trim() : "";
+  const link = typeof block.bannerLink === "string" ? block.bannerLink.trim() : "";
+  const linkLabel = typeof block.bannerLinkLabel === "string" ? block.bannerLinkLabel.trim() : "Learn more";
+
+  const inner = (
+    <div
+      className={`rounded-2xl border text-left ${compact ? "p-3 space-y-1.5" : "p-4 space-y-2"}`}
+      style={{ backgroundColor: palette.bg, borderColor: palette.border }}
+    >
+      <div className={`flex items-start gap-2 ${compact ? "text-xs" : "text-sm"}`}>
+        <span className={compact ? "text-lg" : "text-xl"} aria-hidden>{emoji}</span>
+        <div className="min-w-0 flex-1">
+          <p className="font-bold leading-snug" style={{ color: palette.title }}>{title}</p>
+          {message ? (
+            <p className={`leading-relaxed ${compact ? "text-[10px] mt-0.5" : "text-xs mt-1"}`} style={{ color: palette.body }}>
+              {message}
+            </p>
+          ) : null}
+          {link ? (
+            <span
+              className={`inline-flex items-center gap-1 font-bold mt-1.5 ${compact ? "text-[10px]" : "text-xs"}`}
+              style={{ color: palette.title }}
+            >
+              {linkLabel} <ArrowRight className="h-3 w-3" />
+            </span>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+
+  if (!link) return inner;
+
+  return (
+    <button
+      type="button"
+      className="w-full p-0 border-0 bg-transparent text-left"
+      onClick={() => {
+        track(handlers, "click", `Banner: ${title}`);
+        openLink(handlers, mode, link, title);
+      }}
+    >
+      {inner}
+    </button>
+  );
+}
+
+export function StatsBlockView({ block, context }: BlockViewProps) {
+  const compact = context.compact;
+  const items = getStatItems(block);
+  const cols = items.length >= 3 ? 3 : items.length === 2 ? 2 : 1;
+
+  return (
+    <div
+      className={`bg-white border border-slate-200 shadow-sm ${
+        compact ? "rounded-2xl p-3" : "rounded-2xl p-4"
+      }`}
+    >
+      {block.label ? (
+        <span className={`font-bold block text-center text-slate-800 mb-2 ${compact ? "text-xs" : "text-sm"}`}>
+          {block.label}
+        </span>
+      ) : null}
+      <div
+        className="grid gap-2"
+        style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+      >
+        {items.map((item) => (
+          <div
+            key={item.id}
+            className={`text-center rounded-xl bg-slate-50 border border-slate-100 ${
+              compact ? "px-2 py-2" : "px-3 py-2.5"
+            }`}
+          >
+            <div className={`font-display font-black text-[#6366f1] ${compact ? "text-sm" : "text-base"}`}>
+              {item.value}
+            </div>
+            <div className={`text-slate-500 font-semibold ${compact ? "text-[9px] mt-0.5" : "text-[10px] mt-1"}`}>
+              {item.label}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function PricingBlockView({ block, mode, context, handlers }: BlockViewProps) {
+  const compact = context.compact;
+  const plans = getPricingPlans(block);
+  const description = typeof block.description === "string" ? block.description.trim() : "";
+
+  return (
+    <div className={`space-y-2 ${compact ? "pt-1" : "pt-2"}`}>
+      <span className={`font-bold block text-center text-slate-800 ${compact ? "text-xs" : "text-sm"}`}>
+        {block.label}
+      </span>
+      {description ? (
+        <p className={`text-center text-slate-500 ${compact ? "text-[10px]" : "text-xs"}`}>{description}</p>
+      ) : null}
+      <div className={compact ? "space-y-2" : "space-y-2.5"}>
+        {plans.map((plan) => {
+          const features = getPricingPlanFeatures(plan);
+          return (
+            <div
+              key={plan.id}
+              className={`rounded-2xl border bg-white shadow-sm ${
+                plan.highlighted ? "border-[#6366f1] ring-1 ring-[#6366f1]/25" : "border-slate-200"
+              } ${compact ? "p-3" : "p-4"}`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className={`font-bold text-slate-900 ${compact ? "text-xs" : "text-sm"}`}>{plan.name}</p>
+                  {plan.description ? (
+                    <p className={`text-slate-500 ${compact ? "text-[10px]" : "text-xs"}`}>{plan.description}</p>
+                  ) : null}
+                </div>
+                <div className="text-right shrink-0">
+                  <span className={`font-black text-[#6366f1] ${compact ? "text-sm" : "text-base"}`}>{plan.price}</span>
+                  {plan.period ? (
+                    <span className={`text-slate-400 block ${compact ? "text-[9px]" : "text-[10px]"}`}>{plan.period}</span>
+                  ) : null}
+                </div>
+              </div>
+              {features.length > 0 ? (
+                <ul className={`mt-2 space-y-0.5 text-slate-600 ${compact ? "text-[10px]" : "text-xs"}`}>
+                  {features.map((feature) => (
+                    <li key={feature}>• {feature}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {plan.url ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    track(handlers, "click", `Pricing: ${plan.name}`);
+                    openLink(handlers, mode, plan.url, plan.name);
+                  }}
+                  className={`mt-2.5 w-full bg-[#6366f1] hover:bg-[#4f46e5] text-white font-bold transition-colors ${
+                    compact ? "py-1.5 rounded-lg text-[10px]" : "py-2 rounded-xl text-xs"
+                  }`}
+                >
+                  Choose {plan.name}
+                </button>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function GalleryBlockView({ block, mode, context, handlers }: BlockViewProps) {
   const compact = context.compact;
-  const images = getGalleryImages(block);
+  const items = getGalleryItems(block);
 
   return (
     <div className={`text-left ${compact ? "space-y-1.5" : "space-y-2 pt-2"}`}>
@@ -561,47 +1376,66 @@ export function GalleryBlockView({ block, mode, context, handlers }: BlockViewPr
       >
         {block.label}
       </span>
-      {images.length > 0 ? (
+      {items.length > 0 ? (
         <div className={`grid grid-cols-3 ${compact ? "gap-1.5" : "gap-2"}`}>
-          {images.map((src, index) =>
-            mode === "live" ? (
-              <button
-                key={`${block.id}-${index}`}
-                type="button"
-                onClick={() => {
-                  track(handlers, "click", `Gallery ${index + 1}: ${block.label}`);
-                  handlers.onExternalLink?.(src, block.label);
-                }}
-                className={`w-full overflow-hidden rounded-xl border border-slate-100 p-0 ${
-                  compact ? "h-14" : "h-20"
-                }`}
-              >
+          {items.map((item, index) => {
+            const targetUrl = item.linkUrl.trim() || item.url;
+            const cell = (
+              <>
                 <img
-                  src={src}
-                  alt={`Gallery ${index + 1}`}
+                  src={item.url}
+                  alt={item.caption || `Gallery ${index + 1}`}
                   className="h-full w-full object-cover hover:opacity-90 transition-opacity"
                   loading="lazy"
                   decoding="async"
                   referrerPolicy="no-referrer"
                 />
-              </button>
-            ) : (
-              <img
-                key={`${block.id}-${index}`}
-                src={src}
-                alt={`Gallery ${index + 1}`}
-                onClick={() => handlers.onToast?.(`🖼️ Opened gallery image ${index + 1}`)}
-                className={`w-full object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity ${
-                  compact ? "h-14" : "h-20"
-                }`}
-                referrerPolicy="no-referrer"
-              />
-            )
-          )}
+                {item.caption ? (
+                  <span
+                    className={`absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent text-white truncate ${
+                      compact ? "text-[8px] px-1 py-0.5" : "text-[9px] px-1.5 py-1"
+                    }`}
+                  >
+                    {item.caption}
+                  </span>
+                ) : null}
+              </>
+            );
+
+            if (mode === "live" && targetUrl) {
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    track(handlers, "click", `Gallery ${index + 1}: ${block.label}`);
+                    handlers.onExternalLink?.(targetUrl, item.caption || block.label);
+                  }}
+                  className={`relative w-full overflow-hidden rounded-xl border border-slate-100 p-0 ${
+                    compact ? "h-14" : "h-20"
+                  }`}
+                >
+                  {cell}
+                </button>
+              );
+            }
+
+            return (
+              <div
+                key={item.id}
+                className={`relative overflow-hidden rounded-lg ${compact ? "h-14" : "h-20"}`}
+                onClick={() => handlers.onToast?.(`🖼️ ${item.caption || `Gallery ${index + 1}`}`)}
+                onKeyDown={undefined}
+                role="presentation"
+              >
+                {cell}
+              </div>
+            );
+          })}
         </div>
       ) : (
         <p className={`text-slate-400 text-center py-2 ${compact ? "text-[9px]" : "text-[10px]"}`}>
-          Add image URLs in block settings
+          Add gallery images in block settings
         </p>
       )}
     </div>
@@ -748,6 +1582,20 @@ export function renderBlockView(props: BlockViewProps): React.ReactNode {
       return <WhatsAppBlockView {...props} />;
     case "Smart Form":
       return <SmartFormBlockView {...props} />;
+    case "Form":
+      return <FormBlockView {...props} />;
+    case "FAQ":
+      return <FaqBlockView {...props} />;
+    case "Testimonials":
+      return <TestimonialsBlockView {...props} />;
+    case "Tip Jar":
+      return <TipJarBlockView {...props} />;
+    case "Map":
+      return <MapBlockView {...props} />;
+    case "Image":
+      return <ImageBlockView {...props} />;
+    case "Divider":
+      return <DividerBlockView {...props} />;
     case "vCard":
       return <VCardBlockView {...props} />;
     case "Video":
@@ -756,6 +1604,16 @@ export function renderBlockView(props: BlockViewProps): React.ReactNode {
       return <MusicBlockView {...props} />;
     case "Gallery":
       return <GalleryBlockView {...props} />;
+    case "Call":
+      return <CallBlockView {...props} />;
+    case "Email":
+      return <EmailBlockView {...props} />;
+    case "Banner":
+      return <BannerBlockView {...props} />;
+    case "Stats":
+      return <StatsBlockView {...props} />;
+    case "Pricing":
+      return <PricingBlockView {...props} />;
     case "PDF":
       return <PdfBlockView {...props} />;
     case "Events":

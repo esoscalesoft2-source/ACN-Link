@@ -55,6 +55,7 @@ import {
   shortLinkPlatformHostname
 } from "./server/shortLinks/publicUrl";
 import { buildShortLinkRedirectHtml } from "./server/shortLinks/redirectPage";
+import { buildLeadContact, upsertOwnerContact, mergeContactLists } from "./server/leads";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -601,6 +602,215 @@ app.post("/api/track", (req, res) => {
 
   writeStore(store);
   res.json({ success: true, event: newEvent });
+});
+
+/** Public lead capture from Bio Page Form / Smart Form blocks → Contacts */
+app.post("/api/leads", (req, res) => {
+  try {
+    const pageId = String(req.body?.pageId || "").trim();
+    const fields =
+      req.body?.fields && typeof req.body.fields === "object" && !Array.isArray(req.body.fields)
+        ? (req.body.fields as Record<string, string>)
+        : {};
+    const source = String(req.body?.source || "BIO FORM").trim() || "BIO FORM";
+    const pageTitle = typeof req.body?.pageTitle === "string" ? req.body.pageTitle.trim() : "";
+    const blockId = typeof req.body?.blockId === "string" ? req.body.blockId.trim() : "";
+    const blockLabel = typeof req.body?.blockLabel === "string" ? req.body.blockLabel.trim() : "";
+    const sourceDomain =
+      (typeof req.body?.sourceDomain === "string" && req.body.sourceDomain.trim()) ||
+      (typeof req.body?.domain === "string" && req.body.domain.trim()) ||
+      "";
+    const templateIdBody =
+      typeof req.body?.templateId === "string" ? req.body.templateId.trim() : "";
+    const templateNameBody =
+      typeof req.body?.templateName === "string" ? req.body.templateName.trim() : "";
+    const pageSlugBody = typeof req.body?.pageSlug === "string" ? req.body.pageSlug.trim() : "";
+
+    if (!pageId) {
+      res.status(400).json({ error: "pageId is required" });
+      return;
+    }
+    if (Object.keys(fields).length === 0) {
+      res.status(400).json({ error: "fields are required" });
+      return;
+    }
+
+    const store = readStore();
+    const pages = Array.isArray(store["pages_list"]) ? store["pages_list"] : [];
+    const page = pages.find((item: any) => item?.id === pageId);
+    const pageDoc = store[pageId] as Record<string, unknown> | undefined;
+    const pageDetails =
+      pageDoc && pageDoc.details && typeof pageDoc.details === "object"
+        ? (pageDoc.details as Record<string, unknown>)
+        : {};
+    const ownerUserId =
+      (page && typeof page.ownerUserId === "string" && page.ownerUserId) ||
+      (pageDoc && typeof pageDoc.ownerUserId === "string" && pageDoc.ownerUserId) ||
+      (typeof req.body?.ownerUserId === "string" ? req.body.ownerUserId : "") ||
+      "local";
+
+    const templates = Array.isArray(store["bio_page_templates"]) ? store["bio_page_templates"] : [];
+    const linkedTemplate =
+      templates.find((tpl: any) => tpl?.id === templateIdBody) ||
+      templates.find((tpl: any) => tpl?.id === pageDetails.templateId) ||
+      templates.find((tpl: any) => tpl?.sourcePageId === pageId) ||
+      null;
+
+    const domains = Array.isArray(store["custom_domains"]) ? store["custom_domains"] : [];
+    const linkedDomain = domains.find(
+      (d: any) =>
+        d?.pageId === pageId ||
+        d?.linkedPageId === pageId ||
+        (Array.isArray(d?.pageIds) && d.pageIds.includes(pageId))
+    );
+    const resolvedDomain =
+      sourceDomain ||
+      (linkedDomain && typeof linkedDomain.domainName === "string" && linkedDomain.domainName) ||
+      (linkedDomain && typeof linkedDomain.hostname === "string" && linkedDomain.hostname) ||
+      "";
+
+    const resolvedTemplateId =
+      templateIdBody ||
+      (typeof pageDetails.templateId === "string" ? pageDetails.templateId : "") ||
+      (linkedTemplate && typeof linkedTemplate.id === "string" ? linkedTemplate.id : "");
+    const resolvedTemplateName =
+      templateNameBody ||
+      (typeof pageDetails.templateName === "string" ? pageDetails.templateName : "") ||
+      (linkedTemplate && typeof linkedTemplate.name === "string" ? linkedTemplate.name : "");
+
+    const existingContacts = Array.isArray(store["contacts"]) ? (store["contacts"] as any[]) : [];
+    const emailHint = Object.values(fields).find((value) => String(value).includes("@"));
+    const existing =
+      emailHint
+        ? existingContacts.find(
+            (row) =>
+              (!row.ownerUserId || row.ownerUserId === ownerUserId || row.ownerUserId === "local") &&
+              String(row.email || "").toLowerCase() === String(emailHint).toLowerCase()
+          )
+        : null;
+
+    const contact = buildLeadContact({
+      fields,
+      source,
+      pageId,
+      pageTitle: pageTitle || page?.title || "",
+      blockId,
+      blockLabel,
+      ownerUserId,
+      sourceDomain: resolvedDomain,
+      templateId: resolvedTemplateId,
+      templateName: resolvedTemplateName,
+      pageSlug: pageSlugBody || page?.slug || "",
+      existing: existing || null
+    });
+
+    store["contacts"] = upsertOwnerContact(existingContacts, contact);
+    writeStore(store);
+
+    if (!store["tracking_events"]) store["tracking_events"] = [];
+    store["tracking_events"].unshift({
+      id: "evt_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4),
+      pageId,
+      eventType: "register",
+      eventLabel: blockLabel ? `Form Lead: ${blockLabel}` : "Form Lead",
+      details: { contactId: contact.id, email: contact.email, fields },
+      timestamp: new Date().toISOString()
+    });
+    writeStore(store);
+
+    res.json({ success: true, contact });
+  } catch (error) {
+    console.error("Lead capture failed:", error);
+    res.status(500).json({ error: "Lead capture failed." });
+  }
+});
+
+/** Authenticated contacts list for Contacts screen */
+app.get("/api/contacts", requireAuth, (req, res) => {
+  const userId = (req as any).authUser.id as string;
+  const store = readStore();
+  const contacts = (Array.isArray(store["contacts"]) ? store["contacts"] : []).filter(
+    (row: any) => !row.ownerUserId || row.ownerUserId === userId || row.ownerUserId === "local"
+  );
+  res.json(contacts);
+});
+
+/** Authenticated create/update contact (dashboard) */
+app.post("/api/contacts", requireAuth, (req, res) => {
+  const userId = (req as any).authUser.id as string;
+  const store = readStore();
+  const existingContacts = Array.isArray(store["contacts"]) ? store["contacts"] : [];
+
+  if (Array.isArray(req.body?.contacts)) {
+    const incoming = (req.body.contacts as any[]).map((row) => ({
+      ...row,
+      ownerUserId: userId
+    }));
+    store["contacts"] = mergeContactLists(existingContacts, incoming, userId);
+    writeStore(store);
+    res.json({
+      success: true,
+      contacts: (store["contacts"] as any[]).filter(
+        (row: any) => !row.ownerUserId || row.ownerUserId === userId || row.ownerUserId === "local"
+      )
+    });
+    return;
+  }
+
+  const contactPayload = req.body?.contact || req.body;
+  if (!contactPayload || typeof contactPayload !== "object") {
+    res.status(400).json({ error: "contact is required" });
+    return;
+  }
+
+  const fields =
+    contactPayload.formFields && Array.isArray(contactPayload.formFields)
+      ? Object.fromEntries(
+          contactPayload.formFields.map((entry: any) => [entry.label, entry.value])
+        )
+      : {
+          Name: contactPayload.name || "",
+          Email: contactPayload.email || "",
+          Phone: contactPayload.phone || "",
+          Message: contactPayload.notes || ""
+        };
+
+  const contact = buildLeadContact({
+    fields,
+    source: contactPayload.source || "MANUAL ENTRY",
+    pageId: contactPayload.pageId,
+    pageTitle: contactPayload.pageTitle,
+    blockId: contactPayload.blockId,
+    blockLabel: contactPayload.blockLabel,
+    ownerUserId: userId,
+    existing: contactPayload.id
+      ? existingContacts.find((row: any) => row.id === contactPayload.id) || {
+          id: contactPayload.id
+        }
+      : null
+  });
+
+  if (contactPayload.tags) contact.tags = contactPayload.tags;
+  if (contactPayload.name) contact.name = contactPayload.name;
+  if (contactPayload.email) {
+    contact.email = contactPayload.email;
+    contact.maskedEmail = contact.email;
+  }
+  store["contacts"] = upsertOwnerContact(existingContacts, contact);
+  writeStore(store);
+  res.json({ success: true, contact });
+});
+
+app.delete("/api/contacts/:id", requireAuth, (req, res) => {
+  const userId = (req as any).authUser.id as string;
+  const store = readStore();
+  const id = req.params.id;
+  const contacts = Array.isArray(store["contacts"]) ? store["contacts"] : [];
+  store["contacts"] = contacts.filter(
+    (row: any) => !(row.id === id && (!row.ownerUserId || row.ownerUserId === userId || row.ownerUserId === "local"))
+  );
+  writeStore(store);
+  res.json({ success: true });
 });
 
 // Bio page templates API (shared template library)

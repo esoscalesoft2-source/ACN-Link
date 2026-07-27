@@ -505,13 +505,87 @@ export default function PublicBioPageView({
     },
     onLeadSubmit: (blockId, email, destinationEmail) => {
       const blockLabel = blocks.find((entry) => entry.id === blockId)?.label || blockId;
+      const fields = { Email: email };
       trackAction("register", `Smart Form Lead: ${blockLabel}`, { email });
-      if (destinationEmail) {
-        const mailUrl = `mailto:${destinationEmail}?subject=${encodeURIComponent(`Lead from ${displayTitle}`)}&body=${encodeURIComponent(email)}`;
-        window.location.href = mailUrl;
-      }
-      triggerToast("Thanks! Your email was sent to the page owner.");
-      setLeadEmails((prev) => ({ ...prev, [blockId]: "" }));
+      void fetch(apiUrl("/api/leads"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pageId,
+          pageTitle: displayTitle,
+          pageSlug,
+          blockId,
+          blockLabel,
+          source: "SMART FORM",
+          sourceDomain: typeof window !== "undefined" ? window.location.hostname : "",
+          templateId: customDetails?.templateId || "",
+          templateName: customDetails?.templateName || "",
+          fields
+        })
+      })
+        .then(async (response) => {
+          if (!response.ok) throw new Error("Lead save failed");
+          const payload = await response.json().catch(() => null);
+          if (payload?.contact) {
+            const { broadcastLeadCaptured } = await import("../lib/contactCapture");
+            broadcastLeadCaptured(payload.contact);
+          } else {
+            window.dispatchEvent(new CustomEvent("acn-contacts-updated"));
+          }
+          setLeadEmails((prev) => ({ ...prev, [blockId]: "" }));
+        })
+        .catch(() => {
+          if (destinationEmail) {
+            const mailUrl = `mailto:${destinationEmail}?subject=${encodeURIComponent(`Lead from ${displayTitle}`)}&body=${encodeURIComponent(email)}`;
+            window.location.href = mailUrl;
+          }
+          setLeadEmails((prev) => ({ ...prev, [blockId]: "" }));
+        });
+    },
+    onFormSubmit: (blockId, data, destinationEmail) => {
+      const blockLabel = blocks.find((entry) => entry.id === blockId)?.label || blockId;
+      const emailValue = Object.entries(data).find(
+        ([key, value]) => key.toLowerCase().includes("email") || String(value).includes("@")
+      )?.[1];
+      trackAction("register", `Form Lead: ${blockLabel}`, {
+        email: emailValue || undefined,
+        name: data.Name || data.name || undefined
+      });
+      void fetch(apiUrl("/api/leads"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pageId,
+          pageTitle: displayTitle,
+          pageSlug,
+          blockId,
+          blockLabel,
+          source: "BIO FORM",
+          sourceDomain: typeof window !== "undefined" ? window.location.hostname : "",
+          templateId: customDetails?.templateId || "",
+          templateName: customDetails?.templateName || "",
+          fields: data
+        })
+      })
+        .then(async (response) => {
+          if (!response.ok) throw new Error("Lead save failed");
+          const payload = await response.json().catch(() => null);
+          if (payload?.contact) {
+            const { broadcastLeadCaptured } = await import("../lib/contactCapture");
+            broadcastLeadCaptured(payload.contact);
+          } else {
+            window.dispatchEvent(new CustomEvent("acn-contacts-updated"));
+          }
+        })
+        .catch(() => {
+          if (destinationEmail) {
+            const body = Object.entries(data)
+              .map(([key, value]) => `${key}: ${value}`)
+              .join("\n");
+            const mailUrl = `mailto:${destinationEmail}?subject=${encodeURIComponent(`Form submission from ${displayTitle}`)}&body=${encodeURIComponent(body)}`;
+            window.location.href = mailUrl;
+          }
+        });
     },
     onVCardDownload: (block) => {
       const contactName =

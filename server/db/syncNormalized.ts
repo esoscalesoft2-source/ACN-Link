@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AuthStoreShape } from "../auth/crypto";
+import { mergeContactLists } from "../leads";
 
 const PAGE_META_KEYS = new Set([
   "auth",
@@ -291,7 +292,8 @@ export async function syncRootToNormalizedTables(
           captured_at: c.capturedAt || null,
           masked_email: c.maskedEmail || "",
           masked_phone: c.maskedPhone || "",
-          marketing_opt_in: c.marketingOptIn ?? null
+          marketing_opt_in: c.marketingOptIn ?? null,
+          owner_user_id: c.ownerUserId ?? null
         })
       },
       {
@@ -543,7 +545,6 @@ export function mergeWorkspaceIntoRoot(
 ): Record<string, unknown> {
   const next = { ...root };
   const keys = [
-    "contacts",
     "whatsapp_campaigns",
     "whatsapp_templates",
     "smart_links",
@@ -561,6 +562,12 @@ export function mergeWorkspaceIntoRoot(
 
   for (const key of keys) {
     if (key in workspace) next[key] = workspace[key];
+  }
+
+  // Contacts: never replace wholesale — public bio Form/Smart Form leads live on the server
+  // and would otherwise be wiped by a stale browser localStorage sync.
+  if ("contacts" in workspace) {
+    next.contacts = mergeContactLists(root.contacts, workspace.contacts, ownerUserId);
   }
 
   if ("bio_page_drafts" in workspace) {

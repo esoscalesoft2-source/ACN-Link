@@ -1,4 +1,4 @@
-import type { BlockRecord } from "../../lib/bioBlocks";
+import type { BlockRecord, FormSubmitPayload } from "../../lib/bioBlocks";
 
 export type BlockRenderMode = "preview" | "live";
 
@@ -15,6 +15,7 @@ export interface BlockRendererHandlers {
   onCopy?: (text: string, label?: string) => void;
   onSpinOpen?: (blockId: string) => void;
   onLeadSubmit?: (blockId: string, email: string, destinationEmail?: string) => void;
+  onFormSubmit?: (blockId: string, data: FormSubmitPayload, destinationEmail?: string) => void;
   onVCardDownload?: (block: BlockRecord) => void;
   onTrack?: (action: string, label: string, meta?: Record<string, unknown>) => void;
   leadEmails?: Record<string, string>;

@@ -57,19 +57,20 @@ const THEME_TOKEN_MAP: Record<
     coverFade: "linear-gradient(to top, #161b27 0%, rgba(22, 27, 39, 0.92) 22%, rgba(22, 27, 39, 0.45) 50%, transparent 100%)"
   },
   light: {
-    screenBg: "#ffffff",
+    screenBg: "#f1f5f9",
     screenText: "#0f172a",
     title: "#0f172a",
     handle: "#4f46e5",
-    bioBg: "#f8fafc",
+    bioBg: "#ffffff",
     bioText: "#64748b",
-    bioBorder: "#e2e8f0",
+    bioBorder: "#cbd5e1",
     heading: "#0f172a",
     bodyText: "#475569",
-    bodyBg: "#f8fafc",
+    bodyBg: "#ffffff",
     bodyBorder: "#e2e8f0",
     footer: "#94a3b8",
-    coverFade: "linear-gradient(to top, #ffffff 0%, rgba(255, 255, 255, 0.92) 20%, rgba(255, 255, 255, 0.45) 48%, transparent 100%)"
+    coverFade:
+      "linear-gradient(to top, #f1f5f9 0%, rgba(241, 245, 249, 0.92) 20%, rgba(241, 245, 249, 0.45) 48%, transparent 100%)"
   },
   midnight: {
     screenBg: "#0f172a",

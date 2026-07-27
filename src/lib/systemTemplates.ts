@@ -31,8 +31,8 @@ export const TEMPLATE_CATEGORIES = [
   "Business"
 ] as const;
 
-/** 32 system templates + Start from Scratch card = 33 gallery items (screenshot reference). */
-export const SYSTEM_TEMPLATE_COUNT = 32;
+/** 50 system templates + Start from Scratch card = 51 gallery items. */
+export const SYSTEM_TEMPLATE_COUNT = 50;
 export const GALLERY_TEMPLATE_COUNT = SYSTEM_TEMPLATE_COUNT + 1;
 
 interface SystemTemplateDefinition {
@@ -712,6 +712,367 @@ const SYSTEM_TEMPLATE_DEFINITIONS: SystemTemplateDefinition[] = [
       b("bf4", "Button", "Tutorial Playlist", "https://youtube.com"),
       b("bf5", "Coupon", "Beauty Code", "GLOW20"),
       b("bf6", "Socials", "Beauty & style", "Socials")
+    ]
+  }),
+  defineTemplate({
+    id: "t-saas-startup",
+    name: "SaaS Startup Launch",
+    category: "Launch",
+    description: "Clean product launch page with demo, pricing, and waitlist signup.",
+    imageUrl: "https://images.unsplash.com/photo-1553877522-43269d4ea984?auto=format&fit=crop&q=80&w=500",
+    usedCount: "19x",
+    price: "Free",
+    title: "SaaS Startup Launch",
+    bio: "Ship faster with a focused product hub for demos and early access.",
+    coverImage: "https://images.unsplash.com/photo-1553877522-43269d4ea984?auto=format&fit=crop&q=80&w=800",
+    blocks: [
+      b("ss1", "Header", "🚀 SaaS Startup"),
+      b("ss2", "Text", "One link for product demo, pricing, and waitlist."),
+      b("ss3", "Button", "Watch Demo", "https://example.com/demo"),
+      b("ss4", "Button", "View Pricing", "https://example.com/pricing"),
+      b("ss5", "Smart Form", "Join Waitlist", "Waitlist Form"),
+      b("ss6", "Socials", "Product updates", "Socials")
+    ]
+  }),
+  defineTemplate({
+    id: "t-podcast-show",
+    name: "Podcast Show Hub",
+    category: "Personal",
+    description: "Episode links, guest spots, and subscribe buttons for podcasters.",
+    imageUrl: "https://images.unsplash.com/photo-1478737270239-2f02b77fc618?auto=format&fit=crop&q=80&w=500",
+    usedCount: "28x",
+    price: "Free",
+    title: "Podcast Show Hub",
+    bio: "New episodes every week — listen, subscribe, and join the community.",
+    coverImage: "https://images.unsplash.com/photo-1478737270239-2f02b77fc618?auto=format&fit=crop&q=80&w=800",
+    blocks: [
+      b("ph1", "Header", "🎙️ Podcast Show"),
+      b("ph2", "Text", "Conversations that help you grow."),
+      b("ph3", "Button", "Latest Episode", "https://example.com/episode"),
+      b("ph4", "Button", "Apple Podcasts", "https://podcasts.apple.com"),
+      b("ph5", "Button", "Spotify", "https://spotify.com"),
+      b("ph6", "Smart Form", "Guest Pitch", "Guest Form")
+    ]
+  }),
+  defineTemplate({
+    id: "t-lawyer-firm",
+    name: "Law Firm Profile",
+    category: "Professional",
+    description: "Trust-focused layout for attorneys with practice areas and consult booking.",
+    imageUrl: "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&q=80&w=500",
+    usedCount: "17x",
+    price: "Free",
+    title: "Law Firm Profile",
+    bio: "Clear guidance for business, family, and property matters.",
+    coverImage: "https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&q=80&w=800",
+    blocks: [
+      b("lf1", "Header", "⚖️ Law Firm"),
+      b("lf2", "Text", "Practical legal support with transparent next steps."),
+      b("lf3", "Button", "Practice Areas", "https://example.com/practice"),
+      b("lf4", "Smart Form", "Book Consultation", "Legal Form"),
+      b("lf5", "vCard", "Save Contact", "Attorney"),
+      b("lf6", "Socials", "Firm updates", "Socials")
+    ]
+  }),
+  defineTemplate({
+    id: "t-dentist-clinic",
+    name: "Dental Clinic",
+    category: "Business",
+    description: "Friendly clinic page for appointments, services, and patient forms.",
+    imageUrl: "https://images.unsplash.com/photo-1606811841689-23dfddce3e95?auto=format&fit=crop&q=80&w=500",
+    usedCount: "22x",
+    price: "Free",
+    title: "Dental Clinic",
+    bio: "Gentle dental care for the whole family — book your visit online.",
+    coverImage: "https://images.unsplash.com/photo-1606811841689-23dfddce3e95?auto=format&fit=crop&q=80&w=800",
+    blocks: [
+      b("dc1", "Header", "😁 Dental Clinic"),
+      b("dc2", "Text", "Cleanings, whitening, and smile makeovers."),
+      b("dc3", "Button", "Our Services", "https://example.com/services"),
+      b("dc4", "Smart Form", "Book Appointment", "Clinic Form"),
+      b("dc5", "WhatsApp", "Chat with Clinic", "https://wa.me/1234567890"),
+      b("dc6", "Socials", "Smile gallery", "Socials")
+    ]
+  }),
+  defineTemplate({
+    id: "t-pet-grooming",
+    name: "Pet Grooming Salon",
+    category: "Business",
+    description: "Cute pet-care layout for grooming packages and booking links.",
+    imageUrl: "https://images.unsplash.com/photo-1548199973-03cce0bbc87b?auto=format&fit=crop&q=80&w=500",
+    usedCount: "26x",
+    price: "Free",
+    title: "Pet Grooming Salon",
+    bio: "Baths, trims, and spa days your pets will love.",
+    coverImage: "https://images.unsplash.com/photo-1548199973-03cce0bbc87b?auto=format&fit=crop&q=80&w=800",
+    blocks: [
+      b("pg1", "Header", "🐾 Pet Grooming"),
+      b("pg2", "Text", "Gentle grooming for dogs and cats."),
+      b("pg3", "Shop", "Grooming Packages", "Services"),
+      b("pg4", "Smart Form", "Book a Slot", "Pet Form"),
+      b("pg5", "WhatsApp", "Ask About Pets", "https://wa.me/1234567890"),
+      b("pg6", "Instagram", "Happy Pets", "https://instagram.com")
+    ]
+  }),
+  defineTemplate({
+    id: "t-online-tutor",
+    name: "Online Tutor",
+    category: "Freelancer",
+    description: "Education-focused page for courses, slots, and student resources.",
+    imageUrl: "https://images.unsplash.com/photo-1503676260728-1c00da094a0b?auto=format&fit=crop&q=80&w=500",
+    usedCount: "33x",
+    price: "Free",
+    title: "Online Tutor",
+    bio: "Personalized tutoring for exams, languages, and skill growth.",
+    coverImage: "https://images.unsplash.com/photo-1503676260728-1c00da094a0b?auto=format&fit=crop&q=80&w=800",
+    blocks: [
+      b("ot1", "Header", "📖 Online Tutor"),
+      b("ot2", "Text", "1:1 sessions and small group classes."),
+      b("ot3", "Button", "Course Catalog", "https://example.com/courses"),
+      b("ot4", "Smart Form", "Book a Trial Class", "Tutor Form"),
+      b("ot5", "PDF", "Study Guide", "https://example.com/guide.pdf"),
+      b("ot6", "Socials", "Study tips", "Socials")
+    ]
+  }),
+  defineTemplate({
+    id: "t-nonprofit-cause",
+    name: "Nonprofit Cause",
+    category: "Agency",
+    description: "Impact-driven layout for donations, volunteer signup, and updates.",
+    imageUrl: "https://images.unsplash.com/photo-1488521787991-ed7bbaae773c?auto=format&fit=crop&q=80&w=500",
+    usedCount: "15x",
+    price: "Free",
+    title: "Nonprofit Cause",
+    bio: "Join the mission — donate, volunteer, and share the impact.",
+    coverImage: "https://images.unsplash.com/photo-1488521787991-ed7bbaae773c?auto=format&fit=crop&q=80&w=800",
+    blocks: [
+      b("nc1", "Header", "❤️ Nonprofit Cause"),
+      b("nc2", "Text", "Community programs funded by people like you."),
+      b("nc3", "Button", "Donate Now", "https://example.com/donate"),
+      b("nc4", "Smart Form", "Volunteer Signup", "Volunteer Form"),
+      b("nc5", "Button", "Impact Report", "https://example.com/impact"),
+      b("nc6", "Socials", "Cause updates", "Socials")
+    ]
+  }),
+  defineTemplate({
+    id: "t-crypto-web3",
+    name: "Web3 Creator Hub",
+    category: "Link in Bio",
+    description: "Modern creator hub for NFT drops, community, and socials.",
+    imageUrl: "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?auto=format&fit=crop&q=80&w=500",
+    usedCount: "18x",
+    price: "Free",
+    title: "Web3 Creator Hub",
+    bio: "Drops, community links, and the latest from the chain.",
+    coverImage: "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?auto=format&fit=crop&q=80&w=800",
+    blocks: [
+      b("cw1", "Header", "🌐 Web3 Creator"),
+      b("cw2", "Text", "Explore drops and join the community."),
+      b("cw3", "Button", "Latest Drop", "https://example.com/drop"),
+      b("cw4", "Button", "Discord Community", "https://discord.com"),
+      b("cw5", "Countdown", "Next Mint", "5"),
+      b("cw6", "Socials", "On-chain updates", "Socials")
+    ]
+  }),
+  defineTemplate({
+    id: "t-handmade-crafts",
+    name: "Handmade Crafts Shop",
+    category: "E-commerce",
+    description: "Warm handmade storefront for artisans and craft brands.",
+    imageUrl: "https://images.unsplash.com/photo-1452860606245-08befc0ff44b?auto=format&fit=crop&q=80&w=500",
+    usedCount: "29x",
+    price: "Free",
+    title: "Handmade Crafts Shop",
+    bio: "Small-batch crafts made with care — shop or custom order.",
+    coverImage: "https://images.unsplash.com/photo-1452860606245-08befc0ff44b?auto=format&fit=crop&q=80&w=800",
+    blocks: [
+      b("hc1", "Header", "🧶 Handmade Crafts"),
+      b("hc2", "Text", "Unique pieces for homes and gifts."),
+      b("hc3", "Shop", "Shop Collection", "Products List"),
+      b("hc4", "Button", "Custom Orders", "https://example.com/custom"),
+      b("hc5", "WhatsApp", "Order on WhatsApp", "https://wa.me/1234567890"),
+      b("hc6", "Instagram", "Craft Stories", "https://instagram.com")
+    ]
+  }),
+  defineTemplate({
+    id: "t-architect-studio",
+    name: "Architecture Studio",
+    category: "Portfolio",
+    description: "Minimal studio portfolio for architects and design firms.",
+    imageUrl: "https://images.unsplash.com/photo-1487958449943-2429e8be8625?auto=format&fit=crop&q=80&w=500",
+    usedCount: "14x",
+    price: "Free",
+    title: "Architecture Studio",
+    bio: "Residential and commercial projects with thoughtful design.",
+    coverImage: "https://images.unsplash.com/photo-1487958449943-2429e8be8625?auto=format&fit=crop&q=80&w=800",
+    blocks: [
+      b("as1", "Header", "🏛️ Architecture Studio"),
+      b("as2", "Text", "Concept to construction — selected works."),
+      b("as3", "Button", "Project Portfolio", "https://example.com/projects"),
+      b("as4", "Smart Form", "Start a Project", "Studio Form"),
+      b("as5", "PDF", "Studio Brochure", "https://example.com/brochure.pdf"),
+      b("as6", "Socials", "Studio feed", "Socials")
+    ]
+  }),
+  defineTemplate({
+    id: "t-gaming-streamer",
+    name: "Gaming Streamer",
+    category: "Link in Bio",
+    description: "High-energy streamer page for schedules, merch, and channel links.",
+    imageUrl: "https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&q=80&w=500",
+    usedCount: "41x",
+    price: "Free",
+    suggested: true,
+    title: "Gaming Streamer",
+    bio: "Live streams, highlights, and merch for the community.",
+    coverImage: "https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&q=80&w=800",
+    blocks: [
+      b("gs1", "Header", "🎮 Gaming Streamer"),
+      b("gs2", "Text", "Watch live, clip highlights, grab merch."),
+      b("gs3", "Button", "Watch on Twitch", "https://twitch.tv"),
+      b("gs4", "Button", "YouTube Channel", "https://youtube.com"),
+      b("gs5", "Shop", "Merch Drop", "Products List"),
+      b("gs6", "Socials", "Community links", "Socials")
+    ]
+  }),
+  defineTemplate({
+    id: "t-nutritionist",
+    name: "Nutrition Coach",
+    category: "Professional",
+    description: "Wellness coach page for meal plans, programs, and bookings.",
+    imageUrl: "https://images.unsplash.com/photo-1490645935967-10de9cf7d6ea?auto=format&fit=crop&q=80&w=500",
+    usedCount: "25x",
+    price: "Free",
+    title: "Nutrition Coach",
+    bio: "Simple nutrition plans that fit real life.",
+    coverImage: "https://images.unsplash.com/photo-1490645935967-10de9cf7d6ea?auto=format&fit=crop&q=80&w=800",
+    blocks: [
+      b("nu1", "Header", "🥗 Nutrition Coach"),
+      b("nu2", "Text", "Meal plans, habits, and accountability."),
+      b("nu3", "Button", "Programs", "https://example.com/programs"),
+      b("nu4", "Smart Form", "Free Assessment", "Nutrition Form"),
+      b("nu5", "PDF", "Starter Meal Guide", "https://example.com/meals.pdf"),
+      b("nu6", "WhatsApp", "Ask a Question", "https://wa.me/1234567890")
+    ]
+  }),
+  defineTemplate({
+    id: "t-car-dealership",
+    name: "Car Dealership",
+    category: "Business",
+    description: "Automotive showroom links for inventory, test drives, and offers.",
+    imageUrl: "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&q=80&w=500",
+    usedCount: "20x",
+    price: "Free",
+    title: "Car Dealership",
+    bio: "New and certified pre-owned vehicles — book a test drive today.",
+    coverImage: "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&q=80&w=800",
+    blocks: [
+      b("cd1", "Header", "🚗 Car Dealership"),
+      b("cd2", "Text", "Browse inventory and reserve a test drive."),
+      b("cd3", "Shop", "Featured Vehicles", "Inventory"),
+      b("cd4", "Smart Form", "Book Test Drive", "Auto Form"),
+      b("cd5", "Coupon", "Finance Offer", "DRIVE10"),
+      b("cd6", "WhatsApp", "Talk to Sales", "https://wa.me/1234567890")
+    ]
+  }),
+  defineTemplate({
+    id: "t-language-school",
+    name: "Language School",
+    category: "Business",
+    description: "School page for course levels, trials, and student enrollment.",
+    imageUrl: "https://images.unsplash.com/photo-1434030216411-0b793f4b4173?auto=format&fit=crop&q=80&w=500",
+    usedCount: "16x",
+    price: "Free",
+    title: "Language School",
+    bio: "Learn languages with expert teachers — online and in-person.",
+    coverImage: "https://images.unsplash.com/photo-1434030216411-0b793f4b4173?auto=format&fit=crop&q=80&w=800",
+    blocks: [
+      b("ls1", "Header", "🗣️ Language School"),
+      b("ls2", "Text", "Beginner to advanced courses in multiple languages."),
+      b("ls3", "Button", "Course Levels", "https://example.com/levels"),
+      b("ls4", "Smart Form", "Book Free Trial", "School Form"),
+      b("ls5", "PDF", "Prospectus", "https://example.com/prospectus.pdf"),
+      b("ls6", "Socials", "Campus life", "Socials")
+    ]
+  }),
+  defineTemplate({
+    id: "t-hr-recruiter",
+    name: "HR Recruiter",
+    category: "Professional",
+    description: "Talent recruiter hub for open roles, resume drop, and LinkedIn.",
+    imageUrl: "https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&q=80&w=500",
+    usedCount: "13x",
+    price: "Free",
+    title: "HR Recruiter",
+    bio: "Connecting great people with growing companies.",
+    coverImage: "https://images.unsplash.com/photo-1521737711867-e3b97375f902?auto=format&fit=crop&q=80&w=800",
+    blocks: [
+      b("hr1", "Header", "💼 HR Recruiter"),
+      b("hr2", "Text", "Open roles and confidential career conversations."),
+      b("hr3", "Button", "Open Positions", "https://example.com/jobs"),
+      b("hr4", "Smart Form", "Submit Resume", "Recruit Form"),
+      b("hr5", "Button", "LinkedIn Profile", "https://linkedin.com"),
+      b("hr6", "vCard", "Save Contact", "Recruiter")
+    ]
+  }),
+  defineTemplate({
+    id: "t-bakery-cafe",
+    name: "Bakery & Patisserie",
+    category: "Restaurants",
+    description: "Sweet bakery page for menus, catering, and daily specials.",
+    imageUrl: "https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&q=80&w=500",
+    usedCount: "30x",
+    price: "Free",
+    title: "Bakery & Patisserie",
+    bio: "Fresh breads, cakes, and catering for every celebration.",
+    coverImage: "https://images.unsplash.com/photo-1509440159596-0249088772ff?auto=format&fit=crop&q=80&w=800",
+    blocks: [
+      b("bk1", "Header", "🥐 Bakery & Patisserie"),
+      b("bk2", "Text", "Baked daily — preorder cakes and catering trays."),
+      b("bk3", "PDF", "Today's Menu", "https://example.com/menu.pdf"),
+      b("bk4", "Shop", "Popular Treats", "Products List"),
+      b("bk5", "WhatsApp", "Order Cake", "https://wa.me/1234567890"),
+      b("bk6", "Instagram", "Fresh From Oven", "https://instagram.com")
+    ]
+  }),
+  defineTemplate({
+    id: "t-ux-freelancer",
+    name: "UX Designer Freelance",
+    category: "Freelancer",
+    description: "Portfolio and booking page for UX designers and product freelancers.",
+    imageUrl: "https://images.unsplash.com/photo-1586717791821-3f44a563fa4c?auto=format&fit=crop&q=80&w=500",
+    usedCount: "27x",
+    price: "Free",
+    title: "UX Designer Freelance",
+    bio: "Product UX, research, and design systems for startups.",
+    coverImage: "https://images.unsplash.com/photo-1586717791821-3f44a563fa4c?auto=format&fit=crop&q=80&w=800",
+    blocks: [
+      b("ux1", "Header", "🧩 UX Designer"),
+      b("ux2", "Text", "Case studies and available for hire."),
+      b("ux3", "Button", "Case Studies", "https://example.com/work"),
+      b("ux4", "Smart Form", "Project Inquiry", "UX Form"),
+      b("ux5", "PDF", "Resume", "https://example.com/resume.pdf"),
+      b("ux6", "Socials", "Design notes", "Socials")
+    ]
+  }),
+  defineTemplate({
+    id: "t-sports-academy",
+    name: "Sports Academy",
+    category: "Industry",
+    description: "Academy hub for training programs, schedules, and enrollment.",
+    imageUrl: "https://images.unsplash.com/photo-1461896836934-ffe607ba6850?auto=format&fit=crop&q=80&w=500",
+    usedCount: "21x",
+    price: "Free",
+    title: "Sports Academy",
+    bio: "Youth and adult training programs that build champions.",
+    coverImage: "https://images.unsplash.com/photo-1461896836934-ffe607ba6850?auto=format&fit=crop&q=80&w=800",
+    blocks: [
+      b("sa1", "Header", "🏅 Sports Academy"),
+      b("sa2", "Text", "Training camps, coaching, and match schedules."),
+      b("sa3", "Button", "Programs", "https://example.com/programs"),
+      b("sa4", "Smart Form", "Enroll Now", "Academy Form"),
+      b("sa5", "Countdown", "Next Tryout", "7"),
+      b("sa6", "Socials", "Team highlights", "Socials")
     ]
   })
 ];

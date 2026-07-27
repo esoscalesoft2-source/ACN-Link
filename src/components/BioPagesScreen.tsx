@@ -45,6 +45,35 @@ import {
   createDefaultLinkSpinFields,
   createDefaultVCardFields,
   createDefaultEventFields,
+  createDefaultFormFields,
+  createDefaultSuccessScreenFields,
+  createDefaultFaqItems,
+  createDefaultTestimonials,
+  createDefaultTipOptions,
+  createDefaultMapFields,
+  createDefaultImageFields,
+  createDefaultDividerFields,
+  createDefaultCallFields,
+  createDefaultEmailFields,
+  createDefaultBannerFields,
+  createDefaultGalleryBlockFields,
+  createDefaultPricingPlans,
+  createDefaultStatItems,
+  createFaqItem,
+  createTestimonial,
+  createTipOption,
+  createGalleryItem,
+  createPricingPlan,
+  createStatItem,
+  getFaqItems,
+  getTestimonials,
+  getTipOptions,
+  getGalleryItems,
+  getPricingPlans,
+  getStatItems,
+  getCallPhone,
+  getEmailAddress,
+  resolveGoogleMap,
   defaultCountdownEndAt,
   fromDatetimeLocalValue,
   getCurrencySymbol,
@@ -55,6 +84,8 @@ import {
   type BlockRecord
 } from "../lib/bioBlocks";
 import BlockRenderer, { type BlockRendererHandlers } from "./bio/BlockRenderer";
+import FormFieldsEditor from "./bio/FormFieldsEditor";
+import FormSuccessEditorFields from "./bio/FormSuccessEditorFields";
 import BioPageThemePicker from "./bio/BioPageThemePicker";
 import CoverPhotoView from "./bio/CoverPhotoView";
 import CoverPhotoControls from "./bio/CoverPhotoControls";
@@ -99,6 +130,16 @@ import {
   Globe,
   Image as ImageIcon,
   LayoutGrid,
+  ClipboardList,
+  HelpCircle,
+  Quote,
+  HeartHandshake,
+  MapPin,
+  Minus,
+  Phone,
+  Mail,
+  Megaphone,
+  DollarSign,
   Eye,
   Search,
   MoreVertical,
@@ -238,6 +279,20 @@ const getBlockIcon = (type: string) => {
       return <div className={`${iconClass} acn-editor-block-icon--whatsapp`}><MessageSquare className="h-4 w-4" /></div>;
     case "Smart Form":
       return <div className={`${iconClass} acn-editor-block-icon--violet`}><User className="h-4 w-4" /></div>;
+    case "Form":
+      return <div className={`${iconClass} acn-editor-block-icon--violet`}><ClipboardList className="h-4 w-4" /></div>;
+    case "FAQ":
+      return <div className={`${iconClass} acn-editor-block-icon--indigo`}><HelpCircle className="h-4 w-4" /></div>;
+    case "Testimonials":
+      return <div className={`${iconClass} acn-editor-block-icon--amber`}><Quote className="h-4 w-4" /></div>;
+    case "Tip Jar":
+      return <div className={`${iconClass} acn-editor-block-icon--rose`}><HeartHandshake className="h-4 w-4" /></div>;
+    case "Map":
+      return <div className={`${iconClass} acn-editor-block-icon--rose`}><MapPin className="h-4 w-4" /></div>;
+    case "Image":
+      return <div className={`${iconClass} acn-editor-block-icon--indigo`}><ImageIcon className="h-4 w-4" /></div>;
+    case "Divider":
+      return <div className={`${iconClass} acn-editor-block-icon--slate`}><Minus className="h-4 w-4" /></div>;
     case "vCard":
       return <div className={`${iconClass} acn-editor-block-icon--neutral`}><User className="h-4 w-4" /></div>;
     case "Video":
@@ -250,8 +305,49 @@ const getBlockIcon = (type: string) => {
       return <div className={`${iconClass} acn-editor-block-icon--pdf text-sm`}>📄</div>;
     case "Events":
       return <div className={`${iconClass} acn-editor-block-icon--indigo`}><Calendar className="h-4 w-4" /></div>;
+    case "Call":
+      return <div className={`${iconClass} acn-editor-block-icon--neutral`}><Phone className="h-4 w-4" /></div>;
+    case "Email":
+      return <div className={`${iconClass} acn-editor-block-icon--indigo`}><Mail className="h-4 w-4" /></div>;
+    case "Banner":
+      return <div className={`${iconClass} acn-editor-block-icon--sky`}><Megaphone className="h-4 w-4" /></div>;
+    case "Stats":
+      return <div className={`${iconClass} acn-editor-block-icon--green`}><BarChart2 className="h-4 w-4" /></div>;
+    case "Pricing":
+      return <div className={`${iconClass} acn-editor-block-icon--amber`}><DollarSign className="h-4 w-4" /></div>;
     default:
       return <div className={`${iconClass} acn-editor-block-icon--slate`}><Link className="h-4 w-4" /></div>;
+  }
+};
+
+const getBlockDefaultBgColor = (type: string) => {
+  switch (type) {
+    case "WhatsApp":
+      return "#25D366";
+    case "Coupon":
+      return "#EFF6FF";
+    case "Call":
+      return "#0f172a";
+    case "Email":
+      return "#4f46e5";
+    case "Button":
+    case "Deep Link":
+      return BIO_LINK.bg;
+    default:
+      return "#FFFFFF";
+  }
+};
+
+const getBlockDefaultTextColor = (type: string) => {
+  switch (type) {
+    case "WhatsApp":
+    case "Deep Link":
+    case "Button":
+    case "Call":
+    case "Email":
+      return BIO_LINK.text;
+    default:
+      return "#0F172A";
   }
 };
 
@@ -316,9 +412,14 @@ export default function BioPagesScreen({
   const [searchParams] = useSearchParams();
   const editIdFromUrl = searchParams.get("edit");
   const editFromDomain = searchParams.get("source") === "domain";
+  // History list only — template sessions stay out until Save Draft / Publish
+  const historyPages = React.useMemo(
+    () => pages.filter((page) => !page.isUncommitted),
+    [pages]
+  );
   const sortedPages = React.useMemo(
-    () => sortPagesByPublicLinkKind(pages, domains, platformSubdomains),
-    [pages, domains, platformSubdomains]
+    () => sortPagesByPublicLinkKind(historyPages, domains, platformSubdomains),
+    [historyPages, domains, platformSubdomains]
   );
   const customDomainPages = React.useMemo(
     () => sortedPages.filter((page) => resolveBioPagePublicLink(page, domains, platformSubdomains).kind === "custom"),
@@ -666,6 +767,13 @@ export default function BioPagesScreen({
   };
 
   const handleBlockDragOver = (e: React.DragEvent, index: number) => {
+    // Form field reordering happens inside FormFieldsEditor — don't hijack it.
+    if (
+      e.dataTransfer.types.includes("text/form-field-reorder") ||
+      e.dataTransfer.types.includes("application/x-form-field-index")
+    ) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     const isReorder =
@@ -697,6 +805,13 @@ export default function BioPagesScreen({
   };
 
   const handleBlockDrop = (e: React.DragEvent, targetIndex: number) => {
+    // Ignore drops that belong to Form Fields editor.
+    if (
+      e.dataTransfer.types.includes("text/form-field-reorder") ||
+      e.dataTransfer.types.includes("application/x-form-field-index")
+    ) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
 
@@ -705,6 +820,42 @@ export default function BioPagesScreen({
     const position = dropTarget?.index === targetIndex ? dropTarget.position : getAccordionDropPosition(e);
 
     if (blockType && !sourceIndexStr) {
+      // Guard: form-field index / garbage must not create a block.
+      const knownTypes = new Set([
+        "Button",
+        "Text",
+        "Header",
+        "Socials",
+        "Shop",
+        "Coupon",
+        "Countdown",
+        "Deep Link",
+        "Link Spin",
+        "WhatsApp",
+        "Smart Form",
+        "Form",
+        "FAQ",
+        "Testimonials",
+        "Tip Jar",
+        "Video",
+        "Music",
+        "Gallery",
+        "PDF",
+        "Image",
+        "vCard",
+        "Events",
+        "Map",
+        "Divider",
+        "Call",
+        "Email",
+        "Banner",
+        "Stats",
+        "Pricing"
+      ]);
+      if (!knownTypes.has(blockType)) {
+        resetAccordionDragState();
+        return;
+      }
       const insertIndex = getInsertIndex(targetIndex, position, editorBlocks.length);
       handleAddBlock(blockType, insertIndex);
       triggerToast(`✨ Added ${blockType} at position ${insertIndex + 1}`);
@@ -954,6 +1105,20 @@ export default function BioPagesScreen({
         setLinkedTemplateId(savedTemplate.id);
       }
 
+      // Persist template linkage on the live page document so public leads record it
+      if (selectedEditPage) {
+        persistPagePreviewLocalOnly(
+          selectedEditPage.id,
+          selectedEditPage.slug,
+          editorBlocks,
+          {
+            ...buildCurrentPreviewDetails(),
+            templateId: savedTemplate.id,
+            templateName: name
+          }
+        );
+      }
+
       const serverOk = await syncTemplateToServer(savedTemplate);
       setShowSaveTemplateModal(false);
 
@@ -988,14 +1153,31 @@ export default function BioPagesScreen({
       editorCoverSettings
     );
 
-  const buildCurrentPreviewDetails = (theme: BioPagePreviewTheme = editorPageTheme) => ({
+  const buildCurrentPreviewDetails = (theme: BioPagePreviewTheme = editorPageTheme) => {
+    const linkedTpl = linkedTemplateId
+      ? savedTemplates.find((tpl) => tpl.id === linkedTemplateId)
+      : null;
+    return {
       title: editorTitle,
       bio: editorBio,
       coverPhoto: editorCoverPhoto,
-    handle: getStoredHandle(editorHandle),
-    pageTheme: theme,
-    coverSettings: editorCoverSettings
-  });
+      handle: getStoredHandle(editorHandle),
+      pageTheme: theme,
+      coverSettings: editorCoverSettings,
+      templateId: linkedTpl?.id || linkedTemplateId || undefined,
+      templateName: linkedTpl?.name || undefined
+    };
+  };
+
+  const leadCaptureMeta = () => {
+    const details = buildCurrentPreviewDetails();
+    return {
+      sourceDomain: typeof window !== "undefined" ? window.location.hostname : "",
+      pageSlug: selectedEditPage?.slug || "",
+      templateId: details.templateId || "",
+      templateName: details.templateName || ""
+    };
+  };
 
   const previewHandle = formatDisplayHandle(editorHandle, editorTitle, { fallbackToTitle: false });
   const handlePlaceholder = suggestedHandlePlaceholder(editorTitle);
@@ -1021,7 +1203,81 @@ export default function BioPagesScreen({
     leadEmails: Object.fromEntries(
       editorBlocks.filter((block) => block.type === "Smart Form").map((block) => [block.id, simulatorLeadEmail])
     ),
-    onLeadEmailChange: (_blockId, email) => setSimulatorLeadEmail(email)
+    onLeadEmailChange: (_blockId, email) => setSimulatorLeadEmail(email),
+    onLeadSubmit: (blockId, email) => {
+      if (!selectedEditPage) return;
+      const blockLabel = editorBlocks.find((entry) => entry.id === blockId)?.label || blockId;
+      const meta = leadCaptureMeta();
+      void fetch(apiUrl("/api/leads"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pageId: selectedEditPage.id,
+          pageTitle: editorTitle || selectedEditPage.title,
+          blockId,
+          blockLabel,
+          source: "SMART FORM",
+          fields: { Email: email },
+          ...meta
+        })
+      })
+        .then(async (response) => {
+          if (!response.ok) throw new Error("save failed");
+          const payload = await response.json().catch(() => null);
+          if (payload?.contact) {
+            const { broadcastLeadCaptured } = await import("../lib/contactCapture");
+            broadcastLeadCaptured(payload.contact);
+          } else {
+            window.dispatchEvent(new CustomEvent("acn-contacts-updated"));
+          }
+          onNotify({
+            type: "contact_added",
+            title: "Lead saved to Contacts",
+            message: `${email} was added from ${blockLabel}.`,
+            targetScreen: ScreenId.CONTACTS
+          });
+        })
+        .catch(() => {
+          triggerSimulatorToast("Could not save lead to Contacts yet.");
+        });
+    },
+    onFormSubmit: (blockId, data) => {
+      if (!selectedEditPage) return;
+      const blockLabel = editorBlocks.find((entry) => entry.id === blockId)?.label || blockId;
+      const meta = leadCaptureMeta();
+      void fetch(apiUrl("/api/leads"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pageId: selectedEditPage.id,
+          pageTitle: editorTitle || selectedEditPage.title,
+          blockId,
+          blockLabel,
+          source: "BIO FORM",
+          fields: data,
+          ...meta
+        })
+      })
+        .then(async (response) => {
+          if (!response.ok) throw new Error("save failed");
+          const payload = await response.json().catch(() => null);
+          if (payload?.contact) {
+            const { broadcastLeadCaptured } = await import("../lib/contactCapture");
+            broadcastLeadCaptured(payload.contact);
+          } else {
+            window.dispatchEvent(new CustomEvent("acn-contacts-updated"));
+          }
+          onNotify({
+            type: "contact_added",
+            title: "Form lead saved to Contacts",
+            message: `Submission from "${blockLabel}" is now in Contacts.`,
+            targetScreen: ScreenId.CONTACTS
+          });
+        })
+        .catch(() => {
+          triggerSimulatorToast("Could not save form lead to Contacts yet.");
+        });
+    }
   };
 
   const syncPreviewStorage = (theme: BioPagePreviewTheme = editorPageTheme) => {
@@ -1188,7 +1444,8 @@ export default function BioPagesScreen({
       bio: editorBio,
       coverPhoto: editorCoverPhoto,
       handle: editorHandle,
-      status: nextStatus
+      status: nextStatus,
+      isUncommitted: undefined
     });
     return pages.map((page) =>
       page.id === selectedEditPage.id
@@ -1198,7 +1455,8 @@ export default function BioPagesScreen({
             bio: editorBio,
             coverPhoto: editorCoverPhoto,
             handle: editorHandle,
-            status: nextStatus
+            status: nextStatus,
+            isUncommitted: undefined
           }
         : page
     );
@@ -1362,6 +1620,45 @@ export default function BioPagesScreen({
       case "Smart Form":
         label = "Get in Touch Leads Form";
         value = "leads@example.com";
+        extraFields = createDefaultSuccessScreenFields();
+        break;
+      case "Form":
+        label = "Contact Form";
+        value = "leads@example.com";
+        extraFields = createDefaultFormFields();
+        break;
+      case "FAQ":
+        label = "Frequently Asked Questions";
+        value = "FAQ";
+        extraFields = { faqItems: createDefaultFaqItems() };
+        break;
+      case "Testimonials":
+        label = "What people say";
+        value = "Testimonials";
+        extraFields = { testimonials: createDefaultTestimonials() };
+        break;
+      case "Tip Jar":
+        label = "Support my work";
+        value = "https://www.buymeacoffee.com/";
+        extraFields = {
+          description: "Choose an amount to support",
+          tipOptions: createDefaultTipOptions()
+        };
+        break;
+      case "Map":
+        label = "Find Us";
+        value = "https://www.google.com/maps/search/?api=1&query=Marina+Beach,+Chennai";
+        extraFields = createDefaultMapFields();
+        break;
+      case "Image":
+        label = "Featured Image";
+        value = "";
+        extraFields = createDefaultImageFields();
+        break;
+      case "Divider":
+        label = "Divider";
+        value = "line";
+        extraFields = createDefaultDividerFields();
         break;
       case "vCard":
         label = "Save Contact Card Info";
@@ -1381,7 +1678,35 @@ export default function BioPagesScreen({
       case "Gallery":
         label = "View Gallery Showcase";
         value = "Showcase Images";
-        extraFields = { img1: "", img2: "", img3: "" };
+        extraFields = createDefaultGalleryBlockFields();
+        break;
+      case "Call":
+        label = "Call Us Now";
+        value = "+919876543210";
+        extraFields = createDefaultCallFields();
+        break;
+      case "Email":
+        label = "Email Me";
+        value = "hello@example.com";
+        extraFields = createDefaultEmailFields();
+        break;
+      case "Banner":
+        label = "Announcement";
+        value = "Banner";
+        extraFields = createDefaultBannerFields();
+        break;
+      case "Stats":
+        label = "Why choose us";
+        value = "Stats";
+        extraFields = { statItems: createDefaultStatItems() };
+        break;
+      case "Pricing":
+        label = "Our Pricing";
+        value = "Pricing";
+        extraFields = {
+          description: "Pick the plan that fits you best",
+          pricingPlans: createDefaultPricingPlans()
+        };
         break;
       case "PDF":
         label = "Download PDF Catalog";
@@ -1709,6 +2034,11 @@ export default function BioPagesScreen({
   };
 
   const exitEditor = () => {
+    const discardingUncommitted =
+      selectedEditPage?.isUncommitted === true ||
+      pages.find((page) => page.id === selectedEditPage?.id)?.isUncommitted === true;
+    const discardPageId = discardingUncommitted ? selectedEditPage?.id : null;
+
     editorExitingRef.current = true;
     editorCloseConfirmOpenRef.current = false;
     setSelectedEditPage(null);
@@ -1720,6 +2050,11 @@ export default function BioPagesScreen({
     clearInitialActiveEditPageId();
     clearInitialActiveTemplateId();
     navigate(screenToPath(ScreenId.BIO_PAGES), { replace: true });
+
+    // Back / close without Save Draft or Publish — do not keep a Bio Pages history row
+    if (discardPageId) {
+      onDeletePage(discardPageId);
+    }
   };
 
   const closeEditor = () => {
@@ -1974,7 +2309,7 @@ export default function BioPagesScreen({
     <PageShell>
       <PageHeader
         title="BioLink Pages"
-        subtitle={`Create link pages to share on Instagram, WhatsApp & business cards · ${pages.length} page${pages.length !== 1 ? "s" : ""}`}
+        subtitle={`Create link pages to share on Instagram, WhatsApp & business cards · ${historyPages.length} page${historyPages.length !== 1 ? "s" : ""}`}
         actions={
           <>
           <button
@@ -2166,7 +2501,7 @@ export default function BioPagesScreen({
 
       {/* Pages Container list */}
       <Workspace className="acn-section-card">
-        {pages.length === 0 ? (
+        {historyPages.length === 0 ? (
           <div className="flex flex-col items-center justify-center text-center py-12">
             <div className="h-14 w-14 bg-indigo-500/10 text-[#6366f1] rounded-2xl flex items-center justify-center mb-6">
               <Smartphone className="h-6 w-6" />
@@ -2654,7 +2989,7 @@ export default function BioPagesScreen({
           </header>
 
           {editorTab === "Edit" && !showPublishSuccess && (
-            <div className="lg:hidden acn-editor-subnav px-3 sm:px-6 py-2 shrink-0">
+            <div className="lg:hidden acn-editor-subnav px-2 sm:px-3 py-2 shrink-0">
               <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 gap-1">
                 {(
                   [
@@ -2874,8 +3209,8 @@ export default function BioPagesScreen({
                     </div>
 
                     <div className="acn-editor-blocks-palette">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-3">
-                        GROWTH & SALES BLOCKS
+                      <span className="acn-editor-section-label mb-3">
+                        Growth & Sales
                       </span>
                       <div className="grid grid-cols-2 gap-2.5">
                         <button
@@ -2989,12 +3324,163 @@ export default function BioPagesScreen({
                             <span className="text-[9px] text-slate-400 block">Gather lead info</span>
                           </div>
                         </button>
+
+                        <button
+                          draggable={true}
+                          onDragStart={(e) => handleDragStartBlockType(e, "Form")}
+                          onClick={() => handleAddBlock("Form")}
+                          className="flex items-center gap-2.5 bg-white hover:bg-slate-50 border border-slate-200 p-3 rounded-2xl text-left transition-all group relative shadow-sm hover:border-slate-300 cursor-grab active:cursor-grabbing hover:scale-[1.02]"
+                          title="Drag this block to the Manager or Live Preview, or click to add"
+                        >
+                          <span className="h-8 w-8 rounded-xl bg-violet-50 text-violet-600 flex items-center justify-center font-bold text-sm group-hover:scale-105 transition-transform">
+                            📝
+                          </span>
+                          <div>
+                            <span className="text-xs font-bold block text-slate-800">Form</span>
+                            <span className="text-[9px] text-slate-400 block">Custom dynamic fields</span>
+                          </div>
+                        </button>
+
+                        <button
+                          draggable={true}
+                          onDragStart={(e) => handleDragStartBlockType(e, "FAQ")}
+                          onClick={() => handleAddBlock("FAQ")}
+                          className="flex items-center gap-2.5 bg-white hover:bg-slate-50 border border-slate-200 p-3 rounded-2xl text-left transition-all group relative shadow-sm hover:border-slate-300 cursor-grab active:cursor-grabbing hover:scale-[1.02]"
+                          title="Drag this block to the Manager or Live Preview, or click to add"
+                        >
+                          <span className="h-8 w-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-sm group-hover:scale-105 transition-transform">
+                            ❓
+                          </span>
+                          <div>
+                            <span className="text-xs font-bold block text-slate-800">FAQ</span>
+                            <span className="text-[9px] text-slate-400 block">Q&A accordion</span>
+                          </div>
+                        </button>
+
+                        <button
+                          draggable={true}
+                          onDragStart={(e) => handleDragStartBlockType(e, "Testimonials")}
+                          onClick={() => handleAddBlock("Testimonials")}
+                          className="flex items-center gap-2.5 bg-white hover:bg-slate-50 border border-slate-200 p-3 rounded-2xl text-left transition-all group relative shadow-sm hover:border-slate-300 cursor-grab active:cursor-grabbing hover:scale-[1.02]"
+                          title="Drag this block to the Manager or Live Preview, or click to add"
+                        >
+                          <span className="h-8 w-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold text-sm group-hover:scale-105 transition-transform">
+                            💬
+                          </span>
+                          <div>
+                            <span className="text-xs font-bold block text-slate-800">Testimonials</span>
+                            <span className="text-[9px] text-slate-400 block">Customer quotes</span>
+                          </div>
+                        </button>
+
+                        <button
+                          draggable={true}
+                          onDragStart={(e) => handleDragStartBlockType(e, "Tip Jar")}
+                          onClick={() => handleAddBlock("Tip Jar")}
+                          className="flex items-center gap-2.5 bg-white hover:bg-slate-50 border border-slate-200 p-3 rounded-2xl text-left transition-all group relative shadow-sm hover:border-slate-300 cursor-grab active:cursor-grabbing hover:scale-[1.02]"
+                          title="Drag this block to the Manager or Live Preview, or click to add"
+                        >
+                          <span className="h-8 w-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold text-sm group-hover:scale-105 transition-transform">
+                            ☕
+                          </span>
+                          <div>
+                            <span className="text-xs font-bold block text-slate-800">Tip Jar</span>
+                            <span className="text-[9px] text-slate-400 block">Support / donate links</span>
+                          </div>
+                        </button>
                       </div>
                     </div>
 
                     <div className="acn-editor-blocks-palette">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-3">
-                        MEDIA BLOCKS
+                      <span className="acn-editor-section-label mb-3">
+                        Engage & Convert
+                      </span>
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <button
+                          draggable={true}
+                          onDragStart={(e) => handleDragStartBlockType(e, "Call")}
+                          onClick={() => handleAddBlock("Call")}
+                          className="flex items-center gap-2.5 bg-white hover:bg-slate-50 border border-slate-200 p-3 rounded-2xl text-left transition-all group relative shadow-sm hover:border-slate-300 cursor-grab active:cursor-grabbing hover:scale-[1.02]"
+                          title="Drag this block to the Manager or Live Preview, or click to add"
+                        >
+                          <span className="h-8 w-8 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center font-bold text-sm group-hover:scale-105 transition-transform">
+                            📞
+                          </span>
+                          <div>
+                            <span className="text-xs font-bold block text-slate-800">Call</span>
+                            <span className="text-[9px] text-slate-400 block">Tap-to-call button</span>
+                          </div>
+                        </button>
+
+                        <button
+                          draggable={true}
+                          onDragStart={(e) => handleDragStartBlockType(e, "Email")}
+                          onClick={() => handleAddBlock("Email")}
+                          className="flex items-center gap-2.5 bg-white hover:bg-slate-50 border border-slate-200 p-3 rounded-2xl text-left transition-all group relative shadow-sm hover:border-slate-300 cursor-grab active:cursor-grabbing hover:scale-[1.02]"
+                          title="Drag this block to the Manager or Live Preview, or click to add"
+                        >
+                          <span className="h-8 w-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-sm group-hover:scale-105 transition-transform">
+                            ✉️
+                          </span>
+                          <div>
+                            <span className="text-xs font-bold block text-slate-800">Email</span>
+                            <span className="text-[9px] text-slate-400 block">Mailto contact button</span>
+                          </div>
+                        </button>
+
+                        <button
+                          draggable={true}
+                          onDragStart={(e) => handleDragStartBlockType(e, "Banner")}
+                          onClick={() => handleAddBlock("Banner")}
+                          className="flex items-center gap-2.5 bg-white hover:bg-slate-50 border border-slate-200 p-3 rounded-2xl text-left transition-all group relative shadow-sm hover:border-slate-300 cursor-grab active:cursor-grabbing hover:scale-[1.02]"
+                          title="Drag this block to the Manager or Live Preview, or click to add"
+                        >
+                          <span className="h-8 w-8 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center font-bold text-sm group-hover:scale-105 transition-transform">
+                            📢
+                          </span>
+                          <div>
+                            <span className="text-xs font-bold block text-slate-800">Banner</span>
+                            <span className="text-[9px] text-slate-400 block">Announcements & offers</span>
+                          </div>
+                        </button>
+
+                        <button
+                          draggable={true}
+                          onDragStart={(e) => handleDragStartBlockType(e, "Stats")}
+                          onClick={() => handleAddBlock("Stats")}
+                          className="flex items-center gap-2.5 bg-white hover:bg-slate-50 border border-slate-200 p-3 rounded-2xl text-left transition-all group relative shadow-sm hover:border-slate-300 cursor-grab active:cursor-grabbing hover:scale-[1.02]"
+                          title="Drag this block to the Manager or Live Preview, or click to add"
+                        >
+                          <span className="h-8 w-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-sm group-hover:scale-105 transition-transform">
+                            📊
+                          </span>
+                          <div>
+                            <span className="text-xs font-bold block text-slate-800">Stats</span>
+                            <span className="text-[9px] text-slate-400 block">Social proof numbers</span>
+                          </div>
+                        </button>
+
+                        <button
+                          draggable={true}
+                          onDragStart={(e) => handleDragStartBlockType(e, "Pricing")}
+                          onClick={() => handleAddBlock("Pricing")}
+                          className="flex items-center gap-2.5 bg-white hover:bg-slate-50 border border-slate-200 p-3 rounded-2xl text-left transition-all group relative shadow-sm hover:border-slate-300 cursor-grab active:cursor-grabbing hover:scale-[1.02]"
+                          title="Drag this block to the Manager or Live Preview, or click to add"
+                        >
+                          <span className="h-8 w-8 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center font-bold text-sm group-hover:scale-105 transition-transform">
+                            💰
+                          </span>
+                          <div>
+                            <span className="text-xs font-bold block text-slate-800">Pricing</span>
+                            <span className="text-[9px] text-slate-400 block">Dynamic plan cards</span>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="acn-editor-blocks-palette">
+                      <span className="acn-editor-section-label mb-3">
+                        Media
                       </span>
                       <div className="grid grid-cols-2 gap-2.5">
                         <button
@@ -3060,12 +3546,28 @@ export default function BioPagesScreen({
                             <span className="text-[9px] text-slate-400 block">Download documents</span>
                           </div>
                         </button>
+
+                        <button
+                          draggable={true}
+                          onDragStart={(e) => handleDragStartBlockType(e, "Image")}
+                          onClick={() => handleAddBlock("Image")}
+                          className="flex items-center gap-2.5 bg-white hover:bg-slate-50 border border-slate-200 p-3 rounded-2xl text-left transition-all group relative shadow-sm hover:border-slate-300 cursor-grab active:cursor-grabbing hover:scale-[1.02]"
+                          title="Drag this block to the Manager or Live Preview, or click to add"
+                        >
+                          <span className="h-8 w-8 rounded-xl bg-fuchsia-50 text-fuchsia-600 flex items-center justify-center font-bold text-sm group-hover:scale-105 transition-transform">
+                            🖼️
+                          </span>
+                          <div>
+                            <span className="text-xs font-bold block text-slate-800">Image</span>
+                            <span className="text-[9px] text-slate-400 block">Single image + link</span>
+                          </div>
+                        </button>
                       </div>
                     </div>
 
                     <div className="acn-editor-blocks-palette">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-3">
-                        OTHERS BLOCKS
+                      <span className="acn-editor-section-label mb-3">
+                        Other
                       </span>
                       <div className="grid grid-cols-2 gap-2.5">
                         <button
@@ -3097,6 +3599,38 @@ export default function BioPagesScreen({
                           <div>
                             <span className="text-xs font-bold block text-slate-800">Events</span>
                             <span className="text-[9px] text-slate-400 block">Meetups & RSVP events</span>
+                          </div>
+                        </button>
+
+                        <button
+                          draggable={true}
+                          onDragStart={(e) => handleDragStartBlockType(e, "Map")}
+                          onClick={() => handleAddBlock("Map")}
+                          className="flex items-center gap-2.5 bg-white hover:bg-slate-50 border border-slate-200 p-3 rounded-2xl text-left transition-all group relative shadow-sm hover:border-slate-300 cursor-grab active:cursor-grabbing hover:scale-[1.02]"
+                          title="Drag this block to the Manager or Live Preview, or click to add"
+                        >
+                          <span className="h-8 w-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold text-sm group-hover:scale-105 transition-transform">
+                            📍
+                          </span>
+                          <div>
+                            <span className="text-xs font-bold block text-slate-800">Map</span>
+                            <span className="text-[9px] text-slate-400 block">Location & directions</span>
+                          </div>
+                        </button>
+
+                        <button
+                          draggable={true}
+                          onDragStart={(e) => handleDragStartBlockType(e, "Divider")}
+                          onClick={() => handleAddBlock("Divider")}
+                          className="flex items-center gap-2.5 bg-white hover:bg-slate-50 border border-slate-200 p-3 rounded-2xl text-left transition-all group relative shadow-sm hover:border-slate-300 cursor-grab active:cursor-grabbing hover:scale-[1.02]"
+                          title="Drag this block to the Manager or Live Preview, or click to add"
+                        >
+                          <span className="h-8 w-8 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center font-bold text-sm group-hover:scale-105 transition-transform">
+                            —
+                          </span>
+                          <div>
+                            <span className="text-xs font-bold block text-slate-800">Divider</span>
+                            <span className="text-[9px] text-slate-400 block">Spacing & separators</span>
                           </div>
                         </button>
                       </div>
@@ -3334,14 +3868,19 @@ export default function BioPagesScreen({
                     <div className="space-y-3.5 acn-editor-blocks-section">
                       <div className="acn-editor-blocks-section__head flex items-center justify-between gap-3">
                         <span className="acn-editor-section-label">
-                          Page Blocks (Accordions)
+                          Page Blocks
                         </span>
                         <div className="flex items-center gap-2 shrink-0">
                           {isAccordionReorderDrag && draggedBlockIndex !== null && (
                             <span className="acn-editor-section-badge animate-pulse">
                               {dropTarget
                                 ? `Drop at #${getDropDisplayPosition(dropTarget, editorBlocks.length)}`
-                                : "Drag block up/down to reorder"}
+                                : "Drag to reorder"}
+                            </span>
+                          )}
+                          {expandedBlockId && !isAccordionReorderDrag && (
+                            <span className="acn-editor-section-badge acn-editor-section-badge--editing">
+                              Editing
                             </span>
                           )}
                           <span className="acn-editor-blocks-section__meta">
@@ -3356,19 +3895,19 @@ export default function BioPagesScreen({
                         onDragEnter={handleDragEnterManager}
                         onDragLeave={handleDragLeaveManager}
                         onDrop={handleDropOnManager}
-                        className={`acn-editor-accordions no-scrollbar space-y-3 p-4 rounded-3xl border transition-all overflow-x-hidden shadow-inner ${
+                        className={`acn-editor-accordions no-scrollbar space-y-3.5 p-3.5 sm:p-4 rounded-[1.25rem] border transition-all overflow-x-hidden ${
                           isDraggingOverManager
-                            ? "ring-2 ring-indigo-400 ring-opacity-50 border-indigo-400"
+                            ? "ring-2 ring-indigo-400/60 border-indigo-400"
                             : isAccordionReorderDrag
                               ? "border-indigo-300/80"
                               : ""
-                        }`}
+                        } ${expandedBlockId ? "acn-editor-accordions--has-active" : ""}`}
                       >
                         {editorBlocks.length === 0 ? (
-                          <div className="text-center py-16 text-slate-400 text-xs font-semibold space-y-2">
-                            <div className="text-2xl">📥</div>
-                            <p>No blocks added yet.</p>
-                            <p className="font-normal text-[11px] opacity-75">Drag any block from the left or click them to get started!</p>
+                          <div className="acn-editor-empty text-center py-14 space-y-2.5">
+                            <div className="acn-editor-empty__icon" aria-hidden>📥</div>
+                            <p className="acn-editor-empty__title">No blocks yet</p>
+                            <p className="acn-editor-empty__hint">Drag from Block Library or click a tile to start building.</p>
                           </div>
                         ) : (
                           editorBlocks.map((block, idx) => {
@@ -3383,12 +3922,13 @@ export default function BioPagesScreen({
                                 key={block.id}
                                 id={`editor-block-${block.id}`}
                                 data-accordion-block
+                                data-editing={isExpanded ? "true" : "false"}
                                 onDragOver={(e) => handleBlockDragOver(e, idx)}
                                 onDrop={(e) => handleBlockDrop(e, idx)}
                                 className={`relative flex flex-col acn-editor-accordion-item rounded-2xl overflow-hidden transition-all duration-200 ${
                                   isExpanded
-                                    ? "border-[#6366f1] shadow-md ring-1 ring-[#6366f1]/15"
-                                    : "shadow-sm hover:shadow"
+                                    ? "acn-editor-accordion-item--editing border-[#6366f1] shadow-md ring-1 ring-[#6366f1]/25"
+                                    : "acn-editor-accordion-item--idle shadow-sm hover:shadow"
                                 } ${isCurrentlyDragged ? "opacity-40 scale-[0.98] border-dashed border-[#6366f1]" : ""}`}
                               >
                                 {showDropBefore && (
@@ -3407,15 +3947,19 @@ export default function BioPagesScreen({
                                     </span>
                                   </div>
                                 )}
-                                {/* Accordion Header — drag anywhere on the main row; chevron toggles expand */}
-                                <div className="flex items-center justify-between p-3.5 select-none acn-editor-accordion-header transition-colors">
+                                {/* Accordion Header — drag to reorder; chevron expands/collapses */}
+                                <div
+                                  className={`flex items-center justify-between p-3.5 select-none acn-editor-accordion-header transition-colors ${
+                                    isExpanded ? "acn-editor-accordion-header--editing" : ""
+                                  }`}
+                                >
                                   <div
                                     draggable
                                     onDragStart={(e) => handleBlockDragStart(e, idx)}
                                     onDragEnd={handleBlockDragEnd}
                                     onClick={() => handleAccordionHeaderActivate(block.id, isExpanded)}
                                     className="flex items-center gap-3 min-w-0 flex-1 cursor-grab active:cursor-grabbing acn-editor-accordion-drag-handle rounded-xl -m-1 p-1"
-                                    title="Drag anywhere here to reorder · click to expand"
+                                    title="Drag to reorder · click to expand"
                                   >
                                     <span
                                       className="text-slate-300 group-hover:text-[#6366f1] shrink-0 px-0.5 pointer-events-none"
@@ -3426,7 +3970,7 @@ export default function BioPagesScreen({
                                     
                                     {getBlockIcon(block.type)}
 
-                                    <div className="min-w-0 pointer-events-none">
+                                    <div className="min-w-0 pointer-events-none flex-1">
                                       <span className="block text-xs font-bold text-slate-800 truncate" title={block.label}>
                                         {block.label}
                                       </span>
@@ -3434,6 +3978,12 @@ export default function BioPagesScreen({
                                         {block.type}
                                       </span>
                                     </div>
+
+                                    {isExpanded && (
+                                      <span className="acn-editor-accordion-editing-pill shrink-0 pointer-events-none">
+                                        Editing
+                                      </span>
+                                    )}
                                   </div>
 
                                       <button
@@ -3446,7 +3996,11 @@ export default function BioPagesScreen({
                                           e.stopPropagation();
                                       toggleAccordionBlock(block.id, isExpanded);
                                     }}
-                                    className="flex items-center justify-center shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-[#6366f1] hover:bg-indigo-50/80 transition-colors cursor-pointer"
+                                    className={`flex items-center justify-center shrink-0 p-1.5 rounded-lg transition-colors cursor-pointer ${
+                                      isExpanded
+                                        ? "text-[#6366f1] bg-indigo-100/80 hover:bg-indigo-100"
+                                        : "text-slate-400 hover:text-[#6366f1] hover:bg-indigo-50/80"
+                                    }`}
                                   >
                                     {isExpanded ? (
                                       <ChevronUp className="h-4 w-4 text-[#6366f1]" />
@@ -3458,7 +4012,11 @@ export default function BioPagesScreen({
 
                                 {/* Accordion Content */}
                                 {isExpanded && (
-                                  <div className="border-t p-4 acn-editor-accordion-body space-y-6 text-left animate-in fade-in slide-in-from-top-1 duration-200">
+                                  <div className="border-t p-4 acn-editor-accordion-body acn-editor-accordion-body--editing space-y-6 text-left animate-in fade-in slide-in-from-top-1 duration-200">
+                                    <div className="acn-editor-accordion-editing-banner">
+                                      You are editing <strong>{block.type}</strong>
+                                      {block.label ? <> · {block.label}</> : null}
+                                    </div>
                                     {/* Widget Title */}
                                     {block.type !== "Shop" && (
                                       <div>
@@ -3514,25 +4072,50 @@ export default function BioPagesScreen({
                                     )}
 
                                     {/* Destination URL or Action values */}
-                                    {block.type !== "Header" && block.type !== "Text" && block.type !== "Shop" && block.type !== "Gallery" && block.type !== "Coupon" && block.type !== "Socials" && block.type !== "Countdown" && (
+                                    {block.type !== "Header" &&
+                                      block.type !== "Text" &&
+                                      block.type !== "Shop" &&
+                                      block.type !== "Gallery" &&
+                                      block.type !== "Coupon" &&
+                                      block.type !== "Socials" &&
+                                      block.type !== "Countdown" &&
+                                      block.type !== "FAQ" &&
+                                      block.type !== "Testimonials" &&
+                                      block.type !== "Call" &&
+                                      block.type !== "Email" &&
+                                      block.type !== "Banner" &&
+                                      block.type !== "Stats" &&
+                                      block.type !== "Pricing" &&
+                                      block.type !== "Divider" &&
+                                      block.type !== "Image" && (
                                       <div>
                                         <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                                           {block.type === "WhatsApp"
                                             ? "WhatsApp Number"
-                                            : block.type === "Smart Form"
+                                            : block.type === "Smart Form" || block.type === "Form"
                                               ? "Email for Leads"
                                               : block.type === "Deep Link"
                                                 ? "Deep link URL"
                                                 : block.type === "Link Spin"
                                                   ? "Button label"
-                                                  : "Destination Link / Action"}
+                                                  : block.type === "Map"
+                                                    ? "Google Maps URL"
+                                                    : block.type === "Tip Jar"
+                                                      ? "Fallback payment URL"
+                                                      : "Destination Link / Action"}
                                         </label>
                                         <input
                                           type="text"
                                           value={block.value}
                                           onChange={(e) => handleUpdateBlockField(block.id, "value", e.target.value)}
                                           className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800 font-mono"
-                                          placeholder={block.type === "WhatsApp" ? "e.g. +919876543210" : "e.g. https://yoursite.com"}
+                                          placeholder={
+                                            block.type === "WhatsApp"
+                                              ? "e.g. +919876543210"
+                                              : block.type === "Map"
+                                                ? "Paste Google Maps share link here"
+                                                : "e.g. https://yoursite.com"
+                                          }
                                         />
                                       </div>
                                     )}
@@ -3855,31 +4438,75 @@ export default function BioPagesScreen({
                                       </div>
                                     )}
 
-                                    {/* Gallery Specific Fields */}
+                                    {/* Gallery — dynamic images */}
                                     {block.type === "Gallery" && (
-                                      <div className="space-y-2">
-                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Image URLs (up to 3)</label>
-                                        <input
-                                          type="text"
-                                          value={(block as any).img1 || ""}
-                                          onChange={(e) => handleUpdateBlockField(block.id, "img1", e.target.value)}
-                                          placeholder="Image 1 URL"
-                                          className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
-                                        />
-                                        <input
-                                          type="text"
-                                          value={(block as any).img2 || ""}
-                                          onChange={(e) => handleUpdateBlockField(block.id, "img2", e.target.value)}
-                                          placeholder="Image 2 URL (Optional)"
-                                          className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
-                                        />
-                                        <input
-                                          type="text"
-                                          value={(block as any).img3 || ""}
-                                          onChange={(e) => handleUpdateBlockField(block.id, "img3", e.target.value)}
-                                          placeholder="Image 3 URL (Optional)"
-                                          className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
-                                        />
+                                      <div className="space-y-3 pt-1 border-t border-slate-100">
+                                        <div className="flex items-center justify-between">
+                                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Gallery images</label>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const items = [...getGalleryItems(block as BlockRecord), createGalleryItem()];
+                                              handleUpdateBlockField(block.id, "galleryItems", items);
+                                            }}
+                                            className="text-[10px] font-bold text-[#6366f1] bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-lg"
+                                          >
+                                            + Add Image
+                                          </button>
+                                        </div>
+                                        {getGalleryItems(block as BlockRecord).map((item, index) => (
+                                          <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 space-y-2">
+                                            <div className="flex items-center justify-between">
+                                              <span className="text-[10px] font-bold text-slate-500">Image {index + 1}</span>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  const items = getGalleryItems(block as BlockRecord).filter((_, i) => i !== index);
+                                                  handleUpdateBlockField(block.id, "galleryItems", items);
+                                                }}
+                                                className="text-rose-500 hover:bg-rose-50 p-1 rounded"
+                                              >
+                                                <Trash2 className="h-3.5 w-3.5" />
+                                              </button>
+                                            </div>
+                                            <input
+                                              type="url"
+                                              value={item.url}
+                                              onChange={(e) => {
+                                                const items = getGalleryItems(block as BlockRecord).map((entry, i) =>
+                                                  i === index ? { ...entry, url: e.target.value } : entry
+                                                );
+                                                handleUpdateBlockField(block.id, "galleryItems", items);
+                                              }}
+                                              className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs font-mono"
+                                              placeholder="Image URL"
+                                            />
+                                            <input
+                                              type="text"
+                                              value={item.caption}
+                                              onChange={(e) => {
+                                                const items = getGalleryItems(block as BlockRecord).map((entry, i) =>
+                                                  i === index ? { ...entry, caption: e.target.value } : entry
+                                                );
+                                                handleUpdateBlockField(block.id, "galleryItems", items);
+                                              }}
+                                              className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs"
+                                              placeholder="Caption (optional)"
+                                            />
+                                            <input
+                                              type="url"
+                                              value={item.linkUrl}
+                                              onChange={(e) => {
+                                                const items = getGalleryItems(block as BlockRecord).map((entry, i) =>
+                                                  i === index ? { ...entry, linkUrl: e.target.value } : entry
+                                                );
+                                                handleUpdateBlockField(block.id, "galleryItems", items);
+                                              }}
+                                              className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs font-mono"
+                                              placeholder="Click link URL (optional)"
+                                            />
+                                          </div>
+                                        ))}
                                       </div>
                                     )}
 
@@ -4005,26 +4632,793 @@ export default function BioPagesScreen({
                                       </div>
                                     )}
 
+                                    {/* Form Specific Fields — fully dynamic */}
+                                    {block.type === "Form" && (
+                                      <div className="space-y-3 pt-1 border-t border-slate-100">
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Description</label>
+                                          <input
+                                            type="text"
+                                            value={(block as any).description || ""}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "description", e.target.value)}
+                                            className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                                            placeholder="Optional short helper text"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Submit Button Text</label>
+                                          <input
+                                            type="text"
+                                            value={(block as any).submitLabel || "Submit"}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "submitLabel", e.target.value)}
+                                            className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                                            placeholder="Submit"
+                                          />
+                                        </div>
+                                        <FormSuccessEditorFields
+                                          block={block as BlockRecord}
+                                          onUpdate={(field, value) => handleUpdateBlockField(block.id, field, value)}
+                                        />
+                                        <FormFieldsEditor
+                                          block={block as BlockRecord}
+                                          onChange={(fields) => handleUpdateBlockField(block.id, "formFields", fields)}
+                                        />
+                                      </div>
+                                    )}
+
+                                    {block.type === "Smart Form" && (
+                                      <div className="space-y-3 pt-1 border-t border-slate-100">
+                                        <FormSuccessEditorFields
+                                          block={block as BlockRecord}
+                                          onUpdate={(field, value) => handleUpdateBlockField(block.id, field, value)}
+                                        />
+                                      </div>
+                                    )}
+
+                                    {/* FAQ dynamic items */}
+                                    {block.type === "FAQ" && (
+                                      <div className="space-y-3 pt-1 border-t border-slate-100">
+                                        <div className="flex items-center justify-between">
+                                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Questions</label>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const items = [...getFaqItems(block as BlockRecord), createFaqItem()];
+                                              handleUpdateBlockField(block.id, "faqItems", items);
+                                            }}
+                                            className="text-[10px] font-bold text-[#6366f1] bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-lg"
+                                          >
+                                            + Add Question
+                                          </button>
+                                        </div>
+                                        {getFaqItems(block as BlockRecord).map((item, index) => (
+                                          <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 space-y-2">
+                                            <div className="flex items-center justify-between">
+                                              <span className="text-[10px] font-bold text-slate-500">Q{index + 1}</span>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  const items = getFaqItems(block as BlockRecord).filter((_, i) => i !== index);
+                                                  handleUpdateBlockField(block.id, "faqItems", items);
+                                                }}
+                                                className="text-rose-500 hover:bg-rose-50 p-1 rounded"
+                                              >
+                                                <Trash2 className="h-3.5 w-3.5" />
+                                              </button>
+                                            </div>
+                                            <input
+                                              type="text"
+                                              value={item.question}
+                                              onChange={(e) => {
+                                                const items = getFaqItems(block as BlockRecord).map((entry, i) =>
+                                                  i === index ? { ...entry, question: e.target.value } : entry
+                                                );
+                                                handleUpdateBlockField(block.id, "faqItems", items);
+                                              }}
+                                              className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs"
+                                              placeholder="Question"
+                                            />
+                                            <textarea
+                                              value={item.answer}
+                                              onChange={(e) => {
+                                                const items = getFaqItems(block as BlockRecord).map((entry, i) =>
+                                                  i === index ? { ...entry, answer: e.target.value } : entry
+                                                );
+                                                handleUpdateBlockField(block.id, "faqItems", items);
+                                              }}
+                                              rows={2}
+                                              className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs resize-none"
+                                              placeholder="Answer"
+                                            />
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+
+                                    {/* Testimonials dynamic items */}
+                                    {block.type === "Testimonials" && (
+                                      <div className="space-y-3 pt-1 border-t border-slate-100">
+                                        <div className="flex items-center justify-between">
+                                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Quotes</label>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const items = [...getTestimonials(block as BlockRecord), createTestimonial()];
+                                              handleUpdateBlockField(block.id, "testimonials", items);
+                                            }}
+                                            className="text-[10px] font-bold text-[#6366f1] bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-lg"
+                                          >
+                                            + Add Quote
+                                          </button>
+                                        </div>
+                                        {getTestimonials(block as BlockRecord).map((item, index) => (
+                                          <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 space-y-2">
+                                            <div className="flex justify-end">
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  const items = getTestimonials(block as BlockRecord).filter((_, i) => i !== index);
+                                                  handleUpdateBlockField(block.id, "testimonials", items);
+                                                }}
+                                                className="text-rose-500 hover:bg-rose-50 p-1 rounded"
+                                              >
+                                                <Trash2 className="h-3.5 w-3.5" />
+                                              </button>
+                                            </div>
+                                            <textarea
+                                              value={item.quote}
+                                              onChange={(e) => {
+                                                const items = getTestimonials(block as BlockRecord).map((entry, i) =>
+                                                  i === index ? { ...entry, quote: e.target.value } : entry
+                                                );
+                                                handleUpdateBlockField(block.id, "testimonials", items);
+                                              }}
+                                              rows={2}
+                                              className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs resize-none"
+                                              placeholder="Quote"
+                                            />
+                                            <div className="grid grid-cols-2 gap-2">
+                                              <input
+                                                type="text"
+                                                value={item.author}
+                                                onChange={(e) => {
+                                                  const items = getTestimonials(block as BlockRecord).map((entry, i) =>
+                                                    i === index ? { ...entry, author: e.target.value } : entry
+                                                  );
+                                                  handleUpdateBlockField(block.id, "testimonials", items);
+                                                }}
+                                                className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs"
+                                                placeholder="Author"
+                                              />
+                                              <input
+                                                type="text"
+                                                value={item.role}
+                                                onChange={(e) => {
+                                                  const items = getTestimonials(block as BlockRecord).map((entry, i) =>
+                                                    i === index ? { ...entry, role: e.target.value } : entry
+                                                  );
+                                                  handleUpdateBlockField(block.id, "testimonials", items);
+                                                }}
+                                                className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs"
+                                                placeholder="Role / company"
+                                              />
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+
+                                    {/* Tip Jar dynamic options */}
+                                    {block.type === "Tip Jar" && (
+                                      <div className="space-y-3 pt-1 border-t border-slate-100">
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Description</label>
+                                          <input
+                                            type="text"
+                                            value={(block as any).description || ""}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "description", e.target.value)}
+                                            className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
+                                          />
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tip options</label>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const items = [...getTipOptions(block as BlockRecord), createTipOption()];
+                                              handleUpdateBlockField(block.id, "tipOptions", items);
+                                            }}
+                                            className="text-[10px] font-bold text-[#6366f1] bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-lg"
+                                          >
+                                            + Add Option
+                                          </button>
+                                        </div>
+                                        {getTipOptions(block as BlockRecord).map((item, index) => (
+                                          <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 space-y-2">
+                                            <div className="flex justify-end">
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  const items = getTipOptions(block as BlockRecord).filter((_, i) => i !== index);
+                                                  handleUpdateBlockField(block.id, "tipOptions", items);
+                                                }}
+                                                className="text-rose-500 hover:bg-rose-50 p-1 rounded"
+                                              >
+                                                <Trash2 className="h-3.5 w-3.5" />
+                                              </button>
+                                            </div>
+                                            <input
+                                              type="text"
+                                              value={item.label}
+                                              onChange={(e) => {
+                                                const items = getTipOptions(block as BlockRecord).map((entry, i) =>
+                                                  i === index ? { ...entry, label: e.target.value } : entry
+                                                );
+                                                handleUpdateBlockField(block.id, "tipOptions", items);
+                                              }}
+                                              className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs"
+                                              placeholder="Option label"
+                                            />
+                                            <div className="grid grid-cols-2 gap-2">
+                                              <input
+                                                type="text"
+                                                value={item.amount}
+                                                onChange={(e) => {
+                                                  const items = getTipOptions(block as BlockRecord).map((entry, i) =>
+                                                    i === index ? { ...entry, amount: e.target.value } : entry
+                                                  );
+                                                  handleUpdateBlockField(block.id, "tipOptions", items);
+                                                }}
+                                                className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs"
+                                                placeholder="Amount"
+                                              />
+                                              <input
+                                                type="text"
+                                                value={item.url}
+                                                onChange={(e) => {
+                                                  const items = getTipOptions(block as BlockRecord).map((entry, i) =>
+                                                    i === index ? { ...entry, url: e.target.value } : entry
+                                                  );
+                                                  handleUpdateBlockField(block.id, "tipOptions", items);
+                                                }}
+                                                className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs font-mono"
+                                                placeholder="Payment URL"
+                                              />
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+
+                                    {/* Map fields */}
+                                    {block.type === "Map" && (
+                                      <div className="space-y-3 pt-1 border-t border-slate-100">
+                                        <p className="text-[11px] text-slate-500 bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2 leading-relaxed">
+                                          Paste a <strong>Google Maps link</strong> (Share → Copy link) or type an address.
+                                          The live map preview updates automatically.
+                                        </p>
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Address / Place name</label>
+                                          <input
+                                            type="text"
+                                            value={(block as any).address || ""}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "address", e.target.value)}
+                                            className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
+                                            placeholder="e.g. Marina Beach, Chennai"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Subtext</label>
+                                          <input
+                                            type="text"
+                                            value={(block as any).subtext || ""}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "subtext", e.target.value)}
+                                            className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
+                                            placeholder="Visit us"
+                                          />
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                          <div>
+                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Zoom</label>
+                                            <select
+                                              value={(block as any).zoom || "15"}
+                                              onChange={(e) => handleUpdateBlockField(block.id, "zoom", e.target.value)}
+                                              className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
+                                            >
+                                              <option value="12">City</option>
+                                              <option value="14">Area</option>
+                                              <option value="15">Street</option>
+                                              <option value="17">Building</option>
+                                              <option value="19">Close-up</option>
+                                            </select>
+                                          </div>
+                                          <div>
+                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Map height</label>
+                                            <select
+                                              value={(block as any).mapHeight || "md"}
+                                              onChange={(e) => handleUpdateBlockField(block.id, "mapHeight", e.target.value)}
+                                              className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
+                                            >
+                                              <option value="sm">Small</option>
+                                              <option value="md">Medium</option>
+                                              <option value="lg">Large</option>
+                                            </select>
+                                          </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                          <div>
+                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Show address</label>
+                                            <select
+                                              value={(block as any).showAddress || "Yes"}
+                                              onChange={(e) => handleUpdateBlockField(block.id, "showAddress", e.target.value)}
+                                              className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
+                                            >
+                                              <option value="Yes">Yes</option>
+                                              <option value="No">No</option>
+                                            </select>
+                                          </div>
+                                          <div>
+                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Button label</label>
+                                            <input
+                                              type="text"
+                                              value={(block as any).buttonLabel || "Open in Google Maps"}
+                                              onChange={(e) => handleUpdateBlockField(block.id, "buttonLabel", e.target.value)}
+                                              className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
+                                            />
+                                          </div>
+                                        </div>
+                                        {(() => {
+                                          const preview = resolveGoogleMap(block as BlockRecord);
+                                          return preview.hasLocation ? (
+                                            <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-100 h-36 relative">
+                                              <iframe
+                                                title="Map editor preview"
+                                                src={preview.embedUrl}
+                                                className="absolute inset-0 h-full w-full border-0"
+                                                loading="lazy"
+                                                referrerPolicy="no-referrer-when-downgrade"
+                                              />
+                                            </div>
+                                          ) : (
+                                            <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+                                              Add a Maps URL above or an address to preview the real location.
+                                            </p>
+                                          );
+                                        })()}
+                                      </div>
+                                    )}
+
+                                    {/* Image fields */}
+                                    {block.type === "Image" && (
+                                      <div className="space-y-3 pt-1 border-t border-slate-100">
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Image URL</label>
+                                          <input
+                                            type="text"
+                                            value={(block as any).imageUrl || ""}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "imageUrl", e.target.value)}
+                                            className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs font-mono"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Click Link (optional)</label>
+                                          <input
+                                            type="text"
+                                            value={(block as any).linkUrl || ""}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "linkUrl", e.target.value)}
+                                            className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs font-mono"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Caption</label>
+                                          <input
+                                            type="text"
+                                            value={(block as any).caption || ""}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "caption", e.target.value)}
+                                            className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Alt Text</label>
+                                          <input
+                                            type="text"
+                                            value={(block as any).altText || ""}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "altText", e.target.value)}
+                                            className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
+                                          />
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Call block */}
+                                    {block.type === "Call" && (
+                                      <div className="space-y-3 pt-1 border-t border-slate-100">
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Phone number</label>
+                                          <input
+                                            type="tel"
+                                            value={(block as any).phone || getCallPhone(block as BlockRecord) || ""}
+                                            onChange={(e) => {
+                                              handleUpdateBlockField(block.id, "phone", e.target.value);
+                                              handleUpdateBlockField(block.id, "value", e.target.value);
+                                            }}
+                                            className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs font-mono"
+                                            placeholder="+919876543210"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Subtext (optional)</label>
+                                          <input
+                                            type="text"
+                                            value={(block as any).subtext || ""}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "subtext", e.target.value)}
+                                            className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
+                                            placeholder="Mon–Sat 10am–6pm"
+                                          />
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Email block */}
+                                    {block.type === "Email" && (
+                                      <div className="space-y-3 pt-1 border-t border-slate-100">
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Email address</label>
+                                          <input
+                                            type="email"
+                                            value={(block as any).email || getEmailAddress(block as BlockRecord) || ""}
+                                            onChange={(e) => {
+                                              handleUpdateBlockField(block.id, "email", e.target.value);
+                                              handleUpdateBlockField(block.id, "value", e.target.value);
+                                            }}
+                                            className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs font-mono"
+                                            placeholder="hello@example.com"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Default subject</label>
+                                          <input
+                                            type="text"
+                                            value={(block as any).subject || ""}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "subject", e.target.value)}
+                                            className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
+                                            placeholder="Hello from your bio page"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Subtext (optional)</label>
+                                          <input
+                                            type="text"
+                                            value={(block as any).subtext || ""}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "subtext", e.target.value)}
+                                            className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
+                                            placeholder="We reply within 24 hours"
+                                          />
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Banner block */}
+                                    {block.type === "Banner" && (
+                                      <div className="space-y-3 pt-1 border-t border-slate-100">
+                                        <div className="grid grid-cols-[72px_1fr] gap-2">
+                                          <div>
+                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Emoji</label>
+                                            <input
+                                              type="text"
+                                              value={(block as any).bannerEmoji || "📢"}
+                                              onChange={(e) => handleUpdateBlockField(block.id, "bannerEmoji", e.target.value)}
+                                              className="w-full bg-white border border-slate-200 rounded-xl py-2 px-2 text-center text-lg"
+                                              maxLength={4}
+                                            />
+                                          </div>
+                                          <div>
+                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Style</label>
+                                            <select
+                                              value={(block as any).bannerStyle || "info"}
+                                              onChange={(e) => handleUpdateBlockField(block.id, "bannerStyle", e.target.value)}
+                                              className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
+                                            >
+                                              <option value="info">Info</option>
+                                              <option value="success">Success</option>
+                                              <option value="warning">Warning</option>
+                                              <option value="promo">Promo</option>
+                                            </select>
+                                          </div>
+                                        </div>
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Title</label>
+                                          <input
+                                            type="text"
+                                            value={(block as any).bannerTitle || block.label || ""}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "bannerTitle", e.target.value)}
+                                            className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
+                                            placeholder="New offer live!"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Message</label>
+                                          <textarea
+                                            value={(block as any).bannerMessage || ""}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "bannerMessage", e.target.value)}
+                                            rows={2}
+                                            className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs resize-none"
+                                            placeholder="Check out our latest collection today."
+                                          />
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                          <div>
+                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Link URL</label>
+                                            <input
+                                              type="url"
+                                              value={(block as any).bannerLink || ""}
+                                              onChange={(e) => handleUpdateBlockField(block.id, "bannerLink", e.target.value)}
+                                              className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs font-mono"
+                                              placeholder="https://..."
+                                            />
+                                          </div>
+                                          <div>
+                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Link label</label>
+                                            <input
+                                              type="text"
+                                              value={(block as any).bannerLinkLabel || "Learn more"}
+                                              onChange={(e) => handleUpdateBlockField(block.id, "bannerLinkLabel", e.target.value)}
+                                              className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
+                                              placeholder="Learn more"
+                                            />
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Stats block */}
+                                    {block.type === "Stats" && (
+                                      <div className="space-y-3 pt-1 border-t border-slate-100">
+                                        <div className="flex items-center justify-between">
+                                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Stat items</label>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const items = [...getStatItems(block as BlockRecord), createStatItem()];
+                                              handleUpdateBlockField(block.id, "statItems", items);
+                                            }}
+                                            className="text-[10px] font-bold text-[#6366f1] bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-lg"
+                                          >
+                                            + Add Stat
+                                          </button>
+                                        </div>
+                                        {getStatItems(block as BlockRecord).map((item, index) => (
+                                          <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 space-y-2">
+                                            <div className="flex items-center justify-between">
+                                              <span className="text-[10px] font-bold text-slate-500">Stat {index + 1}</span>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  const items = getStatItems(block as BlockRecord).filter((_, i) => i !== index);
+                                                  handleUpdateBlockField(block.id, "statItems", items);
+                                                }}
+                                                className="text-rose-500 hover:bg-rose-50 p-1 rounded"
+                                              >
+                                                <Trash2 className="h-3.5 w-3.5" />
+                                              </button>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-2">
+                                              <input
+                                                type="text"
+                                                value={item.value}
+                                                onChange={(e) => {
+                                                  const items = getStatItems(block as BlockRecord).map((entry, i) =>
+                                                    i === index ? { ...entry, value: e.target.value } : entry
+                                                  );
+                                                  handleUpdateBlockField(block.id, "statItems", items);
+                                                }}
+                                                className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs font-bold"
+                                                placeholder="10K+"
+                                              />
+                                              <input
+                                                type="text"
+                                                value={item.label}
+                                                onChange={(e) => {
+                                                  const items = getStatItems(block as BlockRecord).map((entry, i) =>
+                                                    i === index ? { ...entry, label: e.target.value } : entry
+                                                  );
+                                                  handleUpdateBlockField(block.id, "statItems", items);
+                                                }}
+                                                className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs"
+                                                placeholder="Happy customers"
+                                              />
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+
+                                    {/* Pricing block */}
+                                    {block.type === "Pricing" && (
+                                      <div className="space-y-3 pt-1 border-t border-slate-100">
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Section description</label>
+                                          <input
+                                            type="text"
+                                            value={(block as any).description || ""}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "description", e.target.value)}
+                                            className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
+                                            placeholder="Pick the plan that fits you best"
+                                          />
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Plans</label>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const items = [...getPricingPlans(block as BlockRecord), createPricingPlan()];
+                                              handleUpdateBlockField(block.id, "pricingPlans", items);
+                                            }}
+                                            className="text-[10px] font-bold text-[#6366f1] bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-lg"
+                                          >
+                                            + Add Plan
+                                          </button>
+                                        </div>
+                                        {getPricingPlans(block as BlockRecord).map((plan, index) => (
+                                          <div key={plan.id} className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 space-y-2">
+                                            <div className="flex items-center justify-between gap-2">
+                                              <span className="text-[10px] font-bold text-slate-500">Plan {index + 1}</span>
+                                              <div className="flex items-center gap-2">
+                                                <label className="flex items-center gap-1.5 text-[10px] font-semibold text-slate-600">
+                                                  <input
+                                                    type="checkbox"
+                                                    checked={plan.highlighted}
+                                                    onChange={(e) => {
+                                                      const items = getPricingPlans(block as BlockRecord).map((entry, i) =>
+                                                        i === index ? { ...entry, highlighted: e.target.checked } : entry
+                                                      );
+                                                      handleUpdateBlockField(block.id, "pricingPlans", items);
+                                                    }}
+                                                    className="rounded border-slate-300"
+                                                  />
+                                                  Highlight
+                                                </label>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    const items = getPricingPlans(block as BlockRecord).filter((_, i) => i !== index);
+                                                    handleUpdateBlockField(block.id, "pricingPlans", items);
+                                                  }}
+                                                  className="text-rose-500 hover:bg-rose-50 p-1 rounded"
+                                                >
+                                                  <Trash2 className="h-3.5 w-3.5" />
+                                                </button>
+                                              </div>
+                                            </div>
+                                            <input
+                                              type="text"
+                                              value={plan.name}
+                                              onChange={(e) => {
+                                                const items = getPricingPlans(block as BlockRecord).map((entry, i) =>
+                                                  i === index ? { ...entry, name: e.target.value } : entry
+                                                );
+                                                handleUpdateBlockField(block.id, "pricingPlans", items);
+                                              }}
+                                              className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs font-bold"
+                                              placeholder="Plan name"
+                                            />
+                                            <div className="grid grid-cols-2 gap-2">
+                                              <input
+                                                type="text"
+                                                value={plan.price}
+                                                onChange={(e) => {
+                                                  const items = getPricingPlans(block as BlockRecord).map((entry, i) =>
+                                                    i === index ? { ...entry, price: e.target.value } : entry
+                                                  );
+                                                  handleUpdateBlockField(block.id, "pricingPlans", items);
+                                                }}
+                                                className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs"
+                                                placeholder="₹999"
+                                              />
+                                              <input
+                                                type="text"
+                                                value={plan.period}
+                                                onChange={(e) => {
+                                                  const items = getPricingPlans(block as BlockRecord).map((entry, i) =>
+                                                    i === index ? { ...entry, period: e.target.value } : entry
+                                                  );
+                                                  handleUpdateBlockField(block.id, "pricingPlans", items);
+                                                }}
+                                                className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs"
+                                                placeholder="/month"
+                                              />
+                                            </div>
+                                            <input
+                                              type="text"
+                                              value={plan.description}
+                                              onChange={(e) => {
+                                                const items = getPricingPlans(block as BlockRecord).map((entry, i) =>
+                                                  i === index ? { ...entry, description: e.target.value } : entry
+                                                );
+                                                handleUpdateBlockField(block.id, "pricingPlans", items);
+                                              }}
+                                              className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs"
+                                              placeholder="Short plan description"
+                                            />
+                                            <textarea
+                                              value={plan.features}
+                                              onChange={(e) => {
+                                                const items = getPricingPlans(block as BlockRecord).map((entry, i) =>
+                                                  i === index ? { ...entry, features: e.target.value } : entry
+                                                );
+                                                handleUpdateBlockField(block.id, "pricingPlans", items);
+                                              }}
+                                              rows={3}
+                                              className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs resize-none font-mono"
+                                              placeholder={"Feature one\nFeature two\nFeature three"}
+                                            />
+                                            <input
+                                              type="url"
+                                              value={plan.url}
+                                              onChange={(e) => {
+                                                const items = getPricingPlans(block as BlockRecord).map((entry, i) =>
+                                                  i === index ? { ...entry, url: e.target.value } : entry
+                                                );
+                                                handleUpdateBlockField(block.id, "pricingPlans", items);
+                                              }}
+                                              className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs font-mono"
+                                              placeholder="Checkout / signup URL"
+                                            />
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+
+                                    {/* Divider fields */}
+                                    {block.type === "Divider" && (
+                                      <div className="grid grid-cols-2 gap-3 pt-1 border-t border-slate-100">
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Style</label>
+                                          <select
+                                            value={(block as any).style || "line"}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "style", e.target.value)}
+                                            className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
+                                          >
+                                            <option value="line">Line</option>
+                                            <option value="dots">Dots</option>
+                                            <option value="space">Space only</option>
+                                          </select>
+                                        </div>
+                                        <div>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Spacing</label>
+                                          <select
+                                            value={(block as any).spacing || "md"}
+                                            onChange={(e) => handleUpdateBlockField(block.id, "spacing", e.target.value)}
+                                            className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
+                                          >
+                                            <option value="sm">Small</option>
+                                            <option value="md">Medium</option>
+                                            <option value="lg">Large</option>
+                                          </select>
+                                        </div>
+                                      </div>
+                                    )}
+
                                     {/* Appearance Options (Background & Text Colors) */}
-                                    {(block.type === "Button" || block.type === "Text" || block.type === "Coupon" || block.type === "WhatsApp" || block.type === "vCard" || block.type === "Deep Link") && (
+                                    {(block.type === "Button" || block.type === "Text" || block.type === "Coupon" || block.type === "WhatsApp" || block.type === "vCard" || block.type === "Deep Link" || block.type === "Call" || block.type === "Email") && (
                                       <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100">
                                         <div>
                                           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Background Color</label>
                                           <div className="flex items-center gap-2">
                                             <div
                                               className="relative w-8 h-8 rounded-full border border-slate-200 overflow-hidden shrink-0 cursor-pointer shadow-sm animate-in zoom-in-75 duration-150"
-                                              style={{ backgroundColor: (block as any).bgColor || (block.type === "WhatsApp" ? "#25D366" : block.type === "Coupon" ? "#EFF6FF" : block.type === "Button" || block.type === "Deep Link" ? BIO_LINK.bg : "#FFFFFF") }}
+                                              style={{ backgroundColor: (block as any).bgColor || getBlockDefaultBgColor(block.type) }}
                                             >
                                               <input
                                                 type="color"
-                                                value={(block as any).bgColor || (block.type === "WhatsApp" ? "#25D366" : block.type === "Coupon" ? "#EFF6FF" : block.type === "Button" || block.type === "Deep Link" ? BIO_LINK.bg : "#FFFFFF")}
+                                                value={(block as any).bgColor || getBlockDefaultBgColor(block.type)}
                                                 onChange={(e) => handleUpdateBlockField(block.id, "bgColor", e.target.value)}
                                                 className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
                                               />
                                             </div>
                                             <input
                                               type="text"
-                                              value={(block as any).bgColor || (block.type === "WhatsApp" ? "#25D366" : block.type === "Coupon" ? "#EFF6FF" : block.type === "Button" || block.type === "Deep Link" ? BIO_LINK.bg : "#FFFFFF")}
+                                              value={(block as any).bgColor || getBlockDefaultBgColor(block.type)}
                                               onChange={(e) => handleUpdateBlockField(block.id, "bgColor", e.target.value)}
                                               className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-1 px-2.5 text-[11px] font-mono uppercase text-slate-800"
                                             />
@@ -4036,18 +5430,18 @@ export default function BioPagesScreen({
                                           <div className="flex items-center gap-2">
                                             <div
                                               className="relative w-8 h-8 rounded-full border border-slate-200 overflow-hidden shrink-0 cursor-pointer shadow-sm animate-in zoom-in-75 duration-150"
-                                              style={{ backgroundColor: (block as any).textColor || (block.type === "WhatsApp" || block.type === "Deep Link" || block.type === "Button" ? BIO_LINK.text : "#0F172A") }}
+                                              style={{ backgroundColor: (block as any).textColor || getBlockDefaultTextColor(block.type) }}
                                             >
                                               <input
                                                 type="color"
-                                                value={(block as any).textColor || (block.type === "WhatsApp" || block.type === "Deep Link" || block.type === "Button" ? BIO_LINK.text : "#0F172A")}
+                                                value={(block as any).textColor || getBlockDefaultTextColor(block.type)}
                                                 onChange={(e) => handleUpdateBlockField(block.id, "textColor", e.target.value)}
                                                 className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
                                               />
                                             </div>
                                             <input
                                               type="text"
-                                              value={(block as any).textColor || (block.type === "WhatsApp" || block.type === "Deep Link" || block.type === "Button" ? BIO_LINK.text : "#0F172A")}
+                                              value={(block as any).textColor || getBlockDefaultTextColor(block.type)}
                                               onChange={(e) => handleUpdateBlockField(block.id, "textColor", e.target.value)}
                                               className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-1 px-2.5 text-[11px] font-mono uppercase text-slate-800"
                                             />

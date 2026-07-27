@@ -1,20 +1,24 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { CustomDomain, ShortLinkAnalytics, SmartLink } from "../types";
 import {
-  BarChart2,
-  Copy,
-  Edit3,
-  ExternalLink,
   Link2,
-  PauseCircle,
-  PlayCircle,
+  TrendingUp,
+  MousePointerClick,
+  Percent,
   Plus,
-  RefreshCw,
-  Search,
+  Filter,
+  X,
+  Smartphone,
+  Monitor,
+  Tablet,
   Trash2,
-  X
+  Edit2,
+  Sparkles,
+  Copy,
+  Search,
+  ExternalLink
 } from "lucide-react";
-import PageShell, { PageHeader, Workspace } from "./layout/PageShell";
+import PageShell, { PageHeader, SectionCard, Workspace } from "./layout/PageShell";
 import {
   createShortLink,
   deleteShortLink,
@@ -38,7 +42,7 @@ interface LinksScreenProps {
 const RETARGET_OPTIONS: Array<{ id: RetargetPixel; label: string }> = [
   { id: "fb", label: "Facebook" },
   { id: "google", label: "Google Ads" },
-  { id: "tiktok", label: "TikTok" }
+  { id: "tiktok", label: "TikTok Pixel" }
 ];
 
 function normalizeSlug(value: string): string {
@@ -62,10 +66,6 @@ function isValidDestination(value: string): boolean {
   }
 }
 
-function shortDisplayUrl(url: string): string {
-  return url.replace(/^https?:\/\//i, "");
-}
-
 export default function LinksScreen({
   links,
   domains = [],
@@ -79,7 +79,7 @@ export default function LinksScreen({
   const [newSlug, setNewSlug] = useState("");
   const [newTarget, setNewTarget] = useState("");
   const [newHostDomain, setNewHostDomain] = useState(PRIMARY_DOMAIN);
-  const [newRetargeting, setNewRetargeting] = useState<RetargetPixel[]>([]);
+  const [newRetargeting, setNewRetargeting] = useState<RetargetPixel[]>(["fb", "google"]);
   const [createError, setCreateError] = useState("");
   const [isCreating, setIsCreating] = useState(false);
 
@@ -95,10 +95,10 @@ export default function LinksScreen({
 
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"All" | "Live" | "Paused">("All");
+  const [showFilters, setShowFilters] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [analyticsById, setAnalyticsById] = useState<Record<string, ShortLinkAnalytics>>({});
-  const [analyticsLink, setAnalyticsLink] = useState<SmartLink | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [activeDevice, setActiveDevice] = useState<"mobile" | "desktop" | "tablet">("mobile");
 
   const hostOptions = useMemo(() => {
     const custom = domains
@@ -122,7 +122,7 @@ export default function LinksScreen({
           try {
             next[link.id] = await fetchShortLinkAnalytics(link.id);
           } catch {
-            // Keep list usable if analytics lag.
+            // Keep page usable if analytics lag.
           }
         })
       );
@@ -137,7 +137,7 @@ export default function LinksScreen({
 
   const triggerToast = (msg: string) => {
     setToast(msg);
-    window.setTimeout(() => setToast(null), 2800);
+    window.setTimeout(() => setToast(null), 3000);
   };
 
   const copyText = async (value: string, successMessage: string) => {
@@ -145,7 +145,7 @@ export default function LinksScreen({
       await navigator.clipboard.writeText(value);
       triggerToast(successMessage);
     } catch {
-      triggerToast("Unable to copy. Copy the URL manually.");
+      triggerToast("Unable to copy. Please copy the URL manually.");
     }
   };
 
@@ -158,19 +158,88 @@ export default function LinksScreen({
         link.shortUrl.toLowerCase().includes(query) ||
         link.slug.toLowerCase().includes(query) ||
         (link.destinationUrl || "").toLowerCase().includes(query);
+
       const matchesStatus = statusFilter === "All" || link.status === statusFilter;
       return matchesSearch && matchesStatus;
     });
   }, [links, searchQuery, statusFilter]);
 
-  const hasActiveFilters = searchQuery.trim().length > 0 || statusFilter !== "All";
+  const totalClicks = links.reduce((acc, curr) => acc + (curr.clicks || 0), 0);
+  const activeLinks = links.filter((link) => link.status === "Live").length;
+  const avgClicks = links.length > 0 ? totalClicks / links.length : 0;
+
+  const analyticsList = useMemo(
+    () => Object.values(analyticsById) as ShortLinkAnalytics[],
+    [analyticsById]
+  );
+
+  const aggregatedDevices = useMemo(() => {
+    const devices = { mobile: 0, desktop: 0, tablet: 0, other: 0 };
+    for (const analytics of analyticsList) {
+      devices.mobile += analytics.devices?.mobile || 0;
+      devices.desktop += analytics.devices?.desktop || 0;
+      devices.tablet += analytics.devices?.tablet || 0;
+      devices.other += analytics.devices?.other || 0;
+    }
+    return devices;
+  }, [analyticsList]);
+
+  const deviceTotal =
+    aggregatedDevices.mobile +
+    aggregatedDevices.desktop +
+    aggregatedDevices.tablet +
+    aggregatedDevices.other;
+  const deviceClicks = aggregatedDevices[activeDevice] || 0;
+
+  const clickTrendPoints = useMemo(() => {
+    const labels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const totals = labels.map(() => 0);
+    for (const analytics of analyticsList) {
+      for (const point of analytics.daily || []) {
+        const index = labels.indexOf(point.label);
+        if (index >= 0) totals[index] += point.value || 0;
+      }
+    }
+    const sample = analyticsList[0]?.daily;
+    if (sample?.length) {
+      const map = new Map<string, number>();
+      for (const analytics of analyticsList) {
+        for (const point of analytics.daily || []) {
+          map.set(point.label, (map.get(point.label) || 0) + (point.value || 0));
+        }
+      }
+      return sample.map((point) => ({
+        label: point.label.toUpperCase(),
+        value: map.get(point.label) || 0
+      }));
+    }
+    return labels.map((label, index) => ({
+      label: label.toUpperCase(),
+      value: totals[index]
+    }));
+  }, [analyticsList]);
+
+  const maxVal = Math.max(...clickTrendPoints.map((point) => point.value), 1);
+  const chartHeight = 150;
+  const chartWidth = 500;
+  const padding = 25;
+  const pointsString = clickTrendPoints
+    .map((point, index) => {
+      const x =
+        clickTrendPoints.length <= 1
+          ? chartWidth / 2
+          : padding + (index * (chartWidth - padding * 2)) / (clickTrendPoints.length - 1);
+      const y = chartHeight - padding - (point.value / maxVal) * (chartHeight - padding * 2);
+      return `${x},${y}`;
+    })
+    .join(" ");
 
   const resetCreateForm = () => {
     setNewTitle("");
     setNewSlug("");
     setNewTarget("");
     setNewHostDomain(PRIMARY_DOMAIN);
-    setNewRetargeting([]);
+    setNewRetargeting(["fb", "google"]);
     setCreateError("");
   };
 
@@ -187,11 +256,9 @@ export default function LinksScreen({
     setEditSlug(normalizeSlug(link.slug) || link.slug.replace(/^\//, ""));
     setEditHostDomain(link.hostDomain || PRIMARY_DOMAIN);
     setEditStatus(link.status);
-    setEditRetargeting(
-      (link.retargeting || []).filter((item): item is RetargetPixel =>
-        ["fb", "google", "tiktok"].includes(item)
-      )
-    );
+    setEditRetargeting((link.retargeting || []).filter((item): item is RetargetPixel =>
+      ["fb", "google", "tiktok"].includes(item)
+    ));
     setEditError("");
   };
 
@@ -199,15 +266,6 @@ export default function LinksScreen({
     if (isSavingEdit) return;
     setEditingLink(null);
     setEditError("");
-  };
-
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    try {
-      await onReload();
-    } finally {
-      setIsRefreshing(false);
-    }
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -219,11 +277,11 @@ export default function LinksScreen({
     const target = newTarget.trim();
 
     if (!title) {
-      setCreateError("Link name is required.");
+      setCreateError("Link title is required.");
       return;
     }
     if (!isValidDestination(target)) {
-      setCreateError("Enter a valid destination URL (https://…).");
+      setCreateError("Enter a valid destination URL.");
       return;
     }
     if (!cleanSlug) {
@@ -244,7 +302,7 @@ export default function LinksScreen({
       onUpsertLink?.(saved);
       setIsAdding(false);
       resetCreateForm();
-      triggerToast("Short link created.");
+      triggerToast("Short link created — copy and share the live URL.");
       void onReload();
     } catch (error) {
       setCreateError(
@@ -265,7 +323,7 @@ export default function LinksScreen({
     const target = editTarget.trim();
 
     if (!title) {
-      setEditError("Link name is required.");
+      setEditError("Link title is required.");
       return;
     }
     if (!isValidDestination(target)) {
@@ -289,7 +347,7 @@ export default function LinksScreen({
       });
       onUpsertLink?.(saved);
       setEditingLink(null);
-      triggerToast("Short link updated.");
+      triggerToast("Short link saved.");
       void onReload();
     } catch (error) {
       setEditError(
@@ -312,7 +370,7 @@ export default function LinksScreen({
         retargeting: link.retargeting || []
       });
       onUpsertLink?.(saved);
-      triggerToast(nextStatus === "Live" ? "Link is Live." : "Link paused.");
+      triggerToast(`Status switched to ${nextStatus}.`);
       void onReload();
     } catch (error) {
       triggerToast(error instanceof ShortLinkApiError ? error.message : "Unable to update status.");
@@ -321,12 +379,11 @@ export default function LinksScreen({
 
   const handleDelete = async (link: SmartLink) => {
     const confirmed = window.confirm(
-      `Delete "${link.title}"?\n\n${link.shortUrl}\n\nThis short URL will stop working.`
+      `Delete "${link.title}"?\n\n${link.shortUrl} will stop working.`
     );
     if (!confirmed) return;
     try {
       await deleteShortLink(link.id);
-      if (analyticsLink?.id === link.id) setAnalyticsLink(null);
       triggerToast("Short link deleted.");
       void onReload();
     } catch (error) {
@@ -336,11 +393,22 @@ export default function LinksScreen({
 
   const openShortUrl = (link: SmartLink) => {
     if (link.status !== "Live") {
-      triggerToast("Paused links do not redirect. Set status to Live first.");
+      triggerToast("Paused links do not redirect. Set the link to Live first.");
       return;
     }
     window.open(link.shortUrl, "_blank", "noopener,noreferrer");
   };
+
+  const openDestination = (destinationUrl?: string) => {
+    if (!destinationUrl || !isValidDestination(destinationUrl)) {
+      triggerToast("This link has no valid destination URL.");
+      return;
+    }
+    const url = /^https?:\/\//i.test(destinationUrl) ? destinationUrl : `https://${destinationUrl}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const hasActiveFilters = searchQuery.trim().length > 0 || statusFilter !== "All";
 
   const toggleRetarget = (
     current: RetargetPixel[],
@@ -352,199 +420,114 @@ export default function LinksScreen({
     );
   };
 
-  const previewUrl = `https://${newHostDomain || PRIMARY_DOMAIN}/l/${newSlug || "your-slug"}`;
-  const selectedAnalytics = analyticsLink ? analyticsById[analyticsLink.id] : null;
-
-  const renderLinkRow = (link: SmartLink) => {
-    const isCustomHost =
-      Boolean(link.hostDomain) &&
-      link.hostDomain.toLowerCase() !== PRIMARY_DOMAIN.toLowerCase();
-
-    return (
-      <div
-        key={link.id}
-        className={`acn-list-row min-w-0 ${isCustomHost ? "acn-list-row--custom-domain" : ""}`}
-      >
-        <div className="acn-list-row__main min-w-0 flex-1">
-          {/* Identity — truncates so the meta column never gets squeezed */}
-          <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
-            <div
-              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:h-12 sm:w-12 ${
-                isCustomHost
-                  ? "bg-emerald-500/10 text-emerald-600"
-                  : "bg-indigo-500/10 text-indigo-500"
-              }`}
-            >
-              <Link2 className="h-5 w-5 sm:h-6 sm:w-6" />
-            </div>
-            <div className="min-w-0 flex-1 overflow-hidden">
-              <h4 className="truncate font-display text-base font-semibold text-gray-950">
-                {link.title}
-              </h4>
-              <button
-                type="button"
-                onClick={() => void copyText(link.shortUrl, "Short URL copied.")}
-                className="mt-1 block w-full truncate text-left font-mono text-xs font-semibold text-indigo-600 hover:underline"
-                title={link.shortUrl}
-              >
-                {shortDisplayUrl(link.shortUrl)}
-              </button>
-              {link.destinationUrl && (
-                <p
-                  className="mt-0.5 truncate text-[11px] text-slate-400"
-                  title={link.destinationUrl}
-                >
-                  → {shortDisplayUrl(link.destinationUrl)}
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Meta + actions — single horizontal row on every card */}
-          <div className="flex w-full shrink-0 flex-nowrap items-center justify-between gap-3 sm:gap-5 lg:w-auto lg:justify-end">
-            <span
-              className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                link.status === "Live"
-                  ? "bg-emerald-50 text-emerald-600"
-                  : "bg-slate-100 text-slate-600"
-              }`}
-            >
-              {link.status}
-            </span>
-
-            <div className="shrink-0 text-center">
-              <span className="block font-display text-2xl font-bold leading-none text-gray-950">
-                {link.clicks || 0}
-              </span>
-              <span className="mt-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                Clicks
-              </span>
-            </div>
-
-            <div className="flex shrink-0 flex-nowrap items-center gap-0.5 rounded-xl border border-gray-100 bg-gray-50 p-1.5 shadow-sm">
-              <button
-                type="button"
-                onClick={() => setAnalyticsLink(link)}
-                title="Analytics"
-                className="flex shrink-0 items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-[#6366f1]"
-              >
-                <BarChart2 className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => void copyText(link.shortUrl, "Short URL copied.")}
-                title="Copy short URL"
-                className="flex shrink-0 items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-[#6366f1]"
-              >
-                <Copy className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => openShortUrl(link)}
-                title="Open short URL"
-                className="flex shrink-0 items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-[#6366f1]"
-              >
-                <ExternalLink className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => openEditModal(link)}
-                title="Edit"
-                className="flex shrink-0 items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-[#6366f1]"
-              >
-                <Edit3 className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleToggleStatus(link)}
-                title={link.status === "Live" ? "Pause" : "Set Live"}
-                className="flex shrink-0 items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-[#6366f1]"
-              >
-                {link.status === "Live" ? (
-                  <PauseCircle className="h-4 w-4" />
-                ) : (
-                  <PlayCircle className="h-4 w-4" />
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleDelete(link)}
-                title="Delete"
-                className="flex shrink-0 items-center justify-center rounded-lg p-2 text-slate-500 transition-all hover:bg-white hover:text-rose-600"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   return (
-    <PageShell>
+    <PageShell className="font-sans text-slate-800">
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 rounded-2xl border border-slate-800 bg-slate-900 px-5 py-3.5 text-sm font-bold text-white shadow-2xl">
+        <div className="fixed bottom-6 right-6 bg-slate-900 text-white border border-slate-800 text-xs font-bold py-3 px-5 rounded-2xl shadow-2xl z-50">
           {toast}
         </div>
       )}
 
       <PageHeader
         title="Smart Short Links"
-        subtitle={`Create short URLs to share anywhere · ${links.length} link${links.length !== 1 ? "s" : ""}`}
+        subtitle="Create a real short URL that redirects to your destination and tracks live clicks."
         actions={
-          <>
-            <button
-              type="button"
-              onClick={() => void handleRefresh()}
-              disabled={isRefreshing || loading}
-              className="acn-btn-secondary px-4 py-2.5"
-            >
-              <RefreshCw className={`h-4 w-4 ${isRefreshing || loading ? "animate-spin" : ""}`} />
-              Refresh
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsAdding(true)}
-              className="acn-btn-accent px-5 py-2.5"
-            >
-              <Plus className="h-4 w-4" />
-              Create short link
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={() => setIsAdding(true)}
+            className="flex items-center gap-2 acn-btn-chip px-5 py-2.5 text-xs font-extrabold active:scale-95"
+          >
+            <Plus className="h-4.5 w-4.5" />
+            <span>Shorten a Link</span>
+          </button>
         }
       />
 
       {loadError && (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+        <SectionCard className="border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-700">
           {loadError}
-        </div>
+        </SectionCard>
+      )}
+      {loading && (
+        <p className="text-xs font-semibold text-slate-400">Loading short links…</p>
       )}
 
-      <Workspace className="acn-section-card">
-        {links.length === 0 && !loading ? (
-          <div className="flex flex-col items-center justify-center px-4 py-14 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-500">
-              <Link2 className="h-7 w-7" />
-            </div>
-            <h3 className="mt-4 font-display text-lg font-bold text-slate-900">No short links yet</h3>
-            <p className="mt-1 max-w-xs text-sm text-slate-500">
-              Shorten a long URL, copy it, and share it. Clicks are tracked automatically.
-            </p>
-            <button
-              type="button"
-              onClick={() => setIsAdding(true)}
-              className="acn-btn-accent mt-4 px-4 py-2"
-            >
-              <Plus className="h-4 w-4" />
-              Get Started
-            </button>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+        <div className="bg-white border border-slate-200/60 rounded-2xl p-5 shadow-sm flex items-center justify-between min-w-0">
+          <div className="min-w-0">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Active Links</p>
+            <h3 className="font-display font-black text-3xl text-slate-900 mt-1">
+              {activeLinks} / {links.length}
+            </h3>
+            <span className="text-xs text-emerald-600 font-bold flex items-center gap-1 mt-1.5">
+              <TrendingUp className="h-3.5 w-3.5" />
+              {activeLinks} live redirects
+            </span>
           </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="acn-platform-bulk-toolbar">
-              <div className="acn-platform-bulk-toolbar__filters">
-                <div className="acn-platform-bulk-toolbar__search acn-icon-field">
+          <div className="h-12 w-12 rounded-xl bg-indigo-50 text-[#4F46E5] flex items-center justify-center shrink-0">
+            <Link2 className="h-6 w-6" />
+          </div>
+        </div>
+
+        <div className="bg-white border border-slate-200/60 rounded-2xl p-5 shadow-sm flex items-center justify-between min-w-0">
+          <div className="min-w-0">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Click Traffic</p>
+            <h3 className="font-display font-black text-3xl text-slate-900 mt-1">
+              {totalClicks.toLocaleString()}
+            </h3>
+            <span className="text-xs text-emerald-600 font-bold flex items-center gap-1 mt-1.5">
+              <TrendingUp className="h-3.5 w-3.5" />
+              Across all short links
+            </span>
+          </div>
+          <div className="h-12 w-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+            <MousePointerClick className="h-6 w-6" />
+          </div>
+        </div>
+
+        <div className="bg-white border border-slate-200/60 rounded-2xl p-5 shadow-sm flex items-center justify-between min-w-0">
+          <div className="min-w-0">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Avg. Engagement</p>
+            <h3 className="font-display font-black text-3xl text-slate-900 mt-1">
+              {avgClicks.toFixed(1)}
+            </h3>
+            <span className="text-xs text-indigo-600 font-bold flex items-center gap-1 mt-1.5">
+              <Sparkles className="h-3.5 w-3.5" />
+              Avg clicks / link
+            </span>
+          </div>
+          <div className="h-12 w-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+            <Percent className="h-5 w-5" />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4 acn-workspace-grid">
+        <Workspace stack className="lg:col-span-2 min-w-0">
+          <Workspace panel stack className="bg-white border border-slate-200/60 rounded-3xl shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <h3 className="font-display font-black text-lg text-slate-900">Configured Links</h3>
+              <button
+                type="button"
+                onClick={() => setShowFilters((open) => !open)}
+                className={`inline-flex items-center gap-2 px-3 py-2 border rounded-xl text-xs font-bold transition-colors self-start ${
+                  showFilters || hasActiveFilters
+                    ? "bg-slate-900 border-slate-900 text-white"
+                    : "hover:bg-slate-50 border-slate-200 text-slate-500"
+                }`}
+                aria-expanded={showFilters}
+              >
+                <Filter className="h-4 w-4" />
+                Filters
+                {hasActiveFilters && (
+                  <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[10px]">On</span>
+                )}
+              </button>
+            </div>
+
+            {showFilters && (
+              <div className="flex flex-col sm:flex-row gap-3 rounded-2xl border border-slate-100 bg-slate-50/70 p-3">
+                <div className="acn-icon-field flex-1">
                   <span className="acn-icon-field__icon">
                     <Search className="h-4 w-4" />
                   </span>
@@ -552,17 +535,15 @@ export default function LinksScreen({
                     type="search"
                     value={searchQuery}
                     onChange={(event) => setSearchQuery(event.target.value)}
-                    placeholder="Search name, short URL, or destination…"
-                    className="acn-input acn-icon-field__input w-full py-2.5"
-                    aria-label="Search short links"
+                    placeholder="Search title, slug, or destination..."
+                    className="acn-icon-field__input w-full bg-white border border-slate-200 rounded-xl py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                    aria-label="Search links"
                   />
                 </div>
                 <select
                   value={statusFilter}
-                  onChange={(event) =>
-                    setStatusFilter(event.target.value as "All" | "Live" | "Paused")
-                  }
-                  className="acn-platform-bulk-status-filter"
+                  onChange={(event) => setStatusFilter(event.target.value as "All" | "Live" | "Paused")}
+                  className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium focus:outline-none"
                   aria-label="Filter by status"
                 >
                   <option value="All">All statuses</option>
@@ -576,157 +557,466 @@ export default function LinksScreen({
                       setSearchQuery("");
                       setStatusFilter("All");
                     }}
-                    className="acn-platform-bulk-clear"
+                    className="px-3 py-2 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-white"
                   >
                     Clear
                   </button>
                 )}
               </div>
-              <p className="acn-platform-bulk-toolbar__meta">
-                Showing {filteredLinks.length} of {links.length}
-                {loading ? " · Loading…" : ""}
-              </p>
-            </div>
+            )}
 
-            {filteredLinks.length === 0 ? (
-              <div className="acn-platform-bulk-empty px-4 py-10 text-center">
-                <p className="font-display text-base font-bold text-slate-800">No links match</p>
-                <p className="mt-1 text-sm text-slate-500">Try a different search or clear filters.</p>
+            {links.length === 0 ? (
+              <div className="py-12 text-center space-y-3">
+                <p className="text-slate-500 text-sm">No smart links yet.</p>
+                <button
+                  type="button"
+                  onClick={() => setIsAdding(true)}
+                  className="inline-flex items-center gap-2 acn-btn-chip px-4 py-2 text-xs font-extrabold"
+                >
+                  <Plus className="h-4 w-4" />
+                  Shorten a Link
+                </button>
+              </div>
+            ) : filteredLinks.length === 0 ? (
+              <div className="py-10 text-center text-slate-400 text-sm space-y-2">
+                <p>No links match your filters.</p>
                 <button
                   type="button"
                   onClick={() => {
                     setSearchQuery("");
                     setStatusFilter("All");
                   }}
-                  className="mt-3 text-sm font-semibold text-indigo-600 hover:underline"
+                  className="text-[#6366f1] font-semibold hover:underline"
                 >
-                  Reset filters
+                  Clear filters
                 </button>
               </div>
             ) : (
-              <div className="space-y-3">{filteredLinks.map((link) => renderLinkRow(link))}</div>
-            )}
-          </div>
-        )}
-      </Workspace>
-
-      {/* Analytics modal */}
-      {analyticsLink && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
-          <div
-            role="dialog"
-            aria-modal="true"
-            className="w-full max-w-md rounded-3xl border border-slate-100 bg-white p-5 shadow-2xl sm:p-6"
-          >
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h3 className="truncate font-display text-lg font-bold text-slate-900">
-                  {analyticsLink.title}
-                </h3>
-                <p className="mt-1 truncate font-mono text-xs text-indigo-600">
-                  {shortDisplayUrl(analyticsLink.shortUrl)}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAnalyticsLink(null)}
-                className="rounded-full p-1 text-slate-400 hover:text-slate-600"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              {(
-                [
-                  ["All clicks", analyticsLink.clicks || 0],
-                  ["Today", selectedAnalytics?.summary.today ?? 0],
-                  ["This week", selectedAnalytics?.summary.week ?? 0],
-                  ["This month", selectedAnalytics?.summary.month ?? 0]
-                ] as const
-              ).map(([label, value]) => (
-                <div key={label} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
-                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                    {label}
-                  </p>
-                  <p className="mt-1 text-xl font-extrabold tabular-nums text-slate-900">{value}</p>
+              <>
+                <div className="lg:hidden divide-y divide-slate-100">
+                  {filteredLinks.map((link) => (
+                    <div key={link.id} className="py-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-bold text-slate-800 truncate">{link.title}</p>
+                          <p className="text-[11px] text-slate-400 font-mono mt-1 truncate">
+                            {link.destinationUrl || "No destination"}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => void copyText(link.shortUrl, "Short URL copied.")}
+                            className="text-indigo-600 font-black font-mono text-xs mt-1 hover:underline"
+                          >
+                            {link.shortUrl}
+                          </button>
+                        </div>
+                        <button type="button" onClick={() => handleToggleStatus(link)}>
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                              link.status === "Live"
+                                ? "bg-emerald-50 text-emerald-600 border border-emerald-100"
+                                : "bg-slate-100 text-slate-500 border border-slate-200"
+                            }`}
+                          >
+                            {link.status}
+                          </span>
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-mono font-black text-slate-900">{link.clicks} clicks</span>
+                        {(link.retargeting || []).map((pixel) => (
+                          <span
+                            key={pixel}
+                            className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-black text-[8px] uppercase"
+                          >
+                            {pixel}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => openShortUrl(link)}
+                          className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2.5 py-1.5 rounded-xl text-[10px] font-black"
+                        >
+                          Open short URL
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openDestination(link.destinationUrl)}
+                          className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl"
+                          aria-label="Open destination"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openEditModal(link)}
+                          className="p-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl"
+                          aria-label={`Edit ${link.title}`}
+                        >
+                          <Edit2 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDelete(link)}
+                          className="p-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl"
+                          aria-label={`Delete ${link.title}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+
+                <div className="hidden lg:block overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-slate-400 text-[10px] font-black tracking-wider uppercase">
+                        <th className="py-3 px-2">Title & Destination</th>
+                        <th className="py-3 px-2">Short URL</th>
+                        <th className="py-3 px-2">Status</th>
+                        <th className="py-3 px-2">Retargeting</th>
+                        <th className="py-3 px-2 text-right">Clicks</th>
+                        <th className="py-3 px-2 text-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredLinks.map((link) => (
+                        <tr key={link.id} className="text-sm group hover:bg-slate-50/50 transition-colors">
+                          <td className="py-4 px-2 max-w-xs">
+                            <div className="font-bold text-slate-800 leading-tight truncate">{link.title}</div>
+                            <span className="text-[10px] text-slate-400 font-mono mt-0.5 block truncate">
+                              Redirects to:{" "}
+                              <span className="font-bold text-slate-500">
+                                {link.destinationUrl || "Not configured"}
+                              </span>
+                            </span>
+                          </td>
+                          <td className="py-4 px-2">
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => void copyText(link.shortUrl, "Short URL copied.")}
+                                className="text-indigo-600 font-black font-mono hover:underline text-xs"
+                                title="Copy short URL"
+                              >
+                                {link.shortUrl}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void copyText(link.shortUrl, "Short URL copied.")}
+                                className="text-slate-300 hover:text-indigo-500 transition-colors p-1"
+                                title="Copy URL"
+                              >
+                                <Copy className="h-3 w-3" />
+                              </button>
+                            </div>
+                          </td>
+                          <td className="py-4 px-2">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleStatus(link)}
+                              className="focus:outline-none"
+                              title="Toggle link delivery"
+                            >
+                              <span
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                                  link.status === "Live"
+                                    ? "bg-emerald-50 text-emerald-600 border border-emerald-100"
+                                    : "bg-slate-100 text-slate-500 border border-slate-200"
+                                }`}
+                              >
+                                <span
+                                  className={`h-1.5 w-1.5 rounded-full ${
+                                    link.status === "Live" ? "bg-emerald-500" : "bg-slate-400"
+                                  }`}
+                                />
+                                {link.status}
+                              </span>
+                            </button>
+                          </td>
+                          <td className="py-4 px-2">
+                            <div className="flex gap-1 text-slate-400">
+                              {link.retargeting?.includes("fb") && (
+                                <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 font-black text-[8px] uppercase tracking-wider border border-blue-100">
+                                  FB
+                                </span>
+                              )}
+                              {link.retargeting?.includes("google") && (
+                                <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 font-black text-[8px] uppercase tracking-wider border border-amber-100">
+                                  GG
+                                </span>
+                              )}
+                              {link.retargeting?.includes("tiktok") && (
+                                <span className="px-1.5 py-0.5 rounded bg-slate-100 text-gray-800 font-black text-[8px] uppercase tracking-wider border border-slate-200">
+                                  TT
+                                </span>
+                              )}
+                              {(!link.retargeting || link.retargeting.length === 0) && (
+                                <span className="text-[10px] text-slate-400 font-medium">None</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-4 px-2 text-right">
+                            <div className="flex flex-col items-end">
+                              <span className="font-mono font-black text-slate-900">{link.clicks}</span>
+                              <div className="w-16 bg-slate-100 h-1 rounded-full mt-1 overflow-hidden">
+                                <div
+                                  className="bg-[#6366f1] h-full rounded-full transition-all"
+                                  style={{
+                                    width: `${Math.min(100, (link.clicks / (totalClicks || 1)) * 100)}%`
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-4 px-2 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => openShortUrl(link)}
+                                className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 p-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1 shrink-0"
+                                title="Open live short URL"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                <span className="text-[9px] font-black">Open</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openDestination(link.destinationUrl)}
+                                className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl"
+                                title="Open destination"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openEditModal(link)}
+                                className="p-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-xl"
+                                title="Edit link"
+                              >
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleDelete(link)}
+                                className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl"
+                                title="Delete link"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </Workspace>
+
+          <Workspace panel stack className="bg-white border border-slate-200/60 rounded-3xl shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="font-display font-black text-lg text-slate-900">Performance Timeline</h3>
+              <span className="bg-slate-50 border border-slate-200 text-slate-500 rounded-xl px-3 py-1.5 text-xs font-semibold">
+                Click activity
+              </span>
             </div>
 
-            {selectedAnalytics && (
-              <div className="mt-4 grid grid-cols-3 gap-2 border-t border-slate-100 pt-4">
+            <div className="relative pt-4">
+              {totalClicks === 0 ? (
+                <div className="h-44 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200 flex flex-col items-center justify-center p-4 text-center">
+                  <p className="text-xs font-bold text-slate-700">Waiting for short-link traffic</p>
+                  <p className="text-[10px] text-slate-400 mt-1 max-w-sm">
+                    Share a Live short URL. Real visits to /l/your-slug update this chart automatically.
+                  </p>
+                </div>
+              ) : (
+                <svg
+                  viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+                  className="w-full h-44 overflow-visible"
+                  role="img"
+                  aria-label="Weekly click performance chart"
+                >
+                  {[0, 0.25, 0.5, 0.75, 1].map((ratio, index) => {
+                    const y = padding + ratio * (chartHeight - padding * 2);
+                    return (
+                      <line
+                        key={index}
+                        x1={padding}
+                        y1={y}
+                        x2={chartWidth - padding}
+                        y2={y}
+                        stroke="#f1f5f9"
+                        strokeWidth="1"
+                      />
+                    );
+                  })}
+                  <polyline
+                    fill="none"
+                    stroke="#6366f1"
+                    strokeWidth="3.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    points={pointsString}
+                  />
+                  {clickTrendPoints.map((point, index) => {
+                    const x =
+                      clickTrendPoints.length <= 1
+                        ? chartWidth / 2
+                        : padding +
+                          (index * (chartWidth - padding * 2)) / (clickTrendPoints.length - 1);
+                    const y =
+                      chartHeight - padding - (point.value / maxVal) * (chartHeight - padding * 2);
+                    return (
+                      <g key={point.label}>
+                        <circle cx={x} cy={y} r="5" fill="#6366f1" stroke="#ffffff" strokeWidth="2">
+                          <title>
+                            {point.label}: {point.value} clicks
+                          </title>
+                        </circle>
+                        <text
+                          x={x}
+                          y={chartHeight - 4}
+                          fill="#94a3b8"
+                          fontSize="9"
+                          fontWeight="black"
+                          fontFamily="monospace"
+                          textAnchor="middle"
+                        >
+                          {point.label}
+                        </text>
+                      </g>
+                    );
+                  })}
+                </svg>
+              )}
+            </div>
+          </Workspace>
+        </Workspace>
+
+        <Workspace stack className="min-w-0">
+          <Workspace panel stack className="bg-white border border-slate-200/60 rounded-2xl shadow-sm">
+            <h3 className="font-display font-black text-slate-900 text-base">Click insights</h3>
+
+            <div className="space-y-3">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                Period totals
+              </p>
+              <div className="grid grid-cols-2 gap-2">
                 {(
                   [
-                    ["Mobile", selectedAnalytics.devices.mobile],
-                    ["Desktop", selectedAnalytics.devices.desktop],
-                    ["Tablet", selectedAnalytics.devices.tablet]
+                    [
+                      "Today",
+                      analyticsList.reduce((sum, item) => sum + (item.summary?.today || 0), 0)
+                    ],
+                    [
+                      "Week",
+                      analyticsList.reduce((sum, item) => sum + (item.summary?.week || 0), 0)
+                    ],
+                    [
+                      "Month",
+                      analyticsList.reduce((sum, item) => sum + (item.summary?.month || 0), 0)
+                    ],
+                    ["All time", totalClicks]
                   ] as const
                 ).map(([label, value]) => (
-                  <div key={label} className="rounded-xl border border-slate-100 px-2 py-2 text-center">
-                    <p className="text-[10px] font-bold uppercase text-slate-400">{label}</p>
-                    <p className="mt-0.5 text-base font-extrabold tabular-nums text-slate-900">
-                      {value}
+                  <div key={label} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                      {label}
                     </p>
+                    <p className="mt-1 text-lg font-extrabold tabular-nums text-slate-900">{value}</p>
                   </div>
                 ))}
               </div>
-            )}
-
-            <p className="mt-4 truncate text-[11px] text-slate-400" title={analyticsLink.destinationUrl}>
-              Destination: {analyticsLink.destinationUrl || "—"}
-            </p>
-
-            <div className="mt-4 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setAnalyticsLink(null)}
-                className="acn-btn-secondary px-4 py-2 text-xs"
-              >
-                Close
-              </button>
             </div>
-          </div>
-        </div>
-      )}
 
-      {/* Create modal */}
+            <div className="space-y-4 pt-4 border-t border-slate-100">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                  Devices (from real visits)
+                </p>
+                <span className="text-[10px] font-mono text-slate-500">
+                  {activeDevice}: {deviceClicks}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {(
+                  [
+                    { name: "mobile" as const, icon: Smartphone },
+                    { name: "desktop" as const, icon: Monitor },
+                    { name: "tablet" as const, icon: Tablet }
+                  ]
+                ).map((device) => {
+                  const DevIcon = device.icon;
+                  const isSelected = activeDevice === device.name;
+                  const count = aggregatedDevices[device.name] || 0;
+                  const percentage =
+                    deviceTotal > 0 ? `${Math.round((count / deviceTotal) * 100)}%` : "0%";
+                  return (
+                    <button
+                      key={device.name}
+                      type="button"
+                      onClick={() => setActiveDevice(device.name)}
+                      aria-pressed={isSelected}
+                      className={`p-3 rounded-2xl border flex flex-col items-center justify-center text-center transition-all ${
+                        isSelected
+                          ? "bg-slate-900 border-slate-900 text-white shadow-md"
+                          : "border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
+                      }`}
+                    >
+                      <DevIcon className={`h-4.5 w-4.5 mb-1 ${isSelected ? "text-white" : "text-slate-400"}`} />
+                      <span className="text-[8px] font-black tracking-wider leading-none uppercase">
+                        {device.name}
+                      </span>
+                      <span className="text-xs font-black mt-1 font-mono leading-none">{percentage}</span>
+                      <span className="text-[10px] font-semibold mt-0.5 opacity-80">{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Device share is measured from User-Agent on each /l/ redirect.
+              </p>
+            </div>
+          </Workspace>
+        </Workspace>
+      </div>
+
       {isAdding && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="create-link-title"
-            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-slate-100 bg-white p-5 shadow-2xl sm:p-6"
+            className="bg-white rounded-3xl max-w-md w-full p-4 shadow-2xl border border-slate-100"
           >
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <div>
-                <h3 id="create-link-title" className="font-display text-xl font-bold text-slate-900">
-                  Create short link
-                </h3>
-                <p className="mt-1 text-xs text-slate-500">
-                  Paste a long URL and choose a short slug to share.
-                </p>
-              </div>
+            <div className="flex items-center justify-between mb-5">
+              <h3 id="create-link-title" className="font-display font-black text-xl text-slate-900">
+                Shorten a Link
+              </h3>
               <button
                 type="button"
                 onClick={closeCreateModal}
-                className="rounded-full p-1 text-slate-400 hover:text-slate-600"
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-full"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+            <form onSubmit={handleSubmit} className="space-y-6" noValidate>
               <div>
-                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                  Link name
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
+                  Link title
                 </label>
                 <input
                   type="text"
                   required
                   autoFocus
-                  placeholder="e.g. Summer Sale"
+                  placeholder="e.g. Winter Sale Promo"
                   value={newTitle}
                   onChange={(event) => {
                     const title = event.target.value;
@@ -738,32 +1028,32 @@ export default function LinksScreen({
                       return title;
                     });
                   }}
-                  className="acn-input w-full"
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-xl py-2.5 px-3.5 text-xs focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                  Destination URL
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
+                  Target long URL
                 </label>
                 <input
                   type="url"
                   required
-                  placeholder="https://yoursite.com/offer"
+                  placeholder="e.g. https://mywebsite.com/winter-deal"
                   value={newTarget}
                   onChange={(event) => setNewTarget(event.target.value)}
-                  className="acn-input w-full"
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-xl py-2.5 px-3.5 text-xs focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
                   Domain
                 </label>
                 <select
                   value={newHostDomain}
                   onChange={(event) => setNewHostDomain(event.target.value)}
-                  className="acn-input w-full"
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-xl py-2.5 px-3.5 text-xs focus:outline-none"
                 >
                   {hostOptions.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -774,30 +1064,30 @@ export default function LinksScreen({
               </div>
 
               <div>
-                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
                   Short slug
                 </label>
                 <div className="flex min-w-0 items-center">
-                  <span className="max-w-[55%] truncate rounded-l-xl border border-r-0 border-slate-200 bg-slate-100 px-3 py-2.5 font-mono text-[10px] text-slate-400">
+                  <span className="max-w-[55%] truncate bg-slate-100 border border-slate-200 border-r-0 rounded-l-xl px-3 py-2.5 text-[10px] text-slate-400 font-mono">
                     {newHostDomain || PRIMARY_DOMAIN}/l/
                   </span>
                   <input
                     type="text"
                     required
-                    placeholder="summer-sale"
+                    placeholder="winter-sale"
                     value={newSlug}
                     onChange={(event) => setNewSlug(normalizeSlug(event.target.value))}
-                    className="acn-input w-full min-w-0 rounded-l-none"
+                    className="w-full min-w-0 bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-r-xl py-2.5 px-3.5 text-xs focus:outline-none"
                   />
                 </div>
-                <p className="mt-2 break-all rounded-xl bg-indigo-50 px-3 py-2 font-mono text-[11px] font-semibold text-indigo-700">
-                  {previewUrl}
+                <p className="mt-1.5 text-[11px] text-slate-500">
+                  Live URL: https://{newHostDomain || PRIMARY_DOMAIN}/l/{newSlug || "your-slug"}
                 </p>
               </div>
 
               <div>
-                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                  Campaign tags (optional)
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
+                  Retargeting tags (optional labels)
                 </label>
                 <div className="flex gap-2">
                   {RETARGET_OPTIONS.map((pixel) => {
@@ -807,10 +1097,10 @@ export default function LinksScreen({
                         key={pixel.id}
                         type="button"
                         onClick={() => toggleRetarget(newRetargeting, pixel.id, setNewRetargeting)}
-                        className={`flex-1 rounded-xl border px-3 py-2 text-[11px] font-bold ${
+                        className={`flex-1 py-2 px-3 rounded-xl border text-[10px] font-bold transition-all ${
                           isSelected
-                            ? "border-slate-900 bg-slate-900 text-white"
-                            : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
+                            ? "bg-slate-900 border-slate-900 text-white"
+                            : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
                         }`}
                       >
                         {pixel.label}
@@ -821,26 +1111,26 @@ export default function LinksScreen({
               </div>
 
               {createError && (
-                <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">
+                <p className="text-xs font-medium text-rose-600" role="alert">
                   {createError}
                 </p>
               )}
 
-              <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
+              <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={closeCreateModal}
                   disabled={isCreating}
-                  className="acn-btn-secondary px-4 py-2.5 text-xs"
+                  className="px-4 py-2.5 text-xs font-bold text-slate-500 hover:bg-slate-50 rounded-xl disabled:opacity-60"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isCreating}
-                  className="acn-btn-accent px-5 py-2.5 text-xs disabled:opacity-60"
+                  className="px-5 py-2.5 acn-btn-chip disabled:opacity-70 disabled:cursor-not-allowed text-xs font-extrabold"
                 >
-                  {isCreating ? "Creating…" : "Create short link"}
+                  {isCreating ? "Creating…" : "Create Short Link"}
                 </button>
               </div>
             </form>
@@ -848,66 +1138,62 @@ export default function LinksScreen({
         </div>
       )}
 
-      {/* Edit modal */}
       {editingLink && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="edit-link-title"
-            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-slate-100 bg-white p-5 shadow-2xl sm:p-6"
+            className="bg-white rounded-3xl max-w-md w-full p-4 shadow-2xl border border-slate-100"
           >
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <div>
-                <h3 id="edit-link-title" className="font-display text-xl font-bold text-slate-900">
-                  Edit short link
-                </h3>
-                <p className="mt-1 text-xs text-slate-500">Update destination, slug, or status.</p>
-              </div>
+            <div className="flex items-center justify-between mb-5">
+              <h3 id="edit-link-title" className="font-display font-black text-xl text-slate-900">
+                Configure Link
+              </h3>
               <button
                 type="button"
                 onClick={closeEditModal}
-                className="rounded-full p-1 text-slate-400 hover:text-slate-600"
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-full"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveEdit} className="space-y-4" noValidate>
+            <form onSubmit={handleSaveEdit} className="space-y-6" noValidate>
               <div>
-                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                  Link name
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
+                  Link title
                 </label>
                 <input
                   type="text"
                   required
                   value={editTitle}
                   onChange={(event) => setEditTitle(event.target.value)}
-                  className="acn-input w-full"
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-xl py-2.5 px-3.5 text-xs focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                  Destination URL
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
+                  Redirect target URL
                 </label>
                 <input
                   type="url"
                   required
                   value={editTarget}
                   onChange={(event) => setEditTarget(event.target.value)}
-                  className="acn-input w-full"
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-xl py-2.5 px-3.5 text-xs focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
                   Domain
                 </label>
                 <select
                   value={editHostDomain}
                   onChange={(event) => setEditHostDomain(event.target.value)}
-                  className="acn-input w-full"
+                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-xl py-2.5 px-3.5 text-xs focus:outline-none"
                 >
                   {hostOptions.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -922,11 +1208,11 @@ export default function LinksScreen({
               </div>
 
               <div>
-                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                  Short slug
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
+                  Custom short slug
                 </label>
                 <div className="flex min-w-0 items-center">
-                  <span className="max-w-[55%] truncate rounded-l-xl border border-r-0 border-slate-200 bg-slate-100 px-3 py-2.5 font-mono text-[10px] text-slate-400">
+                  <span className="max-w-[55%] truncate bg-slate-100 border border-slate-200 border-r-0 rounded-l-xl px-3 py-2.5 text-[10px] text-slate-400 font-mono">
                     {editHostDomain || PRIMARY_DOMAIN}/l/
                   </span>
                   <input
@@ -934,14 +1220,14 @@ export default function LinksScreen({
                     required
                     value={editSlug}
                     onChange={(event) => setEditSlug(normalizeSlug(event.target.value))}
-                    className="acn-input w-full min-w-0 rounded-l-none"
+                    className="w-full min-w-0 bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-r-xl py-2.5 px-3.5 text-xs focus:outline-none"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                  Status
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
+                  Routing status
                 </label>
                 <div className="flex gap-2">
                   {(
@@ -954,10 +1240,10 @@ export default function LinksScreen({
                       key={status.id}
                       type="button"
                       onClick={() => setEditStatus(status.id)}
-                      className={`flex-1 rounded-xl border px-3 py-2 text-[11px] font-bold ${
+                      className={`flex-1 py-2 px-3 rounded-xl border text-[10px] font-bold transition-all ${
                         editStatus === status.id
-                          ? "border-slate-900 bg-slate-900 text-white"
-                          : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
+                          ? "bg-slate-900 border-slate-900 text-white"
+                          : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
                       }`}
                     >
                       {status.label}
@@ -967,8 +1253,8 @@ export default function LinksScreen({
               </div>
 
               <div>
-                <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                  Campaign tags
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
+                  Retargeting pixels
                 </label>
                 <div className="flex gap-2">
                   {RETARGET_OPTIONS.map((pixel) => {
@@ -978,10 +1264,10 @@ export default function LinksScreen({
                         key={pixel.id}
                         type="button"
                         onClick={() => toggleRetarget(editRetargeting, pixel.id, setEditRetargeting)}
-                        className={`flex-1 rounded-xl border px-3 py-2 text-[11px] font-bold ${
+                        className={`flex-1 py-2 px-3 rounded-xl border text-[10px] font-bold transition-all ${
                           isSelected
-                            ? "border-slate-900 bg-slate-900 text-white"
-                            : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
+                            ? "bg-slate-900 border-slate-900 text-white"
+                            : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
                         }`}
                       >
                         {pixel.label}
@@ -992,26 +1278,26 @@ export default function LinksScreen({
               </div>
 
               {editError && (
-                <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">
+                <p className="text-xs font-medium text-rose-600" role="alert">
                   {editError}
                 </p>
               )}
 
-              <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
+              <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={closeEditModal}
                   disabled={isSavingEdit}
-                  className="acn-btn-secondary px-4 py-2.5 text-xs"
+                  className="px-4 py-2.5 text-xs font-bold text-slate-500 hover:bg-slate-50 rounded-xl disabled:opacity-60"
                 >
-                  Cancel
+                  Discard
                 </button>
                 <button
                   type="submit"
                   disabled={isSavingEdit}
-                  className="acn-btn-accent px-5 py-2.5 text-xs disabled:opacity-60"
+                  className="px-5 py-2.5 bg-slate-900 hover:bg-slate-950 disabled:opacity-70 disabled:cursor-not-allowed text-white rounded-xl text-xs font-black shadow-sm"
                 >
-                  {isSavingEdit ? "Saving…" : "Save changes"}
+                  {isSavingEdit ? "Saving…" : "Save Configuration"}
                 </button>
               </div>
             </form>

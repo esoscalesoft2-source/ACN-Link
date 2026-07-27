@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Contact } from "../types";
 import {
   Download,
@@ -73,6 +73,12 @@ export default function ContactsScreen({
   const [isSaving, setIsSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!isModalOpen) return;
+    document.body.classList.add("acn-contact-modal-open");
+    return () => document.body.classList.remove("acn-contact-modal-open");
+  }, [isModalOpen]);
+
   const triggerToast = (message: string) => {
     setToast(message);
     window.setTimeout(() => setToast(null), 2800);
@@ -104,12 +110,24 @@ export default function ContactsScreen({
   const filteredContacts = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     return contacts.filter((contact) => {
+      const formBlob = [
+        contact.notes || "",
+        contact.pageTitle || "",
+        contact.blockLabel || "",
+        contact.sourceDomain || "",
+        contact.templateName || "",
+        ...(contact.formFields || []).flatMap((field) => [field.label, field.value])
+      ]
+        .join(" ")
+        .toLowerCase();
+
       const matchesSearch =
         !query ||
         contact.name.toLowerCase().includes(query) ||
         contact.email.toLowerCase().includes(query) ||
         contact.phone.toLowerCase().includes(query) ||
-        contact.tags.some((tag) => tag.toLowerCase().includes(query));
+        contact.tags.some((tag) => tag.toLowerCase().includes(query)) ||
+        formBlob.includes(query);
 
       const matchesSource = sourceFilter === "All sources" || contact.source === sourceFilter;
       const matchesTag = tagFilter === "All tags" || contact.tags.includes(tagFilter);
@@ -195,7 +213,24 @@ export default function ContactsScreen({
         source: editingContact?.source || "MANUAL ENTRY",
         tags: tag ? [tag] : editingContact?.tags?.length ? editingContact.tags : ["Manual Lead"],
         capturedAt: editingContact?.capturedAt || new Date().toISOString(),
-        marketingOptIn: form.marketingOptIn
+        marketingOptIn: form.marketingOptIn,
+        formFields: [
+          { label: "Full name", value: name },
+          { label: "Email", value: email },
+          { label: "Phone", value: phone },
+          ...(tag ? [{ label: "Tag", value: tag }] : [])
+        ],
+        notes: editingContact?.notes,
+        pageId: editingContact?.pageId,
+        pageTitle: editingContact?.pageTitle,
+        blockId: editingContact?.blockId,
+        blockLabel: editingContact?.blockLabel || "Manual lead block",
+        sourceDomain:
+          editingContact?.sourceDomain ||
+          (typeof window !== "undefined" ? window.location.hostname : ""),
+        templateId: editingContact?.templateId,
+        templateName: editingContact?.templateName,
+        pageSlug: editingContact?.pageSlug
       };
 
       if (editingContact) {
@@ -226,7 +261,7 @@ export default function ContactsScreen({
       return;
     }
 
-    const headers = "Name,Email,Phone,Source,Tags,CapturedAt,MarketingOptIn\n";
+    const headers = "Name,Email,Phone,Source,Tags,FormData,Page,Block,Domain,Template,CapturedAt,MarketingOptIn\n";
     const csv = rows
       .map((contact) =>
         [
@@ -235,6 +270,13 @@ export default function ContactsScreen({
           contact.phone,
           contact.source,
           contact.tags.join(";"),
+          contact.formFields?.map((field) => `${field.label}=${field.value}`).join(" | ") ||
+            contact.notes ||
+            "",
+          contact.pageTitle || "",
+          contact.blockLabel || "",
+          contact.sourceDomain || "",
+          contact.templateName || "",
           formatCapturedAt(contact.capturedAt),
           contact.marketingOptIn ? "Yes" : "No"
         ]
@@ -268,7 +310,7 @@ export default function ContactsScreen({
     <PageShell>
       <PageHeader
         title="Contacts"
-        subtitle="Manage and export captured leads"
+        subtitle="Bio page Form / Smart Form submissions appear here automatically"
         actions={
           <>
             <button
@@ -292,95 +334,101 @@ export default function ContactsScreen({
       />
 
       {isModalOpen && (
-        <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-gray-950/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="contact-modal-title"
-            className="bg-white rounded-3xl max-w-md w-full p-4 shadow-2xl border border-gray-50 animate-in fade-in zoom-in-95 duration-200"
+            className="bg-white rounded-3xl max-w-md w-full p-4 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-200"
           >
-            <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center justify-between mb-4">
               <h3 id="contact-modal-title" className="font-display font-bold text-lg text-gray-950">
                 {editingContact ? "Edit Contact" : "Add New Contact"}
               </h3>
               <button
                 type="button"
                 onClick={closeModal}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-slate-50"
                 aria-label="Close"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-6" noValidate>
-              <div>
-                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
-                  Full name
-                </label>
-                <input
-                  type="text"
-                  required
-                  autoFocus
-                  placeholder="e.g. John Doe"
-                  value={form.name}
-                  onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-xl py-2.5 px-3.5 text-sm text-gray-900 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
-                  Email address
-                </label>
-                <input
-                  type="email"
-                  required
-                  placeholder="john@example.com"
-                  value={form.email}
-                  onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
-                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-xl py-2.5 px-3.5 text-sm text-gray-900 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
-                  Phone number
-                </label>
-                <input
-                  type="tel"
-                  required
-                  placeholder="+1 555-0199"
-                  value={form.phone}
-                  onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))}
-                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-xl py-2.5 px-3.5 text-sm text-gray-900 focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5">
-                  Tag (optional)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Newsletter, VIP"
-                  value={form.tag}
-                  onChange={(e) => setForm((prev) => ({ ...prev, tag: e.target.value }))}
-                  className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-xl py-2.5 px-3.5 text-sm text-gray-900 focus:outline-none"
-                />
-              </div>
-
-              <label className="flex items-center gap-2.5 rounded-xl border border-slate-100 bg-slate-50/70 px-3.5 py-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={form.marketingOptIn}
-                  onChange={(e) => setForm((prev) => ({ ...prev, marketingOptIn: e.target.checked }))}
-                  className="h-4 w-4 rounded border-slate-300 accent-[#4F46E5]"
-                />
-                <span className="text-xs font-semibold text-slate-700">
-                  Marketing opt-in (email / WhatsApp updates)
+            <form onSubmit={handleSubmit} className="space-y-3" noValidate>
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3 text-left">
+                <span className="font-bold block text-center text-slate-700 uppercase tracking-widest font-mono text-[10px]">
+                  {editingContact ? "Edit lead block" : "Manual lead block"}
                 </span>
-              </label>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Full name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    autoFocus
+                    placeholder="e.g. John Doe"
+                    value={form.name}
+                    onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+                    className="w-full bg-slate-50 border border-slate-200 text-slate-800 focus:outline-none focus:ring-1 focus:ring-violet-500 rounded-xl py-2 px-3 text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Email address *
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="john@example.com"
+                    value={form.email}
+                    onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
+                    className="w-full bg-slate-50 border border-slate-200 text-slate-800 focus:outline-none focus:ring-1 focus:ring-violet-500 rounded-xl py-2 px-3 text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Phone number *
+                  </label>
+                  <input
+                    type="tel"
+                    required
+                    placeholder="+1 555-0199"
+                    value={form.phone}
+                    onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))}
+                    className="w-full bg-slate-50 border border-slate-200 text-slate-800 focus:outline-none focus:ring-1 focus:ring-violet-500 rounded-xl py-2 px-3 text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Tag (optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Newsletter, VIP"
+                    value={form.tag}
+                    onChange={(e) => setForm((prev) => ({ ...prev, tag: e.target.value }))}
+                    className="w-full bg-slate-50 border border-slate-200 text-slate-800 focus:outline-none focus:ring-1 focus:ring-violet-500 rounded-xl py-2 px-3 text-xs"
+                  />
+                </div>
+
+                <label className="flex items-center gap-2 text-slate-700 cursor-pointer text-xs">
+                  <input
+                    type="checkbox"
+                    checked={form.marketingOptIn}
+                    onChange={(e) => setForm((prev) => ({ ...prev, marketingOptIn: e.target.checked }))}
+                    className="rounded border-slate-300 accent-[#7c3aed]"
+                  />
+                  <span className="font-semibold">
+                    Marketing opt-in (email / WhatsApp updates)
+                  </span>
+                </label>
+              </div>
 
               {formError && (
                 <p className="text-xs font-medium text-rose-600" role="alert">
@@ -388,23 +436,22 @@ export default function ContactsScreen({
                 </p>
               )}
 
-              <div className="flex items-center justify-end gap-2 pt-3">
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  disabled={isSaving}
-                  className="px-4 py-2 text-sm font-semibold text-gray-500 hover:bg-gray-50 rounded-xl disabled:opacity-60"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSaving}
-                  className="px-5 py-2 bg-[#4F46E5] hover:bg-[#4338CA] disabled:cursor-not-allowed disabled:opacity-70 text-white rounded-xl text-sm font-semibold"
-                >
-                  {isSaving ? "Saving…" : editingContact ? "Save Changes" : "Save Lead"}
-                </button>
-              </div>
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="w-full bg-[#7c3aed] hover:bg-[#6d28d9] disabled:cursor-not-allowed disabled:opacity-70 text-white font-bold py-2.5 rounded-xl text-xs shadow-md shadow-violet-500/25 transition-colors"
+              >
+                {isSaving ? "Saving…" : editingContact ? "Save Changes" : "Save Lead"}
+              </button>
+
+              <button
+                type="button"
+                onClick={closeModal}
+                disabled={isSaving}
+                className="w-full px-4 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-50 rounded-xl disabled:opacity-60"
+              >
+                Cancel
+              </button>
             </form>
           </div>
         </div>
@@ -486,7 +533,7 @@ export default function ContactsScreen({
               </div>
               <p className="font-display font-bold text-gray-900">No contacts yet</p>
               <p className="text-gray-500 text-sm mt-1 max-w-sm mx-auto">
-                Add your first lead manually, or capture contacts from Smart Forms on your Bio Pages.
+                Add your first lead manually, or capture contacts when public visitors submit Form / Smart Form blocks on your Bio Pages.
               </p>
               <button
                 type="button"
@@ -581,6 +628,46 @@ export default function ContactsScreen({
                     <p className="text-[11px] text-gray-400 font-mono">
                       Captured {formatCapturedAt(contact.capturedAt)}
                     </p>
+                    {(contact.formFields?.length ||
+                      contact.notes ||
+                      contact.pageTitle ||
+                      contact.blockLabel ||
+                      contact.sourceDomain ||
+                      contact.templateName) && (
+                      <div className="rounded-xl border border-slate-100 bg-slate-50/80 p-3 space-y-1.5">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          {contact.source === "SMART FORM"
+                            ? "Smart Form submission"
+                            : contact.source === "MANUAL ENTRY"
+                              ? "Manual lead block"
+                              : "Form submission"}
+                          {contact.blockLabel ? ` · ${contact.blockLabel}` : ""}
+                        </p>
+                        {contact.formFields && contact.formFields.length > 0
+                          ? contact.formFields.map((field) => (
+                              <div key={`${contact.id}-${field.label}`} className="text-xs text-slate-600">
+                                <span className="font-semibold text-slate-700">{field.label}: </span>
+                                <span className="break-all">{field.value || "—"}</span>
+                              </div>
+                            ))
+                          : contact.notes
+                            ? (
+                                <p className="text-xs text-slate-600 whitespace-pre-wrap break-words">
+                                  {contact.notes}
+                                </p>
+                              )
+                            : null}
+                        {contact.pageTitle ? (
+                          <p className="text-[10px] text-slate-400 pt-1">From bio page: {contact.pageTitle}</p>
+                        ) : null}
+                        {contact.sourceDomain ? (
+                          <p className="text-[10px] text-slate-400">Domain: {contact.sourceDomain}</p>
+                        ) : null}
+                        {contact.templateName ? (
+                          <p className="text-[10px] text-slate-400">Template: {contact.templateName}</p>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -604,6 +691,12 @@ export default function ContactsScreen({
                     </th>
                     <th className="py-4 px-6 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
                       Source
+                    </th>
+                    <th className="py-4 px-6 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                      Form data
+                    </th>
+                    <th className="py-4 px-6 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                      Domain / Template
                     </th>
                     <th className="py-4 px-6 text-[10px] font-bold text-gray-400 uppercase tracking-widest">
                       Tags
@@ -649,6 +742,51 @@ export default function ContactsScreen({
                           <span className="inline-block bg-indigo-50/60 border border-indigo-100 text-[#4F46E5] text-[10px] font-bold px-2 py-0.5 rounded tracking-wide uppercase">
                             {contact.source}
                           </span>
+                        </td>
+                        <td className="py-4.5 px-6 max-w-[280px]">
+                          {contact.formFields && contact.formFields.length > 0 ? (
+                            <div className="space-y-0.5">
+                              {contact.formFields.map((field) => (
+                                <p key={`${contact.id}-t-${field.label}`} className="text-[11px] text-slate-600">
+                                  <span className="font-semibold text-slate-700">{field.label}:</span>{" "}
+                                  <span className="break-all">{field.value || "—"}</span>
+                                </p>
+                              ))}
+                              {contact.pageTitle ? (
+                                <p className="text-[10px] text-slate-400 pt-0.5">Page: {contact.pageTitle}</p>
+                              ) : null}
+                              {contact.blockLabel ? (
+                                <p className="text-[10px] text-slate-400">Block: {contact.blockLabel}</p>
+                              ) : null}
+                            </div>
+                          ) : contact.notes ? (
+                            <div>
+                              <p className="text-[11px] text-slate-500 whitespace-pre-wrap break-words">{contact.notes}</p>
+                              {contact.pageTitle ? (
+                                <p className="text-[10px] text-slate-400 pt-0.5">Page: {contact.pageTitle}</p>
+                              ) : null}
+                            </div>
+                          ) : contact.pageTitle ? (
+                            <p className="text-[11px] text-slate-500">Page: {contact.pageTitle}</p>
+                          ) : (
+                            <span className="text-gray-300 text-xs">—</span>
+                          )}
+                        </td>
+                        <td className="py-4.5 px-6 max-w-[180px]">
+                          {contact.sourceDomain || contact.templateName ? (
+                            <div className="space-y-0.5">
+                              {contact.sourceDomain ? (
+                                <p className="text-[11px] text-slate-600 font-mono break-all">
+                                  {contact.sourceDomain}
+                                </p>
+                              ) : null}
+                              {contact.templateName ? (
+                                <p className="text-[11px] text-slate-500">{contact.templateName}</p>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <span className="text-gray-300 text-xs">—</span>
+                          )}
                         </td>
                         <td className="py-4.5 px-6">
                           <div className="flex flex-wrap gap-1">

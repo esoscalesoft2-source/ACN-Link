@@ -500,9 +500,10 @@ export default function App() {
   const didPushLocalPagesRef = React.useRef(false);
   React.useEffect(() => {
     if (!isLoggedIn || !workspaceHydrated || isPreviewToken(getAccessToken())) return;
-    if (!pages.length || didPushLocalPagesRef.current) return;
+    const toSync = pages.filter((page) => !page.isUncommitted);
+    if (!toSync.length || didPushLocalPagesRef.current) return;
     didPushLocalPagesRef.current = true;
-    void syncAllLocalPageDocumentsToServer(pages);
+    void syncAllLocalPageDocumentsToServer(toSync);
   }, [isLoggedIn, workspaceHydrated, pages]);
 
   // Notify on new live analytics events (skip initial load)
@@ -600,25 +601,31 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isLoggedIn]);
 
+  // Persist only committed pages — template edits stay out of history until Save Draft / Publish
+  const committedPages = React.useMemo(
+    () => pages.filter((page) => !page.isUncommitted),
+    [pages]
+  );
+
   // Whenever pages list is updated, sync to Railway first, then optional local cache
   React.useEffect(() => {
     if (!isPagesSyncReady || !getAccessToken() || isPreviewToken(getAccessToken())) {
-      writeLocalStorage("biolinks_pages_list", pages);
+      writeLocalStorage("biolinks_pages_list", committedPages);
       return;
     }
 
     fetch(apiUrl("/api/pages"), {
       method: "POST",
       headers: authenticatedHeaders(true),
-      body: JSON.stringify({ pages })
+      body: JSON.stringify({ pages: committedPages })
     })
       .catch((err) => {
         console.error("Failed to save pages list to server:", err);
       })
       .finally(() => {
-        writeLocalStorage("biolinks_pages_list", pages);
+        writeLocalStorage("biolinks_pages_list", committedPages);
       });
-  }, [pages, isPagesSyncReady]);
+  }, [committedPages, isPagesSyncReady]);
 
   const [contacts, setContacts] = useState<Contact[]>(() => readLocalStorage("acnlink_contacts", initialContacts));
   const [whatsAppCampaigns, setWhatsAppCampaigns] = useState<WhatsAppCampaign[]>(() =>
@@ -1043,7 +1050,9 @@ export default function App() {
               bio: bio !== undefined ? bio : page.bio,
               coverPhoto: coverPhoto !== undefined ? coverPhoto : page.coverPhoto,
               handle: pageHandle !== undefined ? pageHandle : page.handle,
-              status: status !== undefined ? status : page.status
+              status: status !== undefined ? status : page.status,
+              // Save Draft / Publish commits the page into Bio Pages history
+              isUncommitted: undefined
             }
           : page
       )
@@ -1107,15 +1116,111 @@ export default function App() {
 
   const maskContactPhone = (phone: string) => {
     const digits = phone.replace(/\D/g, "");
-    return digits.length >= 4 ? `•••••• ${digits.slice(-4)}` : "••••••";
+    return digits.length >= 4 ? `•••••• ${digits.slice(-4)}` : phone ? "••••••" : "—";
   };
+
+  const mergeContactsById = (local: Contact[], remote: Contact[]) => {
+    const merged = new Map<string, Contact>();
+    local.forEach((contact) => merged.set(contact.id, contact));
+    remote.forEach((contact) => {
+      const prev = merged.get(contact.id);
+      merged.set(contact.id, {
+        ...(prev || {}),
+        ...contact,
+        formFields: contact.formFields?.length ? contact.formFields : prev?.formFields,
+        notes: contact.notes || prev?.notes,
+        pageTitle: contact.pageTitle || prev?.pageTitle,
+        blockLabel: contact.blockLabel || prev?.blockLabel,
+        sourceDomain: contact.sourceDomain || prev?.sourceDomain,
+        templateId: contact.templateId || prev?.templateId,
+        templateName: contact.templateName || prev?.templateName,
+        pageSlug: contact.pageSlug || prev?.pageSlug,
+        tags: Array.from(new Set([...(prev?.tags || []), ...(contact.tags || [])].filter(Boolean)))
+      });
+    });
+    return Array.from(merged.values()).sort(
+      (a, b) => new Date(b.capturedAt).getTime() - new Date(a.capturedAt).getTime()
+    );
+  };
+
+  const refreshContactsFromServer = React.useCallback(async () => {
+    if (!isLoggedIn || isPreviewToken(getAccessToken())) return;
+    try {
+      const response = await fetch(apiUrl("/api/contacts"), {
+        cache: "no-store",
+        headers: authenticatedHeaders()
+      });
+      if (!response.ok) return;
+      const remote = await response.json();
+      if (!Array.isArray(remote)) return;
+      setContacts((local) => mergeContactsById(local, remote as Contact[]));
+    } catch (error) {
+      console.warn("Failed to refresh contacts:", error);
+    }
+  }, [isLoggedIn]);
+
+  React.useEffect(() => {
+    void refreshContactsFromServer();
+  }, [refreshContactsFromServer, workspaceHydrated]);
+
+  React.useEffect(() => {
+    const onContactsUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ contact?: Contact }>).detail;
+      if (detail?.contact) {
+        void import("./lib/contactCapture").then(({ upsertLocalContact }) => {
+          setContacts((current) => upsertLocalContact(current, detail.contact as Contact));
+        });
+      }
+      void refreshContactsFromServer();
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === "acn_lead_capture_ping" && event.newValue) {
+        try {
+          const parsed = JSON.parse(event.newValue) as { contact?: Contact };
+          if (parsed?.contact) {
+            void import("./lib/contactCapture").then(({ upsertLocalContact }) => {
+              setContacts((current) => upsertLocalContact(current, parsed.contact as Contact));
+            });
+          }
+        } catch {
+          /* ignore */
+        }
+        void refreshContactsFromServer();
+      }
+      if (event.key === "acnlink_contacts" && event.newValue) {
+        try {
+          const parsed = JSON.parse(event.newValue);
+          if (Array.isArray(parsed)) {
+            setContacts((local) => mergeContactsById(local, parsed as Contact[]));
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    };
+    window.addEventListener("acn-contacts-updated", onContactsUpdated as EventListener);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("acn-contacts-updated", onContactsUpdated as EventListener);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [refreshContactsFromServer]);
+
+  React.useEffect(() => {
+    if (currentScreen !== ScreenId.CONTACTS) return;
+    void refreshContactsFromServer();
+    const timer = window.setInterval(() => {
+      void refreshContactsFromServer();
+    }, 8000);
+    return () => window.clearInterval(timer);
+  }, [currentScreen, refreshContactsFromServer]);
 
   const handleAddContact = (newContactData: Omit<Contact, "id" | "maskedEmail" | "maskedPhone">) => {
     const newContact: Contact = {
       id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       ...newContactData,
       maskedEmail: maskContactEmail(newContactData.email),
-      maskedPhone: maskContactPhone(newContactData.phone)
+      maskedPhone: maskContactPhone(newContactData.phone || "")
     };
     setContacts((current) => [newContact, ...current]);
     pushNotification({
@@ -1124,28 +1229,43 @@ export default function App() {
       message: `${newContact.name} was added to your contacts.`,
       targetScreen: ScreenId.CONTACTS
     });
+    if (getAccessToken() && !isPreviewToken(getAccessToken())) {
+      void fetch(apiUrl("/api/contacts"), {
+        method: "POST",
+        headers: authenticatedHeaders(true),
+        body: JSON.stringify({ contact: newContact })
+      }).catch((error) => console.warn("Failed to sync contact:", error));
+    }
   };
 
   const handleUpdateContact = (
     id: string,
     contactData: Omit<Contact, "id" | "maskedEmail" | "maskedPhone">
   ) => {
-    setContacts((current) =>
-      current.map((contact) =>
-        contact.id === id
-          ? {
-              ...contact,
-              ...contactData,
-              maskedEmail: maskContactEmail(contactData.email),
-              maskedPhone: maskContactPhone(contactData.phone)
-            }
-          : contact
-      )
-    );
+    const updated: Contact = {
+      id,
+      ...contactData,
+      maskedEmail: maskContactEmail(contactData.email),
+      maskedPhone: maskContactPhone(contactData.phone || "")
+    };
+    setContacts((current) => current.map((contact) => (contact.id === id ? { ...contact, ...updated } : contact)));
+    if (getAccessToken() && !isPreviewToken(getAccessToken())) {
+      void fetch(apiUrl("/api/contacts"), {
+        method: "POST",
+        headers: authenticatedHeaders(true),
+        body: JSON.stringify({ contact: updated })
+      }).catch((error) => console.warn("Failed to sync contact update:", error));
+    }
   };
 
   const handleDeleteContact = (id: string) => {
     setContacts((current) => current.filter((contact) => contact.id !== id));
+    if (getAccessToken() && !isPreviewToken(getAccessToken())) {
+      void fetch(apiUrl(`/api/contacts/${id}`), {
+        method: "DELETE",
+        headers: authenticatedHeaders()
+      }).catch((error) => console.warn("Failed to delete contact on server:", error));
+    }
   };
 
   const handleAddWhatsAppTemplate = (template: Omit<WhatsAppTemplate, "id">) => {
@@ -1369,6 +1489,16 @@ export default function App() {
   };
 
   const handleScreenChange = (screen: ScreenId) => {
+    // Leaving Bio Pages without Save Draft / Publish discards template sessions
+    if (screen !== ScreenId.BIO_PAGES) {
+      const orphanIds = pages.filter((page) => page.isUncommitted).map((page) => page.id);
+      if (orphanIds.length > 0) {
+        handleDeletePages(orphanIds);
+      }
+      setInitialActiveEditPageId(null);
+      setInitialActiveTemplateId(null);
+    }
+
     const path = screenToPath(screen);
     navigate(path);
     setIsMobileNavOpen(false);
@@ -1398,9 +1528,9 @@ export default function App() {
   // Helper object to serve metrics inside dashboard with server-side tracking support
   const metrics = {
     totalClicks: serverMetrics ? serverMetrics.totalClicks : links.reduce((acc, curr) => acc + curr.clicks, 0),
-    pageViews: serverMetrics ? serverMetrics.totalViews : pages.reduce((acc, curr) => acc + curr.views, 0),
+    pageViews: serverMetrics ? serverMetrics.totalViews : committedPages.reduce((acc, curr) => acc + curr.views, 0),
     activeLinks: links.filter((l) => l.status === "Live").length,
-    activePages: pages.filter((p) => p.status === "Live").length,
+    activePages: committedPages.filter((p) => p.status === "Live").length,
     totalRegisters: serverMetrics ? serverMetrics.totalRegisters : 0,
     events: serverMetrics ? serverMetrics.events : []
   };
@@ -1410,7 +1540,7 @@ export default function App() {
       version: "1.0.0",
       exportedAt: new Date().toISOString(),
       user,
-      pages,
+      pages: committedPages,
       contacts,
       whatsAppCampaigns,
       whatsAppTemplates,
@@ -1498,7 +1628,7 @@ export default function App() {
             onOpenPage={handleOpenDashboardPage}
             user={user}
             metrics={metrics}
-            pages={pages}
+            pages={committedPages}
           />
         );
       case ScreenId.BIO_PAGES:
@@ -1633,12 +1763,14 @@ export default function App() {
                 id: newId,
                 title: tplTitle,
                 slug: newSlug,
-                status: "Live",
+                status: "Draft",
                 views: 0,
                 createdAt: "7 Jul 2026",
                 bio: tplBio,
                 coverPhoto: tplCoverPhoto,
-                handle: tplHandle
+                handle: tplHandle,
+                // Hidden from Bio Pages history until Save Draft or Publish
+                isUncommitted: true
               };
 
               setPageBlocksMap((prev) => ({
@@ -1647,21 +1779,11 @@ export default function App() {
                 [newSlug]: blocksToLoad
               }));
 
-              const details = { title: tplTitle, bio: tplBio, coverPhoto: tplCoverPhoto, handle: tplHandle };
-              persistPagePreviewStorage(newId, newSlug, blocksToLoad, details);
-
               setPages((prev) => [newPage, ...prev]);
 
               setInitialActiveEditPageId(newId);
               setInitialActiveTemplateId(sourceTemplateId);
               handleScreenChange(ScreenId.BIO_PAGES);
-              pushNotification({
-                type: "template_used",
-                title: "Template applied",
-                message: `"${tplTitle}" was created from ${isCustom ? "your template" : "a preset"}.`,
-                targetScreen: ScreenId.BIO_PAGES,
-                meta: { pageId: newId }
-              });
             }}
           />
         );
@@ -1697,7 +1819,7 @@ export default function App() {
         return (
           <CustomDomainsScreen
             domains={domains}
-            pages={pages}
+            pages={committedPages}
             isLoading={domainsLoading}
             loadError={domainsLoadError}
             onReload={loadDomains}

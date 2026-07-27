@@ -1,8 +1,20 @@
-import React, { useMemo, useState } from "react";
-import { TemplateItem, BioPageTemplate } from "../types";
-import { formatStorageDate } from "../storage/bioBuilderStorage";
-import { TEMPLATE_CATEGORIES, GALLERY_TEMPLATE_COUNT } from "../lib/systemTemplates";
+import React, { useEffect, useMemo, useState } from "react";
+import type { BioEditorBlock, BioPageTemplate, TemplateItem } from "../types";
+import {
+  formatStorageDate,
+  getTemplateEditorPayload
+} from "../storage/bioBuilderStorage";
+import {
+  getBlankTemplate,
+  resolveSystemTemplate,
+  SYSTEM_TEMPLATE_COUNT,
+  TEMPLATE_CATEGORIES
+} from "../lib/systemTemplates";
+import { getBioPageThemeClass, getBioPageThemeStyle } from "../lib/bioPageThemes";
 import { Workspace } from "./layout/PageShell";
+import BlockRenderer from "./bio/BlockRenderer";
+import CoverPhotoView from "./bio/CoverPhotoView";
+import type { BlockRecord } from "../lib/bioBlocks";
 import {
   Plus,
   Layers,
@@ -27,6 +39,98 @@ type PreviewTarget =
 
 function getBlockCount(tpl: BioPageTemplate) {
   return tpl.data?.blocks?.length ?? 0;
+}
+
+function resolvePreviewState(target: PreviewTarget) {
+  if (target.kind === "custom") {
+    return getTemplateEditorPayload(target.item);
+  }
+  return resolveSystemTemplate(target.item.name) ?? getBlankTemplate(target.item.name);
+}
+
+function TemplateExplorePhone({
+  title,
+  bio,
+  coverImage,
+  handle,
+  blocks
+}: {
+  title: string;
+  bio: string;
+  coverImage: string;
+  handle?: string;
+  blocks: BioEditorBlock[];
+}) {
+  const themeClass = getBioPageThemeClass("light");
+  const themeStyle = getBioPageThemeStyle("light");
+
+  return (
+    <div
+      className="acn-phone-preview acn-phone-preview--samsung acn-phone-preview--slim acn-template-explore-phone"
+      aria-label="Template mobile preview"
+    >
+      <div className="acn-phone-preview__side-key acn-phone-preview__side-key--volume-up" aria-hidden />
+      <div className="acn-phone-preview__side-key acn-phone-preview__side-key--volume-down" aria-hidden />
+      <div className="acn-phone-preview__bezel">
+        <div className="acn-phone-preview__hole-punch" aria-hidden />
+        <div className="acn-phone-preview__display">
+          <div className="acn-phone-preview__chrome">
+            <div className="acn-phone-preview__status-bar">
+              <span>9:41</span>
+              <span className="acn-phone-preview__status-icons">▮▮▮ 100%</span>
+            </div>
+            <div className="acn-phone-preview__browser-bar">
+              <span className="acn-phone-preview__browser-home" aria-hidden>
+                ⌂
+              </span>
+              <span className="acn-phone-preview__browser-url">acn.link/preview</span>
+              <span className="acn-phone-preview__browser-tabs" aria-hidden>
+                1
+              </span>
+            </div>
+          </div>
+
+          <div
+            className={`acn-preview-isolate acn-phone-preview__screen ${themeClass} no-scrollbar acn-template-explore-phone__screen`}
+            style={themeStyle}
+          >
+            <CoverPhotoView
+              src={coverImage}
+              alt={`${title} cover`}
+              variant="preview"
+              className="acn-phone-preview__cover acn-public-bio-page__cover"
+            />
+            <div className="acn-phone-preview__body acn-public-bio-page__body">
+              <div className="acn-public-bio-page__profile">
+                <h1 className="acn-public-bio-page__title font-display">{title}</h1>
+                {handle ? <p className="acn-public-bio-page__handle">{handle}</p> : null}
+              </div>
+              {bio ? <p className="acn-phone-preview__bio-text">{bio}</p> : null}
+              <div className="acn-phone-preview__blocks space-y-3">
+                {blocks.map((block) => (
+                  <BlockRenderer
+                    key={block.id}
+                    block={block as BlockRecord}
+                    mode="preview"
+                    context={{ compact: true, displayTitle: title, displayHandle: handle }}
+                  />
+                ))}
+                {blocks.length === 0 && (
+                  <p className="rounded-xl border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-400">
+                    This template starts blank — build it in the editor.
+                  </p>
+                )}
+              </div>
+              <div className="acn-bio-page-footer acn-phone-preview__footer">
+                <span>Powered by ACN Link</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="acn-phone-preview__side-key acn-phone-preview__side-key--power" aria-hidden />
+    </div>
+  );
 }
 
 function ThumbnailImage({
@@ -140,6 +244,25 @@ export default function TemplatesScreen({
     );
   }, [savedTemplates, searchQuery]);
 
+  const previewState = useMemo(
+    () => (previewTarget ? resolvePreviewState(previewTarget) : null),
+    [previewTarget]
+  );
+
+  useEffect(() => {
+    if (!previewTarget) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPreviewTarget(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [previewTarget]);
+
   const handleUseFromPreview = () => {
     if (!previewTarget) return;
     if (previewTarget.kind === "custom") {
@@ -168,7 +291,7 @@ export default function TemplatesScreen({
             Templates
           </h2>
           <p className="text-gray-500 text-sm mt-1">
-            {GALLERY_TEMPLATE_COUNT} templates including Start from Scratch — preview, use, and edit any design.
+            {SYSTEM_TEMPLATE_COUNT} system templates + Start from Scratch — preview, use, and edit any design.
           </p>
         </div>
         <div className="acn-icon-field w-full lg:w-80 shrink-0">
@@ -200,7 +323,7 @@ export default function TemplatesScreen({
         >
           System Templates
           <span className="ml-1.5 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 text-xs">
-            {GALLERY_TEMPLATE_COUNT}
+            {SYSTEM_TEMPLATE_COUNT}
           </span>
         </button>
 
@@ -425,74 +548,78 @@ export default function TemplatesScreen({
         </div>
       )}
 
-      {previewTarget && (
-        <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      {previewTarget && previewState && (
+        <div
+          className="acn-template-explore-overlay fixed inset-0 z-[80] flex items-stretch justify-center p-3 sm:p-5"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setPreviewTarget(null);
+          }}
+        >
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="preview-template-title"
-            className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-slate-100 overflow-hidden max-h-[90vh] flex flex-col"
+            className="acn-template-explore-dialog flex w-full max-w-5xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl"
           >
-            <div className="relative h-72 sm:h-80 bg-slate-100 shrink-0 flex items-center justify-center p-6">
-              <div className="acn-template-phone acn-template-phone--modal w-[220px]">
-                <div className="acn-template-phone__frame">
-                  <div className="acn-template-phone__notch" aria-hidden />
-                  <div className="acn-template-phone__screen">
-                    <ThumbnailImage
-                      src={
-                        previewTarget.kind === "system"
-                          ? previewTarget.item.imageUrl
-                          : previewTarget.item.previewImage
-                      }
-                      alt=""
-                      overlayClassName="w-full h-full"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                </div>
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-4 py-3.5 sm:px-6">
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-500">
+                  Mobile template preview
+                </p>
+                <h3
+                  id="preview-template-title"
+                  className="mt-1 font-display text-xl font-black text-slate-900 sm:text-2xl"
+                >
+                  {previewTarget.item.name}
+                </h3>
+                <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-500">
+                  {previewTarget.kind === "system"
+                    ? previewTarget.item.description
+                    : previewTarget.item.description ||
+                      `Custom design with ${getBlockCount(previewTarget.item)} widgets.`}
+                </p>
+                <p className="mt-2 text-[11px] font-semibold text-slate-400">
+                  Scroll inside the phone to explore the full layout before editing.
+                </p>
               </div>
               <button
                 type="button"
                 onClick={() => setPreviewTarget(null)}
                 aria-label="Close preview"
-                className="absolute top-3 right-3 bg-black/40 hover:bg-black/60 text-white p-1.5 rounded-full"
+                className="shrink-0 rounded-full bg-slate-100 p-2 text-slate-500 hover:bg-slate-200 hover:text-slate-800"
               >
                 <X className="h-4 w-4" />
               </button>
-              <div className="absolute bottom-4 left-5 right-5">
-                <h3
-                  id="preview-template-title"
-                  className="font-display font-black text-slate-900 text-xl truncate"
-                >
-                  {previewTarget.item.name}
-                </h3>
+            </div>
+
+            <div className="acn-template-explore-stage min-h-0 flex-1 overflow-y-auto">
+              <div className="flex min-h-full items-start justify-center px-3 py-5 sm:px-6 sm:py-7">
+                <TemplateExplorePhone
+                  title={previewState.pageMeta.title}
+                  bio={previewState.pageMeta.shortBio}
+                  coverImage={previewState.pageMeta.coverImage}
+                  handle={previewState.pageMeta.handle}
+                  blocks={previewState.blocks}
+                />
               </div>
             </div>
 
-            <div className="p-6 space-y-6 overflow-y-auto">
-              <p className="text-sm text-gray-600 leading-relaxed">
-                {previewTarget.kind === "system"
-                  ? previewTarget.item.description
-                  : previewTarget.item.description ||
-                    `Custom design with ${getBlockCount(previewTarget.item)} widgets.`}
-              </p>
-
-              <div className="flex items-center gap-2.5 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setPreviewTarget(null)}
-                  className="px-4 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-50 rounded-xl"
-                >
-                  Close
-                </button>
-                <button
-                  type="button"
-                  onClick={handleUseFromPreview}
-                  className="flex-1 bg-[#4F46E5] hover:bg-[#4338CA] text-white py-2.5 rounded-xl text-sm font-bold shadow-sm transition-all active:scale-[0.98]"
-                >
-                  Use This Template
-                </button>
-              </div>
+            <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-slate-100 bg-white px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+              <button
+                type="button"
+                onClick={() => setPreviewTarget(null)}
+                className="rounded-xl px-4 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-50"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={handleUseFromPreview}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#4F46E5] px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-all hover:bg-[#4338CA] active:scale-[0.98]"
+              >
+                Use This Template
+                <span className="text-[11px] font-semibold opacity-80">→ Edit page</span>
+              </button>
             </div>
           </div>
         </div>

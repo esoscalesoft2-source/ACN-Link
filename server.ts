@@ -271,7 +271,7 @@ app.delete("/api/qr-codes/:id", requireAuth, (req, res) => {
 });
 
 /** Public lookup for SPA fallback redirect (no auth). */
-app.get("/api/public/qr/:code", (req, res) => {
+app.get("/api/public/qr/:code", async (req, res) => {
   const rateKey = `qr-public:${clientIp(req)}`;
   if (!consumeRateLimit(rateKey, 180, 60_000)) {
     res.status(429).json({ error: "Too many requests" });
@@ -283,7 +283,12 @@ app.get("/api/public/qr/:code", (req, res) => {
     return;
   }
   try {
-    const record = resolvePublicQrCode(code);
+    let record = resolvePublicQrCode(code);
+    if (!record) {
+      const { reloadQrCodesFromSupabase } = await import("./server/db/rootStore");
+      await reloadQrCodesFromSupabase();
+      record = resolvePublicQrCode(code);
+    }
     if (!record) {
       res.status(404).json({ error: "QR code not found" });
       return;
@@ -311,7 +316,7 @@ app.get("/api/public/qr/:code", (req, res) => {
 });
 
 /** Public Smart QR redirect: /q/:code → current destination (matrix stays fixed). */
-app.get("/q/:code", (req, res) => {
+app.get("/q/:code", async (req, res) => {
   const rateKey = `qr-scan:${clientIp(req)}`;
   if (!consumeRateLimit(rateKey, 180, 60_000)) {
     res.status(429).type("html").send("<!doctype html><title>Too many requests</title><h1>Too many requests</h1>");
@@ -325,7 +330,12 @@ app.get("/q/:code", (req, res) => {
   }
 
   try {
-    const record = resolvePublicQrCode(code);
+    let record = resolvePublicQrCode(code);
+    if (!record) {
+      const { reloadQrCodesFromSupabase } = await import("./server/db/rootStore");
+      await reloadQrCodesFromSupabase();
+      record = resolvePublicQrCode(code);
+    }
     if (!record) {
       res.status(404).type("html").send("<!doctype html><title>Not found</title><h1>QR code not found</h1>");
       return;

@@ -219,6 +219,10 @@ create table if not exists public.qr_codes (
   conversion_rate text,
   qr_url text not null default '',
   target_url text not null default '',
+  /** Fixed public path code for /q/:code — unique per Smart QR. */
+  public_code text,
+  /** Frozen scan URL encoded into the QR matrix. */
+  scan_url text,
   custom_design boolean not null default false,
   design_color text,
   design_logo text,
@@ -227,13 +231,11 @@ create table if not exists public.qr_codes (
   updated_at timestamptz not null default now()
 );
 
--- Fixed public redirect payload — added after initial release, keep nullable.
-alter table public.qr_codes add column if not exists scan_url text;
 alter table public.qr_codes add column if not exists public_code text;
-alter table public.qr_codes add column if not exists design_logo_url text;
-create unique index if not exists qr_codes_public_code_idx
+alter table public.qr_codes add column if not exists scan_url text;
+create unique index if not exists qr_codes_public_code_uidx
   on public.qr_codes (public_code)
-  where public_code is not null;
+  where public_code is not null and public_code <> '';
 
 create table if not exists public.catalog_templates (
   id text primary key,

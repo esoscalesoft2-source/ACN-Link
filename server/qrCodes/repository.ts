@@ -201,14 +201,25 @@ export function upsertQrCode(item: QrCodeRecord): QrCodeRecord {
   if (index >= 0) rows[index] = next;
   else rows.unshift(next);
   writeAll(rows);
+  // Durable public route + optional typed table (survives app_kv root timeouts).
+  void import("./supabaseSync")
+    .then(async ({ upsertQrRouteIndex, upsertQrCodeRow }) => {
+      await upsertQrRouteIndex(next);
+      await upsertQrCodeRow(next);
+    })
+    .catch((error) => console.error("QR table sync failed:", error));
   return next;
 }
 
 export function deleteQrCode(id: string): boolean {
   const rows = readAll();
+  const removed = rows.find((row) => row.id === id);
   const next = rows.filter((row) => row.id !== id);
   if (next.length === rows.length) return false;
   writeAll(next);
+  void import("./supabaseSync")
+    .then(({ deleteQrCodeRow }) => deleteQrCodeRow(id, removed?.publicCode))
+    .catch((error) => console.error("QR table delete failed:", error));
   return true;
 }
 

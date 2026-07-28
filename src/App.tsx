@@ -69,7 +69,6 @@ import HelpCenterScreen from "./components/HelpCenterScreen";
 import ContactSupportScreen from "./components/ContactSupportScreen";
 import AccountScreen from "./components/AccountScreen";
 import PublicBioPageView from "./components/PublicBioPageView";
-import PublicPreviewPageGate from "./components/PublicPreviewPageGate";
 import PublishModal from "./components/PublishModal";
 import {
   cloneBlocks,
@@ -891,9 +890,32 @@ export default function App() {
     );
   }
 
-  // Platform preview (?previewPageId=) — public visitors load via API (no login required).
+  // Platform preview (?previewPageId=) — only Live pages are publicly visitable.
   if (previewPageId) {
-    return <PublicPreviewPageGate previewPageId={previewPageId} localPages={pages} />;
+    const pageToPreview = pages.find((p) => p.id === previewPageId);
+    if (!pageToPreview || pageToPreview.status !== "Live") {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 px-6">
+          <div className="max-w-md text-center">
+            <h1 className="text-xl font-bold text-slate-900">Page not available</h1>
+            <p className="mt-2 text-sm text-slate-600">
+              This bio page is still a draft. Publish it from Bio Pages before visitors can open the
+              link.
+            </p>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <PublicBioPageView
+        pageId={previewPageId}
+        pageTitle={pageToPreview.title || "BioLink"}
+        pageSlug={pageToPreview.slug || "biolink"}
+        pageBio={pageToPreview.bio}
+        pageCoverPhoto={pageToPreview.coverPhoto}
+        mode="preview"
+      />
+    );
   }
 
   // Handlers for persistent operations
@@ -1348,34 +1370,50 @@ export default function App() {
   };
 
   const syncQrToServer = React.useCallback(async (item: QRCodeItem, method: "POST" | "DELETE" = "POST") => {
-    if (!isLoggedIn || isPreviewToken(getAccessToken())) return;
+    if (!isLoggedIn || isPreviewToken(getAccessToken())) return false;
     try {
+      // Keep logo data URLs client-side only — they blow up API payloads.
+      const payload =
+        method === "POST"
+          ? {
+              ...item,
+              designLogoUrl:
+                item.designLogo === "custom" && item.designLogoUrl && item.designLogoUrl.length < 200_000
+                  ? item.designLogoUrl
+                  : undefined
+            }
+          : undefined;
       const response = await fetch(
         apiUrl(method === "DELETE" ? `/api/qr-codes/${encodeURIComponent(item.id)}` : "/api/qr-codes"),
         {
           method,
           headers: authenticatedHeaders(method === "POST"),
           credentials: "include",
-          body: method === "POST" ? JSON.stringify(item) : undefined
+          body: method === "POST" ? JSON.stringify(payload) : undefined
         }
       );
       if (!response.ok) {
         console.warn("QR server sync failed:", response.status);
+        return false;
       }
+      return true;
     } catch (error) {
       console.warn("QR server sync failed:", error);
+      return false;
     }
   }, [isLoggedIn]);
 
-  // Register existing Smart QRs on the server so /q/:code redirects to the destination.
+  // Keep every Smart QR registered on the server so mobile /q/:code scans resolve.
   React.useEffect(() => {
     if (!isLoggedIn || !workspaceHydrated || isPreviewToken(getAccessToken())) return;
-    qrCodes.forEach((item) => {
-      void syncQrToServer(item, "POST");
-    });
-    // Intentionally once after hydrate — not on every qrCodes change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoggedIn, workspaceHydrated, syncQrToServer]);
+    if (!qrCodes.length) return;
+    const timer = window.setTimeout(() => {
+      qrCodes.forEach((item) => {
+        void syncQrToServer(item, "POST");
+      });
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [isLoggedIn, workspaceHydrated, syncQrToServer, qrCodes]);
 
   const handleGenerateQR = (name: string, targetUrl: string, customColor: string) => {
     const normalizedTargetUrl = normalizeExternalUrl(targetUrl);
@@ -1397,7 +1435,16 @@ export default function App() {
       scanUrl
     });
     setQrCodes((current) => [newQR, ...current]);
-    void syncQrToServer(newQR, "POST");
+    void syncQrToServer(newQR, "POST").then((ok) => {
+      if (!ok) {
+        pushNotification({
+          type: "general",
+          title: "QR saved locally only",
+          message: `"${name}" could not register for mobile scans. Refresh this page and try again.`,
+          targetScreen: ScreenId.QR_CODES
+        });
+      }
+    });
     pushNotification({
       type: "qr_generated",
       title: "QR code created",

@@ -57,7 +57,6 @@ import {
 import { buildShortLinkRedirectHtml } from "./server/shortLinks/redirectPage";
 import { buildLeadContact, upsertOwnerContact, mergeContactLists } from "./server/leads";
 import { resolvePublicQrCode, recordQrScan, listQrCodes, upsertQrCode, deleteQrCode } from "./server/qrCodes/repository";
-import { upsertQrCodeToSupabase, deleteQrCodeFromSupabase, fetchQrCodeFromSupabaseByCode, cacheResolvedQrCode } from "./server/qrCodes/supabaseSync";
 import { normalizeQrPublicCode } from "./server/qrCodes/publicUrl";
 import { toAbsoluteHttpUrl as toQrAbsoluteUrl } from "./server/shortLinks/validation";
 
@@ -249,11 +248,13 @@ app.post("/api/qr-codes", requireAuth, async (req, res) => {
       designPattern: body.designPattern ? String(body.designPattern) : undefined,
       ownerUserId: userId
     });
-    // Direct single-row Supabase sync — fast and independent of the (slow) root-blob write,
-    // so /q/:code redirects work on other server processes right away.
-    await upsertQrCodeToSupabase(saved).catch((error) => {
-      console.error("QR direct Supabase sync failed:", error);
-    });
+    // Wait for durable public route index so mobile scans work immediately.
+    try {
+      const { upsertQrRouteIndex } = await import("./server/qrCodes/supabaseSync");
+      await upsertQrRouteIndex(saved);
+    } catch (error) {
+      console.error("QR route index sync failed:", error);
+    }
     res.json({ item: saved });
   } catch (error) {
     console.error("Upsert QR code failed:", error);
@@ -261,18 +262,14 @@ app.post("/api/qr-codes", requireAuth, async (req, res) => {
   }
 });
 
-app.delete("/api/qr-codes/:id", requireAuth, async (req, res) => {
+app.delete("/api/qr-codes/:id", requireAuth, (req, res) => {
   try {
     const id = String(req.params.id || "").trim();
     if (!id) {
       res.status(400).json({ error: "QR id is required." });
       return;
     }
-    const existing = listQrCodes().find((row) => row.id === id);
     deleteQrCode(id);
-    await deleteQrCodeFromSupabase(id, existing?.publicCode).catch((error) => {
-      console.error("QR direct Supabase delete failed:", error);
-    });
     res.json({ success: true });
   } catch (error) {
     console.error("Delete QR code failed:", error);
@@ -295,8 +292,17 @@ app.get("/api/public/qr/:code", async (req, res) => {
   try {
     let record = resolvePublicQrCode(code);
     if (!record) {
-      record = await fetchQrCodeFromSupabaseByCode(code);
-      if (record) cacheResolvedQrCode(record);
+      const { reloadQrCodesFromSupabase } = await import("./server/db/rootStore");
+      await reloadQrCodesFromSupabase();
+      record = resolvePublicQrCode(code);
+    }
+    if (!record) {
+      const { findQrCodeByPublicCode } = await import("./server/qrCodes/supabaseSync");
+      const fromTable = await findQrCodeByPublicCode(code);
+      if (fromTable) {
+        upsertQrCode(fromTable);
+        record = fromTable;
+      }
     }
     if (!record) {
       res.status(404).json({ error: "QR code not found" });
@@ -341,23 +347,20 @@ app.get("/q/:code", async (req, res) => {
   try {
     let record = resolvePublicQrCode(code);
     if (!record) {
-      record = await fetchQrCodeFromSupabaseByCode(code);
-      if (record) cacheResolvedQrCode(record);
+      const { reloadQrCodesFromSupabase } = await import("./server/db/rootStore");
+      await reloadQrCodesFromSupabase();
+      record = resolvePublicQrCode(code);
     }
     if (!record) {
-      res
-        .status(404)
-        .type("html")
-        .send(`<!doctype html>
-<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>QR not found · ACN Link</title>
-<style>
-  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;background:#f8fafc;color:#0f172a;padding:24px}
-  .card{max-width:360px;text-align:center;background:#fff;border:1px solid #e2e8f0;border-radius:20px;padding:28px 22px;box-shadow:0 10px 30px rgba(15,23,42,.06)}
-  h1{font-size:1.25rem;margin:0 0 8px} p{margin:0;color:#64748b;font-size:.9rem;line-height:1.45}
-</style></head><body><div class="card"><h1>QR code not found</h1>
-<p>This Smart QR is not registered yet. Open Smart QR Codes in ACN Link once while online, then scan again.</p>
-</div></body></html>`);
+      const { findQrCodeByPublicCode } = await import("./server/qrCodes/supabaseSync");
+      const fromTable = await findQrCodeByPublicCode(code);
+      if (fromTable) {
+        upsertQrCode(fromTable);
+        record = fromTable;
+      }
+    }
+    if (!record) {
+      res.status(404).type("html").send("<!doctype html><title>Not found</title><h1>QR code not found</h1>");
       return;
     }
     if (record.status !== "Active") {
@@ -691,38 +694,6 @@ app.get("/api/page/:id", (req, res) => {
     return;
   }
   res.json(pageData);
-});
-
-/** Public metadata for anonymous visitors (QR / share links with ?previewPageId=). */
-app.get("/api/public/page/:id", (req, res) => {
-  const id = String(req.params.id || "").trim();
-  if (!id) {
-    res.status(404).json({ error: "Page not found", code: "PAGE_NOT_FOUND" });
-    return;
-  }
-  const store = readStore();
-  const pages = Array.isArray(store["pages_list"]) ? store["pages_list"] : [];
-  const meta = pages.find((item: any) => item && item.id === id);
-  if (!meta) {
-    res.set("Cache-Control", "no-store");
-    res.status(404).json({ error: "Page not found", code: "PAGE_NOT_FOUND" });
-    return;
-  }
-  const status = String(meta.status || "Draft");
-  if (status !== "Live") {
-    res.set("Cache-Control", "no-store");
-    res.status(404).json({ error: "Page not published", code: "PAGE_NOT_PUBLISHED" });
-    return;
-  }
-  res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=120");
-  res.json({
-    id: meta.id,
-    title: meta.title || "BioLink",
-    slug: meta.slug || "biolink",
-    bio: meta.bio || "",
-    coverPhoto: meta.coverPhoto || "",
-    status: "Live"
-  });
 });
 
 app.post("/api/page/:id", requireAuth, (req, res) => {

@@ -348,14 +348,12 @@ export async function syncRootToNormalizedTables(
           conversion_rate: q.conversionRate ?? null,
           qr_url: q.qrUrl || "",
           target_url: q.targetUrl || "",
-          scan_url: q.scanUrl ?? null,
-          public_code: q.publicCode ?? null,
+          public_code: q.publicCode || null,
+          scan_url: q.scanUrl || null,
           custom_design: Boolean(q.customDesign),
           design_color: q.designColor ?? null,
           design_logo: q.designLogo ?? null,
-          design_logo_url: q.designLogoUrl ?? null,
-          design_pattern: q.designPattern ?? null,
-          owner_user_id: q.ownerUserId ?? null
+          design_pattern: q.designPattern ?? null
         })
       },
       {

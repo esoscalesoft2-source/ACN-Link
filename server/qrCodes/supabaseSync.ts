@@ -1,220 +1,192 @@
 import { getSupabase, isSupabaseConfigured } from "../db/supabase";
 import type { QrCodeRecord } from "./repository";
-import { upsertQrCode } from "./repository";
 
-const TABLE = "qr_codes";
-const INDEX_KEY = "qr_redirect_index";
+function normalizeCode(code: string): string {
+  return String(code || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "");
+}
 
-type QrIndexEntry = {
+function routeKey(code: string): string {
+  return `qr_route:${normalizeCode(code)}`;
+}
+
+type QrRouteValue = {
   id: string;
-  name?: string;
+  name: string;
   status: "Active" | "Paused";
   targetUrl: string;
-  scanUrl?: string;
   publicCode: string;
+  scanUrl?: string;
+  ownerUserId?: string;
 };
 
-function mapRowToRecord(row: Record<string, unknown>): QrCodeRecord {
-  return {
-    id: String(row.id),
-    name: String(row.name || ""),
-    status: row.status === "Paused" ? "Paused" : "Active",
-    scans: String(row.scans ?? "0"),
-    uniqueScanners: String(row.unique_scanners ?? "0"),
-    topLocation: row.top_location ? String(row.top_location) : undefined,
-    conversionRate: row.conversion_rate ? String(row.conversion_rate) : undefined,
-    qrUrl: String(row.qr_url || ""),
-    targetUrl: String(row.target_url || ""),
-    scanUrl: row.scan_url ? String(row.scan_url) : undefined,
-    publicCode: row.public_code ? String(row.public_code) : undefined,
-    customDesign: Boolean(row.custom_design),
-    designColor: row.design_color ? String(row.design_color) : undefined,
-    designLogo: row.design_logo ? String(row.design_logo) : undefined,
-    designLogoUrl: row.design_logo_url ? String(row.design_logo_url) : undefined,
-    designPattern: row.design_pattern ? String(row.design_pattern) : undefined,
-    ownerUserId: row.owner_user_id ? String(row.owner_user_id) : undefined
-  };
-}
-
-function mapRecordToBaseRow(record: QrCodeRecord): Record<string, unknown> {
-  return {
-    id: record.id,
-    name: record.name || "",
-    status: record.status || "Active",
-    scans: record.scans || "0",
-    unique_scanners: record.uniqueScanners || "0",
-    top_location: record.topLocation ?? null,
-    conversion_rate: record.conversionRate ?? null,
-    qr_url: record.qrUrl || "",
-    target_url: record.targetUrl || "",
-    custom_design: Boolean(record.customDesign),
-    design_color: record.designColor ?? null,
-    design_logo: record.designLogo ?? null,
-    design_pattern: record.designPattern ?? null,
-    owner_user_id: record.ownerUserId ?? null
-  };
-}
-
-function mapRecordToFullRow(record: QrCodeRecord): Record<string, unknown> {
-  return {
-    ...mapRecordToBaseRow(record),
-    scan_url: record.scanUrl ?? null,
-    public_code: record.publicCode ?? null,
-    design_logo_url: record.designLogoUrl ?? null
-  };
-}
-
-async function upsertQrRedirectIndex(record: QrCodeRecord): Promise<void> {
+/** Tiny durable mapping for /q/:code — avoids huge root blob timeouts. */
+export async function upsertQrRouteIndex(row: QrCodeRecord): Promise<boolean> {
   const supabase = getSupabase();
-  if (!supabase || !record.publicCode) return;
+  if (!supabase || !isSupabaseConfigured()) return false;
+  const publicCode = normalizeCode(row.publicCode || "");
+  if (!publicCode || !row.targetUrl) return false;
 
-  const { data, error: readError } = await supabase
-    .from("app_kv")
-    .select("value")
-    .eq("key", INDEX_KEY)
-    .maybeSingle();
-  if (readError) {
-    console.error("QR redirect index read failed:", readError.message);
-    return;
-  }
-
-  const current =
-    data?.value && typeof data.value === "object" && !Array.isArray(data.value)
-      ? ({ ...(data.value as Record<string, QrIndexEntry>) } as Record<string, QrIndexEntry>)
-      : {};
-
-  current[String(record.publicCode).toLowerCase()] = {
-    id: record.id,
-    name: record.name,
-    status: record.status,
-    targetUrl: record.targetUrl,
-    scanUrl: record.scanUrl,
-    publicCode: String(record.publicCode)
+  const value: QrRouteValue = {
+    id: row.id,
+    name: row.name || "",
+    status: row.status === "Paused" ? "Paused" : "Active",
+    targetUrl: row.targetUrl,
+    publicCode,
+    scanUrl: row.scanUrl,
+    ownerUserId: row.ownerUserId
   };
 
   const { error } = await supabase.from("app_kv").upsert(
-    { key: INDEX_KEY, value: current, updated_at: new Date().toISOString() },
+    {
+      key: routeKey(publicCode),
+      value,
+      updated_at: new Date().toISOString()
+    },
     { onConflict: "key" }
   );
   if (error) {
-    console.error("QR redirect index upsert failed:", error.message);
+    console.error("QR route index upsert failed:", error.message);
+    return false;
   }
+  return true;
 }
 
-async function deleteFromQrRedirectIndex(id: string, publicCode?: string): Promise<void> {
+export async function findQrRouteByPublicCode(code: string): Promise<QrCodeRecord | null> {
   const supabase = getSupabase();
-  if (!supabase) return;
-  const { data } = await supabase.from("app_kv").select("value").eq("key", INDEX_KEY).maybeSingle();
-  if (!data?.value || typeof data.value !== "object" || Array.isArray(data.value)) return;
-  const current = { ...(data.value as Record<string, QrIndexEntry>) };
-  let changed = false;
-  if (publicCode && current[publicCode.toLowerCase()]) {
-    delete current[publicCode.toLowerCase()];
-    changed = true;
-  }
-  for (const [code, entry] of Object.entries(current)) {
-    if (entry?.id === id) {
-      delete current[code];
-      changed = true;
-    }
-  }
-  if (!changed) return;
-  await supabase.from("app_kv").upsert(
-    { key: INDEX_KEY, value: current, updated_at: new Date().toISOString() },
-    { onConflict: "key" }
-  );
-}
+  if (!supabase || !isSupabaseConfigured()) return null;
+  const publicCode = normalizeCode(code);
+  if (!publicCode) return null;
 
-async function fetchFromQrRedirectIndex(code: string): Promise<QrCodeRecord | null> {
-  const supabase = getSupabase();
-  if (!supabase) return null;
-  const { data, error } = await supabase.from("app_kv").select("value").eq("key", INDEX_KEY).maybeSingle();
-  if (error || !data?.value || typeof data.value !== "object" || Array.isArray(data.value)) {
+  const { data, error } = await supabase
+    .from("app_kv")
+    .select("value")
+    .eq("key", routeKey(publicCode))
+    .maybeSingle();
+
+  if (error) {
+    console.error("QR route index lookup failed:", error.message);
     return null;
   }
-  const entry = (data.value as Record<string, QrIndexEntry>)[code.toLowerCase()];
-  if (!entry?.id || !entry.targetUrl) return null;
+  const value = data?.value as QrRouteValue | null;
+  if (!value || typeof value !== "object" || !value.targetUrl) return null;
+
   return {
-    id: entry.id,
-    name: entry.name || "Smart QR",
-    status: entry.status === "Paused" ? "Paused" : "Active",
+    id: String(value.id || publicCode),
+    name: String(value.name || "Smart QR"),
+    status: value.status === "Paused" ? "Paused" : "Active",
     scans: "0",
     uniqueScanners: "0",
     qrUrl: "",
-    targetUrl: entry.targetUrl,
-    scanUrl: entry.scanUrl,
-    publicCode: entry.publicCode || code,
-    customDesign: false
+    targetUrl: String(value.targetUrl),
+    publicCode: String(value.publicCode || publicCode),
+    scanUrl: value.scanUrl ? String(value.scanUrl) : undefined,
+    customDesign: true,
+    ownerUserId: value.ownerUserId ? String(value.ownerUserId) : undefined
   };
 }
 
-/**
- * Direct QR sync — small table row + compact redirect index.
- * Independent of the large root-blob app_kv upsert that often times out.
- */
-export async function upsertQrCodeToSupabase(record: QrCodeRecord): Promise<void> {
-  if (!isSupabaseConfigured()) return;
+export async function deleteQrRouteIndex(publicCode: string): Promise<void> {
   const supabase = getSupabase();
-  if (!supabase) return;
+  if (!supabase || !isSupabaseConfigured()) return;
+  const code = normalizeCode(publicCode);
+  if (!code) return;
+  const { error } = await supabase.from("app_kv").delete().eq("key", routeKey(code));
+  if (error) console.error("QR route index delete failed:", error.message);
+}
 
-  const full = mapRecordToFullRow(record);
-  const { error } = await supabase.from(TABLE).upsert(full, { onConflict: "id" });
+/** Optional typed-table upsert when public_code column exists. */
+export async function upsertQrCodeRow(row: QrCodeRecord): Promise<boolean> {
+  const supabase = getSupabase();
+  if (!supabase || !isSupabaseConfigured()) return false;
+  const publicCode = normalizeCode(row.publicCode || "");
+  const payload: Record<string, unknown> = {
+    id: row.id,
+    name: row.name || "",
+    status: row.status || "Active",
+    scans: row.scans || "0",
+    unique_scanners: row.uniqueScanners || "0",
+    top_location: row.topLocation ?? null,
+    conversion_rate: row.conversionRate ?? null,
+    qr_url: row.qrUrl || "",
+    target_url: row.targetUrl || "",
+    custom_design: Boolean(row.customDesign),
+    design_color: row.designColor ?? null,
+    design_logo: row.designLogo && row.designLogo !== "custom" ? row.designLogo : row.designLogo || null,
+    design_pattern: row.designPattern ?? null,
+    owner_user_id: row.ownerUserId ?? null,
+    public_code: publicCode || null,
+    scan_url: row.scanUrl || null,
+    updated_at: new Date().toISOString()
+  };
+
+  const { error } = await supabase.from("qr_codes").upsert(payload, { onConflict: "id" });
+  if (!error) return true;
+
+  if (/public_code|scan_url|schema cache/i.test(error.message)) {
+    delete payload.public_code;
+    delete payload.scan_url;
+    const retry = await supabase.from("qr_codes").upsert(payload, { onConflict: "id" });
+    if (retry.error) {
+      console.error("Direct QR Supabase upsert failed:", retry.error.message);
+      return false;
+    }
+    return true;
+  }
+
+  console.error("Direct QR Supabase upsert failed:", error.message);
+  return false;
+}
+
+export async function findQrCodeByPublicCode(code: string): Promise<QrCodeRecord | null> {
+  // Prefer tiny route index (works without schema migrate).
+  const fromIndex = await findQrRouteByPublicCode(code);
+  if (fromIndex) return fromIndex;
+
+  const supabase = getSupabase();
+  if (!supabase || !isSupabaseConfigured()) return null;
+  const normalized = normalizeCode(code);
+  if (!normalized) return null;
+
+  const { data, error } = await supabase
+    .from("qr_codes")
+    .select("*")
+    .eq("public_code", normalized)
+    .maybeSingle();
+
   if (error) {
-    // Older DBs may lack scan_url / public_code / design_logo_url — retry with base columns.
-    const missingColumn =
-      /scan_url|public_code|design_logo_url|schema cache/i.test(error.message || "");
-    if (missingColumn) {
-      const { error: baseError } = await supabase
-        .from(TABLE)
-        .upsert(mapRecordToBaseRow(record), { onConflict: "id" });
-      if (baseError) {
-        console.error("Direct QR Supabase upsert failed:", baseError.message);
-      }
-    } else {
-      console.error("Direct QR Supabase upsert failed:", error.message);
-    }
+    if (/public_code|schema cache/i.test(error.message)) return null;
+    console.error("QR public_code lookup failed:", error.message);
+    return null;
   }
+  if (!data) return null;
 
-  await upsertQrRedirectIndex(record);
+  return {
+    id: String(data.id),
+    name: String(data.name || ""),
+    status: data.status === "Paused" ? "Paused" : "Active",
+    scans: String(data.scans ?? "0"),
+    uniqueScanners: String(data.unique_scanners ?? "0"),
+    topLocation: data.top_location ? String(data.top_location) : undefined,
+    conversionRate: data.conversion_rate ? String(data.conversion_rate) : undefined,
+    qrUrl: String(data.qr_url || ""),
+    targetUrl: String(data.target_url || ""),
+    scanUrl: data.scan_url ? String(data.scan_url) : undefined,
+    publicCode: data.public_code ? String(data.public_code) : normalized,
+    customDesign: Boolean(data.custom_design),
+    designColor: data.design_color ? String(data.design_color) : undefined,
+    designLogo: data.design_logo ? String(data.design_logo) : undefined,
+    designPattern: data.design_pattern ? String(data.design_pattern) : undefined,
+    ownerUserId: data.owner_user_id ? String(data.owner_user_id) : undefined
+  };
 }
 
-export async function deleteQrCodeFromSupabase(id: string, publicCode?: string): Promise<void> {
-  if (!isSupabaseConfigured()) return;
+export async function deleteQrCodeRow(id: string, publicCode?: string): Promise<void> {
   const supabase = getSupabase();
-  if (!supabase) return;
-  const { error } = await supabase.from(TABLE).delete().eq("id", id);
-  if (error) {
-    console.error("Direct QR Supabase delete failed:", error.message);
-  }
-  await deleteFromQrRedirectIndex(id, publicCode);
-}
-
-/** Fast lookup by publicCode — table first, then compact redirect index. */
-export async function fetchQrCodeFromSupabaseByCode(code: string): Promise<QrCodeRecord | null> {
-  if (!isSupabaseConfigured()) return null;
-  const supabase = getSupabase();
-  if (!supabase) return null;
-  try {
-    const byCode = await supabase.from(TABLE).select("*").eq("public_code", code).maybeSingle();
-    if (!byCode.error && byCode.data) {
-      return mapRowToRecord(byCode.data as Record<string, unknown>);
-    }
-    const byId = await supabase.from(TABLE).select("*").eq("id", code).maybeSingle();
-    if (!byId.error && byId.data) {
-      return mapRowToRecord(byId.data as Record<string, unknown>);
-    }
-    return await fetchFromQrRedirectIndex(code);
-  } catch (error) {
-    console.error("Direct QR Supabase lookup failed:", error);
-    try {
-      return await fetchFromQrRedirectIndex(code);
-    } catch {
-      return null;
-    }
-  }
-}
-
-/** Cache a remote record into local root memory after a successful lookup. */
-export function cacheResolvedQrCode(record: QrCodeRecord): void {
-  upsertQrCode(record);
+  if (!supabase || !isSupabaseConfigured()) return;
+  if (publicCode) await deleteQrRouteIndex(publicCode);
+  const { error } = await supabase.from("qr_codes").delete().eq("id", id);
+  if (error) console.error("Direct QR Supabase delete failed:", error.message);
 }

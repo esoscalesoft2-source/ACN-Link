@@ -2,15 +2,12 @@ import { resolvePlatformHostname } from "../domains/hostname";
 
 /** Canonical host baked into printed Smart QR codes (never change after print). */
 export function qrPlatformHostname(): string {
-  const fromEnv = String(process.env.QR_PUBLIC_HOST || process.env.APP_URL || "")
+  const fromEnv = String(process.env.QR_PUBLIC_HOST || "")
     .trim()
     .toLowerCase()
     .replace(/^https?:\/\//, "")
     .replace(/\/.*$/, "");
-  if (fromEnv && fromEnv !== "localhost" && fromEnv !== "127.0.0.1") {
-    return fromEnv;
-  }
-  return resolvePlatformHostname();
+  return fromEnv || resolvePlatformHostname();
 }
 
 export function buildQrScanUrl(publicCode: string, host = qrPlatformHostname()): string {

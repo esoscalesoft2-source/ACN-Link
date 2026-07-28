@@ -607,6 +607,37 @@ export default function PublicBioPageView({
     onLeadEmailChange: (blockId, email) => setLeadEmails((prev) => ({ ...prev, [blockId]: email }))
   };
 
+  if (pageLoadStatus === "not_found" && blocks.length === 0) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 px-6">
+        <div className="max-w-md text-center rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
+          <h1 className="text-xl font-bold text-slate-900">Page not found</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            This ACN Link page does not exist or is no longer available.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (loadError && blocks.length === 0 && pageLoadStatus !== "ready") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 px-6">
+        <div className="max-w-md text-center rounded-3xl border border-slate-200 bg-white p-8 shadow-sm space-y-4">
+          <h1 className="text-xl font-bold text-slate-900">Couldn’t load page</h1>
+          <p className="text-sm text-slate-600">{loadError}</p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-white"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={`acn-public-bio-page ${getBioPageThemeClass(pageTheme)} flex flex-col items-center justify-start font-sans`}

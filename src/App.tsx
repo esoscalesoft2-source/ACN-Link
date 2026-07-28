@@ -69,6 +69,7 @@ import HelpCenterScreen from "./components/HelpCenterScreen";
 import ContactSupportScreen from "./components/ContactSupportScreen";
 import AccountScreen from "./components/AccountScreen";
 import PublicBioPageView from "./components/PublicBioPageView";
+import PublicPreviewPageGate from "./components/PublicPreviewPageGate";
 import PublishModal from "./components/PublishModal";
 import {
   cloneBlocks,
@@ -890,32 +891,9 @@ export default function App() {
     );
   }
 
-  // Platform preview (?previewPageId=) — only Live pages are publicly visitable.
+  // Platform preview (?previewPageId=) — public visitors load via API (no login required).
   if (previewPageId) {
-    const pageToPreview = pages.find((p) => p.id === previewPageId);
-    if (!pageToPreview || pageToPreview.status !== "Live") {
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-50 px-6">
-          <div className="max-w-md text-center">
-            <h1 className="text-xl font-bold text-slate-900">Page not available</h1>
-            <p className="mt-2 text-sm text-slate-600">
-              This bio page is still a draft. Publish it from Bio Pages before visitors can open the
-              link.
-            </p>
-          </div>
-        </div>
-      );
-    }
-    return (
-      <PublicBioPageView
-        pageId={previewPageId}
-        pageTitle={pageToPreview.title || "BioLink"}
-        pageSlug={pageToPreview.slug || "biolink"}
-        pageBio={pageToPreview.bio}
-        pageCoverPhoto={pageToPreview.coverPhoto}
-        mode="preview"
-      />
-    );
+    return <PublicPreviewPageGate previewPageId={previewPageId} localPages={pages} />;
   }
 
   // Handlers for persistent operations

@@ -239,13 +239,13 @@ export const DEFAULT_LINK_SPIN_PRIZES = [
   "Try again on your next visit!"
 ];
 
-export function getCurrencySymbol(currency: string = "₹ INR"): string {
-  if (currency.startsWith("₹")) return "₹";
+export function getCurrencySymbol(currency: string = "? INR"): string {
+  if (currency.startsWith("?")) return "?";
   if (currency.startsWith("$")) return "$";
-  if (currency.startsWith("€")) return "€";
-  if (currency.startsWith("£")) return "£";
-  if (currency.startsWith("¥")) return "¥";
-  return currency.split(" ")[0] || "₹";
+  if (currency.startsWith("�")) return "�";
+  if (currency.startsWith("�")) return "�";
+  if (currency.startsWith("�")) return "�";
+  return currency.split(" ")[0] || "?";
 }
 
 export function getVideoThumbnail(block: BlockRecord): string {
@@ -410,11 +410,11 @@ function normalizeFormField(raw: unknown, index: number): DynamicFormField | nul
 
 export function createDefaultSuccessScreenFields(): Record<string, string> {
   return {
-    successTitle: "Thanks for visiting my shop!",
-    successMessage: "Your details were received. We will connect with you soon.",
-    successButtonLabel: "OK",
-    successEmoji: "🙏",
-    successConnectLabel: "Connect on WhatsApp",
+    successTitle: "",
+    successMessage: "",
+    successButtonLabel: "",
+    successEmoji: "",
+    successConnectLabel: "",
     successConnectUrl: ""
   };
 }
@@ -429,7 +429,7 @@ export function createDefaultFormFields(): Record<string, unknown> {
   };
 }
 
-/** Resolve form fields — supports new dynamic list and legacy showName/showEmail toggles. */
+/** Resolve form fields � supports new dynamic list and legacy showName/showEmail toggles. */
 export function getFormFields(block: BlockRecord): DynamicFormField[] {
   if (Array.isArray(block.formFields)) {
     const normalized = block.formFields
@@ -504,12 +504,12 @@ export function getFormSuccessTitle(block: BlockRecord): string {
 
 export function getFormSuccessEmoji(block: BlockRecord): string {
   const emoji = typeof block.successEmoji === "string" ? block.successEmoji.trim() : "";
-  return emoji || "🙏";
+  return emoji || "\u{1F64F}";
 }
 
 export function getFormSuccessButtonLabel(block: BlockRecord): string {
   const label = typeof block.successButtonLabel === "string" ? block.successButtonLabel.trim() : "";
-  return label || "OK";
+  return label || "Done";
 }
 
 export function getFormSuccessConnectLabel(block: BlockRecord): string {
@@ -518,6 +518,41 @@ export function getFormSuccessConnectLabel(block: BlockRecord): string {
 
 export function getFormSuccessConnectUrl(block: BlockRecord): string {
   return typeof block.successConnectUrl === "string" ? block.successConnectUrl.trim() : "";
+}
+
+/** Collect social links from the first Socials block on a page. */
+export function collectPageSocialLinks(blocks: BlockRecord[]): SocialLinkItem[] {
+  for (const block of blocks) {
+    if (block.type === "socials" || block.type === "Socials") {
+      const links = getSocialLinksFromBlock(block);
+      if (links.length) return links;
+    }
+  }
+  return [];
+}
+
+export function socialLinksFromThankYouConfig(
+  config?: {
+    instagramUrl?: string;
+    facebookUrl?: string;
+    youtubeUrl?: string;
+    tiktokUrl?: string;
+    linkedinUrl?: string;
+    xUrl?: string;
+    telegramUrl?: string;
+    whatsappCommunityUrl?: string;
+  } | null
+): SocialLinkItem[] {
+  if (!config) return [];
+  const asBlock: BlockRecord = {
+    id: "thank-you-socials",
+    type: "socials",
+    label: "Socials",
+    value: "",
+    ...config,
+    whatsappUrl: config.whatsappCommunityUrl || ""
+  };
+  return getSocialLinksFromBlock(asBlock).filter((link) => link.id !== "whatsapp");
 }
 
 export interface FaqItemRecord {
@@ -568,7 +603,7 @@ export function createDefaultTestimonials(): TestimonialRecord[] {
   return [
     {
       id: "tm_1",
-      quote: "Amazing experience — highly recommended!",
+      quote: "Amazing experience � highly recommended!",
       author: "Alex",
       role: "Customer"
     }
@@ -578,7 +613,7 @@ export function createDefaultTestimonials(): TestimonialRecord[] {
 export function createTestimonial(partial?: Partial<TestimonialRecord>): TestimonialRecord {
   return {
     id: `tm_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-    quote: "Share a customer quote…",
+    quote: "Share a customer quote�",
     author: "Customer",
     role: "",
     ...partial
@@ -610,8 +645,8 @@ export interface TipOptionRecord {
 
 export function createDefaultTipOptions(): TipOptionRecord[] {
   return [
-    { id: "tip_1", label: "Buy me a coffee", url: "https://www.buymeacoffee.com/", amount: "₹99" },
-    { id: "tip_2", label: "Support the work", url: "https://paypal.me/", amount: "₹249" }
+    { id: "tip_1", label: "Buy me a coffee", url: "https://www.buymeacoffee.com/", amount: "?99" },
+    { id: "tip_2", label: "Support the work", url: "https://paypal.me/", amount: "?249" }
   ];
 }
 
@@ -684,7 +719,7 @@ export function resolveGoogleMap(block: BlockRecord): ResolvedGoogleMap {
   let openFromInput = "";
 
   if (mapsUrl) {
-    // Already an embed URL (from Google "Share → Embed a map")
+    // Already an embed URL (from Google "Share ? Embed a map")
     if (/google\.[^/]+\/maps\/embed/i.test(mapsUrl) || mapsUrl.includes("/maps/embed?")) {
       embedFromShare = mapsUrl;
       openFromInput = mapsUrl.replace("/maps/embed", "/maps").replace("&output=embed", "");
@@ -727,7 +762,7 @@ export function resolveGoogleMap(block: BlockRecord): ResolvedGoogleMap {
             if (ll) query = ll.split(",").slice(0, 2).join(",");
           }
         } else {
-          // Non-Google URL — still try as open link; use address for embed
+          // Non-Google URL � still try as open link; use address for embed
           openFromInput = parsed.toString();
         }
       } catch {
@@ -783,7 +818,7 @@ export function createDefaultDividerFields(): Record<string, string> {
 export function createDefaultCallFields(): Record<string, string> {
   return {
     phone: "+919876543210",
-    subtext: "Mon–Sat 10am–6pm",
+    subtext: "Mon�Sat 10am�6pm",
     bgColor: "#0f172a",
     textColor: "#ffffff"
   };
@@ -839,7 +874,7 @@ export function createPricingPlan(partial?: Partial<PricingPlanRecord>): Pricing
   return {
     id: `price_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     name: "Basic Plan",
-    price: "₹999",
+    price: "?999",
     period: "/month",
     description: "Perfect to get started",
     features: "Feature one\nFeature two",
@@ -853,14 +888,14 @@ export function createDefaultPricingPlans(): PricingPlanRecord[] {
   return [
     createPricingPlan({
       name: "Starter",
-      price: "₹499",
+      price: "?499",
       period: "/month",
       description: "For individuals",
       features: "1 bio page\nBasic analytics\nEmail support"
     }),
     createPricingPlan({
       name: "Pro",
-      price: "₹999",
+      price: "?999",
       period: "/month",
       description: "For growing brands",
       features: "Unlimited blocks\nPriority support\nCustom domain",
@@ -898,7 +933,7 @@ export function getPricingPlanFeatures(plan: PricingPlanRecord): string[] {
 
 export function createDefaultBannerFields(): Record<string, string> {
   return {
-    bannerEmoji: "📢",
+    bannerEmoji: "??",
     bannerTitle: "New offer live!",
     bannerMessage: "Check out our latest collection today.",
     bannerLink: "",
@@ -933,7 +968,7 @@ export function createStatItem(partial?: Partial<StatItemRecord>): StatItemRecor
 export function createDefaultStatItems(): StatItemRecord[] {
   return [
     createStatItem({ value: "10K+", label: "Happy customers" }),
-    createStatItem({ value: "4.9★", label: "Average rating" }),
+    createStatItem({ value: "4.9?", label: "Average rating" }),
     createStatItem({ value: "24/7", label: "Support" })
   ];
 }
@@ -946,7 +981,7 @@ export function getStatItems(block: BlockRecord): StatItemRecord[] {
       const item = raw as Record<string, unknown>;
       return {
         id: typeof item.id === "string" && item.id ? item.id : `stat_${index}`,
-        value: typeof item.value === "string" ? item.value : "—",
+        value: typeof item.value === "string" ? item.value : "�",
         label: typeof item.label === "string" ? item.label : `Stat ${index + 1}`
       } satisfies StatItemRecord;
     })

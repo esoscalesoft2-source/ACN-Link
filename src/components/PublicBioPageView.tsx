@@ -7,7 +7,9 @@ import {
   downloadVCard,
   getLinkSpinCouponCode,
   getLinkSpinPrizes,
-  normalizeExternalUrl
+  normalizeExternalUrl,
+  collectPageSocialLinks,
+  socialLinksFromThankYouConfig
 } from "../lib/bioBlocks";
 import { apiUrl } from "../lib/apiBase";
 import BlockRenderer, { type BlockRendererHandlers } from "./bio/BlockRenderer";
@@ -489,6 +491,12 @@ export default function PublicBioPageView({
     pageCoverPhoto ||
     "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800";
   const coverSettings = normalizeCoverSettings(customDetails?.coverSettings);
+  const thankYouPage = customDetails?.thankYouPage;
+  const thankYouSocials = (() => {
+    const fromConfig = socialLinksFromThankYouConfig(thankYouPage);
+    if (fromConfig.length) return fromConfig;
+    return collectPageSocialLinks(blocks as BlockRecord[]);
+  })();
 
   const liveBlockHandlers: BlockRendererHandlers = {
     onToast: triggerToast,
@@ -646,7 +654,12 @@ export default function PublicBioPageView({
               key={block.id}
               block={block as BlockRecord}
               mode="live"
-              context={{ displayTitle, displayHandle }}
+              context={{
+                displayTitle,
+                displayHandle,
+                thankYouPage,
+                socialLinks: thankYouSocials
+              }}
               handlers={liveBlockHandlers}
             />
           ))}

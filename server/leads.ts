@@ -141,14 +141,18 @@ export function upsertOwnerContact(contacts: LeadContact[], contact: LeadContact
   );
 
   if (index >= 0 && !emailKey.endsWith("@unknown.local")) {
+    const mergedFields = mergeFormFieldLists(list[index].formFields, contact.formFields);
     list[index] = {
       ...list[index],
       ...contact,
       id: list[index].id,
       capturedAt: list[index].capturedAt,
       tags: Array.from(new Set([...(list[index].tags || []), ...(contact.tags || [])])),
-      formFields: contact.formFields?.length ? contact.formFields : list[index].formFields,
-      notes: contact.notes || list[index].notes,
+      formFields: mergedFields.length ? mergedFields : list[index].formFields,
+      notes:
+        (contact.notes && contact.notes.length >= (list[index].notes || "").length
+          ? contact.notes
+          : list[index].notes || contact.notes) || "",
       pageId: contact.pageId || list[index].pageId,
       pageTitle: contact.pageTitle || list[index].pageTitle,
       blockId: contact.blockId || list[index].blockId,
@@ -174,6 +178,24 @@ function contactMergeKey(contact: LeadContact, ownerUserId?: string): string {
   return `id:${contact.id}`;
 }
 
+function mergeFormFieldLists(
+  a?: Array<{ label: string; value: string }>,
+  b?: Array<{ label: string; value: string }>
+): Array<{ label: string; value: string }> {
+  const map = new Map<string, { label: string; value: string }>();
+  for (const field of [...(a || []), ...(b || [])]) {
+    if (!field || typeof field.label !== "string") continue;
+    const key = field.label.trim().toLowerCase();
+    if (!key) continue;
+    const value = typeof field.value === "string" ? field.value : String(field.value ?? "");
+    const prev = map.get(key);
+    if (!prev || (value && (!prev.value || value.length >= prev.value.length))) {
+      map.set(key, { label: field.label.trim() || prev?.label || key, value });
+    }
+  }
+  return Array.from(map.values());
+}
+
 function pickRicherContact(a: LeadContact, b: LeadContact): LeadContact {
   const aFields = a.formFields?.length || 0;
   const bFields = b.formFields?.length || 0;
@@ -188,11 +210,11 @@ function pickRicherContact(a: LeadContact, b: LeadContact): LeadContact {
     id: a.id || b.id,
     capturedAt: a.capturedAt || b.capturedAt,
     tags: Array.from(new Set([...(a.tags || []), ...(b.tags || [])].filter(Boolean))),
-    formFields:
-      (primary.formFields?.length ? primary.formFields : secondary.formFields) ||
-      primary.formFields ||
-      secondary.formFields,
-    notes: primary.notes || secondary.notes,
+    formFields: mergeFormFieldLists(secondary.formFields, primary.formFields),
+    notes:
+      (primary.notes && primary.notes.length >= (secondary.notes || "").length
+        ? primary.notes
+        : secondary.notes || primary.notes) || "",
     pageId: primary.pageId || secondary.pageId,
     pageTitle: primary.pageTitle || secondary.pageTitle,
     blockId: primary.blockId || secondary.blockId,

@@ -230,12 +230,20 @@ export default function ContactsScreen({
         tags: tag ? [tag] : editingContact?.tags?.length ? editingContact.tags : ["Manual Lead"],
         capturedAt: editingContact?.capturedAt || new Date().toISOString(),
         marketingOptIn: form.marketingOptIn,
-        formFields: [
-          { label: "Full name", value: name },
-          { label: "Email", value: email },
-          { label: "Phone", value: phone },
-          ...(tag ? [{ label: "Tag", value: tag }] : [])
-        ],
+        formFields: (() => {
+          const coreLabels = new Set(["full name", "your name", "name", "email", "phone", "mobile", "tag"]);
+          const existing = editingContact?.formFields || [];
+          const preserved = existing.filter(
+            (field) => !coreLabels.has(field.label.trim().toLowerCase())
+          );
+          return [
+            { label: "Full name", value: name },
+            { label: "Email", value: email },
+            { label: "Phone", value: phone },
+            ...preserved,
+            ...(tag ? [{ label: "Tag", value: tag }] : [])
+          ];
+        })(),
         notes: editingContact?.notes,
         pageId: editingContact?.pageId,
         pageTitle: editingContact?.pageTitle,
@@ -694,6 +702,12 @@ export default function ContactsScreen({
                             <div className="min-w-0">
                               <p className="acn-contact-name">{contact.name}</p>
                               <p className="acn-contact-email">{contact.email}</p>
+                              {(contact.formFields?.length || 0) > 0 ? (
+                                <p className="acn-contact-fields-hint">
+                                  {contact.formFields!.length} field
+                                  {contact.formFields!.length === 1 ? "" : "s"} captured
+                                </p>
+                              ) : null}
                             </div>
                           </div>
                         </td>
@@ -874,16 +888,20 @@ export default function ContactsScreen({
                   <p className="acn-contact-detail-fields__label">Submission data</p>
                   {detailContact.formFields && detailContact.formFields.length > 0 ? (
                     <dl>
-                      {detailContact.formFields.map((field) => (
-                        <div key={`${detailContact.id}-d-${field.label}`}>
+                      {detailContact.formFields.map((field, index) => (
+                        <div key={`${detailContact.id}-d-${field.label}-${index}`}>
                           <dt>{field.label}</dt>
                           <dd>{field.value || "—"}</dd>
                         </div>
                       ))}
                     </dl>
-                  ) : (
-                    <p className="text-sm text-slate-600 whitespace-pre-wrap">{detailContact.notes}</p>
-                  )}
+                  ) : null}
+                  {detailContact.notes ? (
+                    <div className="acn-contact-detail-fields__notes">
+                      <p className="acn-contact-detail-fields__label">Notes</p>
+                      <p className="text-sm text-slate-600 whitespace-pre-wrap">{detailContact.notes}</p>
+                    </div>
+                  ) : null}
                 </div>
               )}
 

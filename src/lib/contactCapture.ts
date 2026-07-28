@@ -37,14 +37,26 @@ export function upsertLocalContact(contacts: Contact[], contact: Contact): Conta
   if (index >= 0) {
     const prev = contacts[index];
     const next = [...contacts];
+    const fieldMap = new Map<string, { label: string; value: string }>();
+    for (const field of [...(prev.formFields || []), ...(contact.formFields || [])]) {
+      const key = field.label.trim().toLowerCase();
+      if (!key) continue;
+      const existing = fieldMap.get(key);
+      if (!existing || (field.value && (!existing.value || field.value.length >= existing.value.length))) {
+        fieldMap.set(key, { label: field.label, value: field.value });
+      }
+    }
     next[index] = {
       ...prev,
       ...contact,
       id: prev.id,
       capturedAt: prev.capturedAt || contact.capturedAt,
       tags: Array.from(new Set([...(prev.tags || []), ...(contact.tags || [])].filter(Boolean))),
-      formFields: contact.formFields?.length ? contact.formFields : prev.formFields,
-      notes: contact.notes || prev.notes,
+      formFields: fieldMap.size ? Array.from(fieldMap.values()) : prev.formFields,
+      notes:
+        (contact.notes && contact.notes.length >= (prev.notes || "").length
+          ? contact.notes
+          : prev.notes || contact.notes) || "",
       pageId: contact.pageId || prev.pageId,
       pageTitle: contact.pageTitle || prev.pageTitle,
       blockId: contact.blockId || prev.blockId,

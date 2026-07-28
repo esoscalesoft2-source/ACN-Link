@@ -14,13 +14,17 @@ export default function FormSuccessEditorFields({ block, onUpdate }: FormSuccess
       <p className="text-[10px] font-bold text-[#6366f1] uppercase tracking-wider">
         After Submit — Thank You Page
       </p>
+      <p className="text-[10px] text-slate-400 leading-relaxed">
+        Optional override for this block. Leave blank to use the page-level{" "}
+        <strong>Thank You</strong> tab (promo, WhatsApp, socials).
+      </p>
       <div>
         <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
           Emoji / Icon
         </label>
         <input
           type="text"
-          value={(b.successEmoji as string) || "🙏"}
+          value={(b.successEmoji as string) || ""}
           onChange={(e) => onUpdate("successEmoji", e.target.value)}
           className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
           placeholder="🙏"
@@ -32,10 +36,10 @@ export default function FormSuccessEditorFields({ block, onUpdate }: FormSuccess
         </label>
         <input
           type="text"
-          value={(b.successTitle as string) || "Thanks for visiting my shop!"}
+          value={(b.successTitle as string) || ""}
           onChange={(e) => onUpdate("successTitle", e.target.value)}
           className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
-          placeholder="Thanks for visiting my shop!"
+          placeholder="Leave blank to use Thank You tab"
         />
       </div>
       <div>
@@ -43,13 +47,11 @@ export default function FormSuccessEditorFields({ block, onUpdate }: FormSuccess
           Thank You Message
         </label>
         <textarea
-          value={
-            (b.successMessage as string) ||
-            "Your details were received. We will connect with you soon."
-          }
+          value={(b.successMessage as string) || ""}
           onChange={(e) => onUpdate("successMessage", e.target.value)}
           rows={2}
           className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800 resize-none"
+          placeholder="Leave blank to use Thank You tab"
         />
       </div>
       <div>
@@ -58,10 +60,10 @@ export default function FormSuccessEditorFields({ block, onUpdate }: FormSuccess
         </label>
         <input
           type="text"
-          value={(b.successButtonLabel as string) || "OK"}
+          value={(b.successButtonLabel as string) || ""}
           onChange={(e) => onUpdate("successButtonLabel", e.target.value)}
           className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
-          placeholder="OK"
+          placeholder="Done"
         />
       </div>
       <div>

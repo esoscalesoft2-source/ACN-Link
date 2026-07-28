@@ -6,6 +6,9 @@ export interface BlockRendererContext {
   compact?: boolean;
   displayTitle?: string;
   displayHandle?: string;
+  /** Page-level thank you config + socials for post-submit page */
+  thankYouPage?: import("../../types").BioThankYouPageConfig;
+  socialLinks?: import("../../lib/bioBlocks").SocialLinkItem[];
 }
 
 export interface BlockRendererHandlers {

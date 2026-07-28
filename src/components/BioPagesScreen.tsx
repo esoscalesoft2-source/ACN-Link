@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { screenToPath } from "../navigation";
 import { ScreenId } from "../types";
-import type { BioPage, BioPageDraft, BioPageTemplate, BioEditorState, BioEditorBlock, BioPagePreviewTheme, BioCoverPhotoSettings, CustomDomain, PlatformSubdomain } from "../types";
+import type { BioPage, BioPageDraft, BioPageTemplate, BioEditorState, BioEditorBlock, BioPagePreviewTheme, BioPagePreviewDetails, BioCoverPhotoSettings, BioThankYouPageConfig, CustomDomain, PlatformSubdomain } from "../types";
 import {
   buildEditorState,
   cloneBlocks,
@@ -81,6 +81,8 @@ import {
   getLinkSpinPrizes,
   DEFAULT_SHOP_PRODUCTS,
   toDatetimeLocalValue,
+  collectPageSocialLinks,
+  socialLinksFromThankYouConfig,
   type BlockRecord
 } from "../lib/bioBlocks";
 import BlockRenderer, { type BlockRendererHandlers } from "./bio/BlockRenderer";
@@ -662,7 +664,14 @@ export default function BioPagesScreen({
     ...DEFAULT_COVER_SETTINGS
   });
   const [editorPageTheme, setEditorPageTheme] = useState<BioPagePreviewTheme>("dark");
-  const [editorTab, setEditorTab] = useState<"Edit" | "Settings">("Edit");
+  const [editorThankYou, setEditorThankYou] = useState<BioThankYouPageConfig>({
+    emoji: "\u{1F64F}",
+    title: "Thanks for visiting my shop!",
+    message: "Your details were received. We will connect with you soon.",
+    buttonLabel: "Done",
+    whatsappCommunityLabel: "Join WhatsApp Community"
+  });
+  const [editorTab, setEditorTab] = useState<"Edit" | "Thank You" | "Settings">("Edit");
   const [editorViewPanel, setEditorViewPanel] = useState<"blocks" | "edit" | "preview">("edit");
   const [linkedTemplateId, setLinkedTemplateId] = useState<string | null>(null);
   const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
@@ -1150,7 +1159,8 @@ export default function BioPagesScreen({
       selectedEditPage?.slug,
       editorHandle,
       editorPageTheme,
-      editorCoverSettings
+      editorCoverSettings,
+      editorThankYou
     );
 
   const buildCurrentPreviewDetails = (theme: BioPagePreviewTheme = editorPageTheme) => {
@@ -1165,7 +1175,8 @@ export default function BioPagesScreen({
       pageTheme: theme,
       coverSettings: editorCoverSettings,
       templateId: linkedTpl?.id || linkedTemplateId || undefined,
-      templateName: linkedTpl?.name || undefined
+      templateName: linkedTpl?.name || undefined,
+      thankYouPage: editorThankYou
     };
   };
 
@@ -1181,6 +1192,11 @@ export default function BioPagesScreen({
 
   const previewHandle = formatDisplayHandle(editorHandle, editorTitle, { fallbackToTitle: false });
   const handlePlaceholder = suggestedHandlePlaceholder(editorTitle);
+  const previewThankYouSocials = (() => {
+    const fromConfig = socialLinksFromThankYouConfig(editorThankYou);
+    if (fromConfig.length) return fromConfig;
+    return collectPageSocialLinks(editorBlocks as BlockRecord[]);
+  })();
   const activeSpinBlock = activeSpinBlockId
     ? editorBlocks.find((block) => block.id === activeSpinBlockId)
     : editorBlocks.find((block) => block.type === "Link Spin");
@@ -1316,6 +1332,7 @@ export default function BioPagesScreen({
     editorCoverSettings,
     editorHandle,
     editorPageTheme,
+    editorThankYou,
     selectedEditPage?.id,
     showPublishSuccess
   ]);
@@ -1332,6 +1349,9 @@ export default function BioPagesScreen({
     setEditorCoverPhoto(state.pageMeta.coverImage);
     setEditorCoverSettings(normalizeCoverSettings(state.pageMeta.coverSettings));
     setEditorPageTheme(normalizePageTheme(state.pageMeta.pageTheme));
+    if (state.pageMeta.thankYouPage) {
+      setEditorThankYou({ ...state.pageMeta.thankYouPage });
+    }
     setEditorBlocks(cloneBlocks(state.blocks));
   };
 
@@ -1379,6 +1399,9 @@ export default function BioPagesScreen({
     setEditorCoverPhoto(details?.coverPhoto || page.coverPhoto || DEFAULT_COVER);
     setEditorPageTheme(normalizePageTheme(details?.pageTheme ?? readStoredPageTheme(page.id, page.slug)));
     setEditorCoverSettings(normalizeCoverSettings(details?.coverSettings ?? readStoredPageDetails(page.id, page.slug)?.coverSettings));
+    if (details?.thankYouPage) {
+      setEditorThankYou({ ...details.thankYouPage });
+    }
   };
 
   const loadEditorContentForPage = async (
@@ -2941,6 +2964,15 @@ export default function BioPagesScreen({
               <button
                   type="button"
                   role="tab"
+                  aria-selected={editorTab === "Thank You"}
+                onClick={() => setEditorTab("Thank You")}
+                  className={editorTab === "Thank You" ? "is-active" : ""}
+              >
+                Thank You
+              </button>
+              <button
+                  type="button"
+                  role="tab"
                   aria-selected={editorTab === "Settings"}
                 onClick={() => setEditorTab("Settings")}
                   className={editorTab === "Settings" ? "is-active" : ""}
@@ -3062,6 +3094,193 @@ export default function BioPagesScreen({
                     >
                       Done
                     </button>
+                  </div>
+                </div>
+              ) : editorTab === "Thank You" ? (
+                <div className="max-w-xl mx-auto acn-workspace acn-workspace--stack w-full">
+                  <h3 className="font-display font-bold text-xl text-slate-900">Thank You Page</h3>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Shown as the next screen after Form / Smart Form submit — not a popup. Add your message,
+                    promo, business details, WhatsApp community, and social follow links for public visitors.
+                  </p>
+                  <div className="acn-editor-panel acn-workspace-panel acn-workspace-panel--stack shadow-sm">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-slate-500 font-semibold mb-2">Emoji</label>
+                        <input
+                          type="text"
+                          value={editorThankYou.emoji || ""}
+                          onChange={(e) => setEditorThankYou((prev) => ({ ...prev, emoji: e.target.value }))}
+                          className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-sm text-slate-900"
+                          placeholder="🙏"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 font-semibold mb-2">Done button</label>
+                        <input
+                          type="text"
+                          value={editorThankYou.buttonLabel || ""}
+                          onChange={(e) =>
+                            setEditorThankYou((prev) => ({ ...prev, buttonLabel: e.target.value }))
+                          }
+                          className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-sm text-slate-900"
+                          placeholder="Done"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 font-semibold mb-2">Thank you title</label>
+                      <input
+                        type="text"
+                        value={editorThankYou.title || ""}
+                        onChange={(e) => setEditorThankYou((prev) => ({ ...prev, title: e.target.value }))}
+                        className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-sm text-slate-900"
+                        placeholder="Thanks for visiting my shop!"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 font-semibold mb-2">Thank you message</label>
+                      <textarea
+                        value={editorThankYou.message || ""}
+                        onChange={(e) => setEditorThankYou((prev) => ({ ...prev, message: e.target.value }))}
+                        rows={3}
+                        className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-sm text-slate-900 resize-none"
+                        placeholder="Your details were received. We will connect with you soon."
+                      />
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100 space-y-3">
+                      <span className="text-[10px] font-bold text-[#6366f1] uppercase tracking-widest block">
+                        Promotional
+                      </span>
+                      <div>
+                        <label className="block text-xs text-slate-500 font-semibold mb-2">Promo title</label>
+                        <input
+                          type="text"
+                          value={editorThankYou.promoTitle || ""}
+                          onChange={(e) =>
+                            setEditorThankYou((prev) => ({ ...prev, promoTitle: e.target.value }))
+                          }
+                          className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-sm text-slate-900"
+                          placeholder="This week only — 15% off"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 font-semibold mb-2">Promo details</label>
+                        <textarea
+                          value={editorThankYou.promoMessage || ""}
+                          onChange={(e) =>
+                            setEditorThankYou((prev) => ({ ...prev, promoMessage: e.target.value }))
+                          }
+                          rows={2}
+                          className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-sm text-slate-900 resize-none"
+                          placeholder="Mention your offer, coupon, or next steps."
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100 space-y-3">
+                      <span className="text-[10px] font-bold text-[#6366f1] uppercase tracking-widest block">
+                        Business details
+                      </span>
+                      <div>
+                        <label className="block text-xs text-slate-500 font-semibold mb-2">Business name</label>
+                        <input
+                          type="text"
+                          value={editorThankYou.businessName || ""}
+                          onChange={(e) =>
+                            setEditorThankYou((prev) => ({ ...prev, businessName: e.target.value }))
+                          }
+                          className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-sm text-slate-900"
+                          placeholder="Your shop or brand"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 font-semibold mb-2">
+                          Address / hours / info
+                        </label>
+                        <textarea
+                          value={editorThankYou.businessDetails || ""}
+                          onChange={(e) =>
+                            setEditorThankYou((prev) => ({ ...prev, businessDetails: e.target.value }))
+                          }
+                          rows={3}
+                          className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-sm text-slate-900 resize-none"
+                          placeholder="Store address, open hours, or how to visit."
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100 space-y-3">
+                      <span className="text-[10px] font-bold text-[#6366f1] uppercase tracking-widest block">
+                        WhatsApp community
+                      </span>
+                      <div>
+                        <label className="block text-xs text-slate-500 font-semibold mb-2">Button label</label>
+                        <input
+                          type="text"
+                          value={editorThankYou.whatsappCommunityLabel || ""}
+                          onChange={(e) =>
+                            setEditorThankYou((prev) => ({
+                              ...prev,
+                              whatsappCommunityLabel: e.target.value
+                            }))
+                          }
+                          className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-sm text-slate-900"
+                          placeholder="Join WhatsApp Community"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 font-semibold mb-2">
+                          WhatsApp / community link
+                        </label>
+                        <input
+                          type="url"
+                          value={editorThankYou.whatsappCommunityUrl || ""}
+                          onChange={(e) =>
+                            setEditorThankYou((prev) => ({
+                              ...prev,
+                              whatsappCommunityUrl: e.target.value
+                            }))
+                          }
+                          className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-sm text-slate-900"
+                          placeholder="https://chat.whatsapp.com/..."
+                        />
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100 space-y-3">
+                      <span className="text-[10px] font-bold text-[#6366f1] uppercase tracking-widest block">
+                        Social follow links
+                      </span>
+                      <p className="text-[11px] text-slate-400">
+                        Leave blank to reuse links from your Socials block. Visitors tap these to follow you.
+                      </p>
+                      {(
+                        [
+                          ["instagramUrl", "Instagram"],
+                          ["facebookUrl", "Facebook"],
+                          ["youtubeUrl", "YouTube"],
+                          ["tiktokUrl", "TikTok"],
+                          ["linkedinUrl", "LinkedIn"],
+                          ["xUrl", "X / Twitter"],
+                          ["telegramUrl", "Telegram"]
+                        ] as const
+                      ).map(([key, label]) => (
+                        <div key={key}>
+                          <label className="block text-xs text-slate-500 font-semibold mb-2">{label}</label>
+                          <input
+                            type="url"
+                            value={(editorThankYou[key] as string) || ""}
+                            onChange={(e) =>
+                              setEditorThankYou((prev) => ({ ...prev, [key]: e.target.value }))
+                            }
+                            className="w-full bg-slate-50 border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-sm text-slate-900"
+                            placeholder={`https://...`}
+                          />
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               ) : editorTab === "Settings" ? (
@@ -5594,7 +5813,9 @@ export default function BioPagesScreen({
                               context={{
                                 compact: true,
                                 displayTitle: editorTitle,
-                                displayHandle: previewHandle
+                                displayHandle: previewHandle,
+                                thankYouPage: editorThankYou,
+                                socialLinks: previewThankYouSocials
                               }}
                               handlers={previewBlockHandlers}
                             />

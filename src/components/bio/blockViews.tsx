@@ -403,10 +403,23 @@ export function SmartFormBlockView({ block, mode, context, handlers }: BlockView
   const compact = context.compact;
   const leadEmail = handlers.leadEmails?.[block.id] || "";
   const destinationEmail = destinationEmailFromBlock(block);
-  const successTitle = getFormSuccessTitle(block);
-  const successMessage = getFormSuccessMessage(block);
-  const successEmoji = getFormSuccessEmoji(block);
-  const successButtonLabel = getFormSuccessButtonLabel(block);
+  const pageThanks = context.thankYouPage;
+  const successTitle =
+    pageThanks?.title?.trim() ||
+    (typeof block.successTitle === "string" && block.successTitle.trim()) ||
+    getFormSuccessTitle(block);
+  const successMessage =
+    pageThanks?.message?.trim() ||
+    (typeof block.successMessage === "string" && block.successMessage.trim()) ||
+    getFormSuccessMessage(block);
+  const successEmoji =
+    pageThanks?.emoji?.trim() ||
+    (typeof block.successEmoji === "string" && block.successEmoji.trim()) ||
+    getFormSuccessEmoji(block);
+  const successButtonLabel =
+    pageThanks?.buttonLabel?.trim() ||
+    (typeof block.successButtonLabel === "string" && block.successButtonLabel.trim()) ||
+    getFormSuccessButtonLabel(block);
   const successConnectLabel = getFormSuccessConnectLabel(block);
   const successConnectUrl = getFormSuccessConnectUrl(block);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -486,6 +499,13 @@ export function SmartFormBlockView({ block, mode, context, handlers }: BlockView
         connectUrl={successConnectUrl}
         onConnect={handleConnect}
         anchorRef={anchorRef}
+        socialLinks={context.socialLinks}
+        whatsappCommunityUrl={pageThanks?.whatsappCommunityUrl}
+        whatsappCommunityLabel={pageThanks?.whatsappCommunityLabel}
+        promoTitle={pageThanks?.promoTitle}
+        promoMessage={pageThanks?.promoMessage}
+        businessName={pageThanks?.businessName}
+        businessDetails={pageThanks?.businessDetails}
       />
     </>
   );
@@ -495,10 +515,23 @@ export function FormBlockView({ block, mode, context, handlers }: BlockViewProps
   const compact = context.compact;
   const destinationEmail = destinationEmailFromBlock(block);
   const submitLabel = getFormSubmitLabel(block);
-  const successTitle = getFormSuccessTitle(block);
-  const successMessage = getFormSuccessMessage(block);
-  const successEmoji = getFormSuccessEmoji(block);
-  const successButtonLabel = getFormSuccessButtonLabel(block);
+  const pageThanks = context.thankYouPage;
+  const successTitle =
+    pageThanks?.title?.trim() ||
+    (typeof block.successTitle === "string" && block.successTitle.trim()) ||
+    getFormSuccessTitle(block);
+  const successMessage =
+    pageThanks?.message?.trim() ||
+    (typeof block.successMessage === "string" && block.successMessage.trim()) ||
+    getFormSuccessMessage(block);
+  const successEmoji =
+    pageThanks?.emoji?.trim() ||
+    (typeof block.successEmoji === "string" && block.successEmoji.trim()) ||
+    getFormSuccessEmoji(block);
+  const successButtonLabel =
+    pageThanks?.buttonLabel?.trim() ||
+    (typeof block.successButtonLabel === "string" && block.successButtonLabel.trim()) ||
+    getFormSuccessButtonLabel(block);
   const successConnectLabel = getFormSuccessConnectLabel(block);
   const successConnectUrl = getFormSuccessConnectUrl(block);
   const description = typeof block.description === "string" ? block.description.trim() : "";
@@ -722,6 +755,13 @@ export function FormBlockView({ block, mode, context, handlers }: BlockViewProps
         connectUrl={successConnectUrl}
         onConnect={handleConnect}
         anchorRef={anchorRef}
+        socialLinks={context.socialLinks}
+        whatsappCommunityUrl={pageThanks?.whatsappCommunityUrl}
+        whatsappCommunityLabel={pageThanks?.whatsappCommunityLabel}
+        promoTitle={pageThanks?.promoTitle}
+        promoMessage={pageThanks?.promoMessage}
+        businessName={pageThanks?.businessName}
+        businessDetails={pageThanks?.businessDetails}
       />
     </>
   );

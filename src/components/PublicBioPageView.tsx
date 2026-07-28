@@ -8,19 +8,14 @@ import {
   getLinkSpinCouponCode,
   getLinkSpinPrizes,
   normalizeExternalUrl,
-  collectPageSocialLinks,
-  socialLinksFromThankYouConfig,
-  filterVisibleBioBlocks,
-  listEndTitlePageBlocks,
-  getEndTitlePageContent
+  filterVisibleBioBlocks
 } from "../lib/bioBlocks";
 import { apiUrl } from "../lib/apiBase";
 import BlockRenderer, { type BlockRendererHandlers } from "./bio/BlockRenderer";
-import FormSuccessPage from "./bio/FormSuccessPage";
 import CoverPhotoView from "./bio/CoverPhotoView";
 import { normalizeCoverSettings } from "../lib/bioCoverPhoto";
 import { formatDisplayHandle, readLocalPageUpdatedAt } from "../storage/bioBuilderStorage";
-import type { BioPagePreviewDetails, BioPagePreviewTheme } from "../types";
+import type { BioPage, BioPagePreviewDetails, BioPagePreviewTheme } from "../types";
 
 interface Block {
   id: string;
@@ -35,6 +30,8 @@ interface PublicBioPageViewProps {
   pageSlug: string;
   pageBio?: string;
   pageCoverPhoto?: string;
+  /** All pages (for Thanks page resolution after form submit). */
+  allPages?: BioPage[];
   /** Platform ?previewPageId= testing shows the sandbox banner; live custom domains do not. */
   mode?: "preview" | "live";
 }
@@ -160,9 +157,16 @@ export default function PublicBioPageView({
   pageSlug,
   pageBio,
   pageCoverPhoto,
+  allPages,
   mode = "preview"
 }: PublicBioPageViewProps) {
   const initialPage = getInitialPageState(pageId, pageSlug, mode);
+  const [displayPageId, setDisplayPageId] = useState(pageId);
+  const displayPageMeta = allPages?.find((page) => page.id === displayPageId);
+  const effectiveSlug = displayPageMeta?.slug || pageSlug;
+  const effectiveTitle = displayPageMeta?.title || pageTitle;
+  const effectiveBio = displayPageMeta?.bio || pageBio;
+  const effectiveCover = displayPageMeta?.coverPhoto || pageCoverPhoto;
   const [blocks, setBlocks] = useState<Block[]>(initialPage.blocks);
   const [customDetails, setCustomDetails] = useState<BioPagePreviewDetails | null>(initialPage.details);
   const [pageTheme, setPageTheme] = useState<BioPagePreviewTheme>(
@@ -173,7 +177,6 @@ export default function PublicBioPageView({
   const [toast, setToast] = useState<string | null>(null);
   const [leadEmails, setLeadEmails] = useState<Record<string, string>>({});
   const [showSpinWheel, setShowSpinWheel] = useState(false);
-  const [activeEndPageId, setActiveEndPageId] = useState<string | null>(null);
   const publicScreenRef = useRef<HTMLDivElement | null>(null);
   const [activeSpinBlockId, setActiveSpinBlockId] = useState<string | null>(null);
   const [isSpinning, setIsSpinning] = useState(false);
@@ -190,8 +193,8 @@ export default function PublicBioPageView({
   const reloadStoredDetails = () => {
     try {
       const savedDetails =
-        localStorage.getItem(`biolink_details_${pageId}`) ||
-        localStorage.getItem(`biolink_details_${pageSlug}`);
+        localStorage.getItem(`biolink_details_${displayPageId}`) ||
+        localStorage.getItem(`biolink_details_${effectiveSlug}`);
       if (!savedDetails) return;
       applyStoredDetails(JSON.parse(savedDetails) as BioPagePreviewDetails);
     } catch (e) {
@@ -200,12 +203,16 @@ export default function PublicBioPageView({
   };
 
   useEffect(() => {
+    setDisplayPageId(pageId);
+  }, [pageId]);
+
+  useEffect(() => {
     if (mode === "live") return;
 
     const handleStorage = (event: StorageEvent) => {
       if (
-        event.key === `biolink_details_${pageId}` ||
-        event.key === `biolink_details_${pageSlug}`
+        event.key === `biolink_details_${displayPageId}` ||
+        event.key === `biolink_details_${effectiveSlug}`
       ) {
         reloadStoredDetails();
       }
@@ -214,7 +221,7 @@ export default function PublicBioPageView({
     const handlePreviewUpdated = (event: Event) => {
       const detail = (event as CustomEvent<{ pageId?: string; pageSlug?: string; details?: BioPagePreviewDetails }>).detail;
       if (!detail) return;
-      if (detail.pageId !== pageId && detail.pageSlug !== pageSlug) return;
+      if (detail.pageId !== displayPageId && detail.pageSlug !== effectiveSlug) return;
       if (detail.details) {
         applyStoredDetails(detail.details);
       } else {
@@ -228,7 +235,7 @@ export default function PublicBioPageView({
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("acn-page-preview-updated", handlePreviewUpdated as EventListener);
     };
-  }, [pageId, pageSlug, mode]);
+  }, [displayPageId, effectiveSlug, mode]);
 
   useEffect(() => {
     document.documentElement.classList.add("acn-public-scroll");
@@ -304,10 +311,10 @@ export default function PublicBioPageView({
       setCustomDetails(details);
       setPageTheme(normalizePageTheme(details.pageTheme));
     }
-    writeCachedPage(pageId, nextBlocks, details);
+    writeCachedPage(displayPageId, nextBlocks, details);
   };
 
-  const readLocalPageDataForPage = () => readLocalPageData(pageId, pageSlug);
+  const readLocalPageDataForPage = () => readLocalPageData(displayPageId, effectiveSlug);
 
   const applyServerDocument = (
     data: { blocks?: Block[]; details?: BioPagePreviewDetails; updatedAt?: string },
@@ -348,7 +355,7 @@ export default function PublicBioPageView({
       headers["If-None-Match"] = pageEtagRef.current;
     }
 
-    const res = await fetch(apiUrl(`/api/page/${pageId}`), {
+    const res = await fetch(apiUrl(`/api/page/${displayPageId}`), {
       signal,
       headers
     });
@@ -364,7 +371,7 @@ export default function PublicBioPageView({
       updatedAt?: string;
     };
     return { ...data, notModified: false as const };
-  }, [pageId]);
+  }, [displayPageId]);
   useEffect(() => {
     let isMounted = true;
     pageEtagRef.current = null;
@@ -375,7 +382,7 @@ export default function PublicBioPageView({
       setLoadError(null);
 
       const { loadedBlocks, loadedDetails } = readLocalPageDataForPage();
-      const localUpdatedAt = readLocalPageUpdatedAt(pageId, pageSlug);
+      const localUpdatedAt = readLocalPageUpdatedAt(displayPageId, effectiveSlug);
 
       if (isMounted && loadedBlocks?.length) {
         applyLoadedPage(loadedBlocks, loadedDetails, "ready");
@@ -439,7 +446,7 @@ export default function PublicBioPageView({
       isMounted = false;
       fetchAbortRef.current?.abort();
     };
-  }, [pageId, pageSlug, pageTitle, mode, fetchServerPageDocument]);
+  }, [displayPageId, effectiveSlug, effectiveTitle, mode, fetchServerPageDocument]);
 
   // Live custom domains: background refresh when tab is visible (ETag avoids full payload)
   useEffect(() => {
@@ -469,7 +476,7 @@ export default function PublicBioPageView({
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [mode, pageId, fetchServerPageDocument]);
+  }, [mode, displayPageId, fetchServerPageDocument]);
 
   const triggerToast = (msg: string) => {
     setToast(msg);
@@ -478,11 +485,11 @@ export default function PublicBioPageView({
     }, 3000);
   };
 
-  const displayTitle = customDetails?.title || pageTitle;
+  const displayTitle = customDetails?.title || effectiveTitle;
   const displayHandle = formatDisplayHandle(customDetails?.handle, displayTitle, {
     fallbackToTitle: false
   });
-  const displayBio = customDetails?.bio || pageBio;
+  const displayBio = customDetails?.bio || effectiveBio;
   const activeSpinBlock = activeSpinBlockId
     ? blocks.find((block) => block.id === activeSpinBlockId)
     : blocks.find((block) => block.type === "Link Spin");
@@ -494,21 +501,10 @@ export default function PublicBioPageView({
     : getLinkSpinPrizes({ id: "", type: "Link Spin", label: "", value: "" });
   const coverPhoto =
     customDetails?.coverPhoto ||
-    pageCoverPhoto ||
+    effectiveCover ||
     "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800";
   const coverSettings = normalizeCoverSettings(customDetails?.coverSettings);
-  const thankYouPage = customDetails?.thankYouPage;
-  const thankYouSocials = (() => {
-    const fromConfig = socialLinksFromThankYouConfig(thankYouPage);
-    if (fromConfig.length) return fromConfig;
-    return collectPageSocialLinks(blocks as BlockRecord[]);
-  })();
-  const endTitlePages = listEndTitlePageBlocks(blocks as BlockRecord[]);
   const visibleBlocks = filterVisibleBioBlocks(blocks);
-  const activeEndPageBlock = activeEndPageId
-    ? endTitlePages.find((page) => page.id === activeEndPageId) || null
-    : null;
-  const activeEndPageContent = activeEndPageBlock ? getEndTitlePageContent(activeEndPageBlock) : null;
 
   const liveBlockHandlers: BlockRendererHandlers = {
     onToast: triggerToast,
@@ -625,7 +621,15 @@ export default function PublicBioPageView({
     onTrack: trackAction,
     leadEmails,
     onLeadEmailChange: (blockId, email) => setLeadEmails((prev) => ({ ...prev, [blockId]: email })),
-    onShowEndPage: (blockId) => setActiveEndPageId(blockId)
+    onShowThanksPage: (id) => {
+      if (!id) return;
+      setBlocks([]);
+      setCustomDetails(null);
+      setPageLoadStatus("loading");
+      setDisplayPageId(id);
+      publicScreenRef.current?.scrollTo?.({ top: 0, behavior: "smooth" });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   };
 
   return (
@@ -663,6 +667,12 @@ export default function PublicBioPageView({
               {loadError}
             </p>
           )}
+          {pageLoadStatus === "not_found" && visibleBlocks.length === 0 && !loadError && (
+            <p className="acn-public-bio-page__loading rounded-2xl border p-4 text-center text-xs">
+              This page content is not published on the server yet. Open ACN Link → Bio Pages → Edit
+              this page → Publish, then refresh.
+            </p>
+          )}
           {visibleBlocks.map((block) => (
             <BlockRenderer
               key={block.id}
@@ -671,10 +681,7 @@ export default function PublicBioPageView({
               context={{
                 displayTitle,
                 displayHandle,
-                thankYouPage,
-                socialLinks: thankYouSocials,
-                endTitlePages,
-                activeEndPageId
+                thanksPages: allPages || []
               }}
               handlers={liveBlockHandlers}
             />
@@ -685,38 +692,6 @@ export default function PublicBioPageView({
             <span>Powered by ACN Link</span>
           </div>
         </div>
-
-        {activeEndPageContent ? (
-          <FormSuccessPage
-            open
-            onClose={() => setActiveEndPageId(null)}
-            title={activeEndPageContent.title}
-            message={activeEndPageContent.message}
-            emoji={activeEndPageContent.emoji}
-            buttonLabel={activeEndPageContent.buttonLabel}
-            connectLabel={activeEndPageContent.connectLabel}
-            connectUrl={activeEndPageContent.connectUrl}
-            onConnect={(url) => {
-              if (url.includes("wa.me") || url.includes("whatsapp")) {
-                openWhatsAppLink(url);
-              } else {
-                openExternalLink(url);
-              }
-            }}
-            anchorRef={publicScreenRef}
-            socialLinks={
-              activeEndPageContent.socialLinks.length
-                ? activeEndPageContent.socialLinks
-                : thankYouSocials
-            }
-            whatsappCommunityUrl={activeEndPageContent.whatsappCommunityUrl}
-            whatsappCommunityLabel={activeEndPageContent.whatsappCommunityLabel}
-            promoTitle={activeEndPageContent.promoTitle}
-            promoMessage={activeEndPageContent.promoMessage}
-            businessName={activeEndPageContent.businessName}
-            businessDetails={activeEndPageContent.businessDetails}
-          />
-        ) : null}
 
         {/* Interactive Simulator Toast Overlay */}
         {toast && (

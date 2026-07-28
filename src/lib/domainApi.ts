@@ -36,15 +36,29 @@ async function domainFetch<T>(path: string, init: RequestInit = {}, retry = true
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
+  const controller = new AbortController();
+  const timeoutMs = 12_000;
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  if (init.signal) {
+    if (init.signal.aborted) controller.abort();
+    else init.signal.addEventListener("abort", () => controller.abort(), { once: true });
+  }
+
   let response: Response;
   try {
     response = await fetch(apiUrl(path), {
       ...init,
       headers,
-      credentials: "include"
+      credentials: "include",
+      signal: controller.signal
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new DomainApiError("Domain service timed out. Try again in a moment.", 0, "TIMEOUT");
+    }
     throw new DomainApiError("Could not reach the domain service.", 0, "NETWORK_ERROR");
+  } finally {
+    window.clearTimeout(timeoutId);
   }
 
   if (response.status === 401 && retry && getRefreshToken()) {

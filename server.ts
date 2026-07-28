@@ -14,6 +14,7 @@ import {
 } from "./server/db/syncNormalized";
 import { createDomainsRouter } from "./server/domains/routes";
 import { findRoutableDomainByHostname } from "./server/domains/repository";
+import { getBioPageMeta, getPageDocument, savePageDocument } from "./server/pages/documents";
 import { isCloudflareForSaasConfigured } from "./server/domains/cloudflare";
 import { resolveCnameTarget, resolveCustomDomainATarget } from "./server/domains/hostname";
 import { clientIp, consumeRateLimit } from "./server/domains/rateLimit";
@@ -155,10 +156,15 @@ app.get("/api/public/custom-domain/:hostname", async (req, res) => {
       res.status(404).json({ error: "Domain not connected.", pageId: null });
       return;
     }
+    const meta = await getBioPageMeta(domain.pageId);
     res.json({
       pageId: domain.pageId,
       domainName: domain.domainName,
-      status: domain.status
+      status: domain.status,
+      title: meta?.title || null,
+      slug: meta?.slug || null,
+      bio: meta?.bio || null,
+      coverPhoto: meta?.coverPhoto || null
     });
   } catch (error) {
     console.error("Public custom-domain lookup failed:", error);
@@ -185,11 +191,15 @@ app.get("/api/public/platform-subdomain/:slug", async (req, res) => {
       res.status(404).json({ error: "Address not found.", pageId: null });
       return;
     }
+    const meta = await getBioPageMeta(record.pageId);
     res.json({
       pageId: record.pageId,
       slug: record.slug,
       hostname: record.hostname,
-      status: record.status
+      status: record.status,
+      title: meta?.title || null,
+      bio: meta?.bio || null,
+      coverPhoto: meta?.coverPhoto || null
     });
   } catch (error) {
     console.error("Public platform-subdomain lookup failed:", error);
@@ -563,24 +573,11 @@ app.post("/api/workspace/import", requireAuth, async (req, res) => {
     const root = mergeWorkspaceIntoRoot(getRootStore(), workspace, userId);
     setRootStore(root);
 
-    let normalized: { ok: boolean; counts?: Record<string, number>; error?: string } = {
-      ok: false,
-      error: "supabase_not_configured"
-    };
-    if (isSupabaseConfigured()) {
-      const supabase = getSupabase();
-      if (supabase) {
-        const result = await syncRootToNormalizedTables(supabase, root);
-        normalized = result.ok
-          ? { ok: true, counts: result.counts }
-          : { ok: false, error: result.error };
-      }
-    }
-
+    // Respond immediately — normalized sync runs in the background via setRootStore queue.
     res.json({
       success: true,
       backend: getDataStoreStatus().backend,
-      normalized
+      normalized: { ok: true, deferred: true }
     });
   } catch (error) {
     console.error("workspace import failed:", error);
@@ -655,18 +652,16 @@ app.post("/api/pages", requireAuth, (req, res) => {
   res.json({ success: true });
 });
 
-app.get("/api/page/:id", (req, res) => {
+app.get("/api/page/:id", async (req, res) => {
   const { id } = req.params;
-  const store = readStore();
-  const pageData = store[id];
+  const pageData = await getPageDocument(id);
   if (!pageData) {
     res.set("Cache-Control", "no-store");
     res.status(404).json({ error: "Page not found" });
     return;
   }
 
-  const pages = Array.isArray(store["pages_list"]) ? store["pages_list"] : [];
-  const meta = pages.find((item: any) => item.id === id);
+  const meta = await getBioPageMeta(id);
   const status = String(meta?.status || "Draft");
   if (status !== "Live") {
     // Owners can still load drafts in the editor; public visitors cannot.
@@ -675,7 +670,10 @@ app.get("/api/page/:id", (req, res) => {
     let ownerOk = false;
     if (token) {
       const payload = verifyAccessToken(token);
-      ownerOk = Boolean(payload && meta?.ownerUserId && payload.sub === meta.ownerUserId);
+      const store = readStore();
+      const pages = Array.isArray(store["pages_list"]) ? store["pages_list"] : [];
+      const localMeta = pages.find((item: any) => item.id === id);
+      ownerOk = Boolean(payload && localMeta?.ownerUserId && payload.sub === localMeta.ownerUserId);
     }
     if (!ownerOk) {
       res.set("Cache-Control", "no-store");
@@ -684,8 +682,16 @@ app.get("/api/page/:id", (req, res) => {
     }
   }
 
-  const updatedAt =
-    typeof pageData.updatedAt === "string" ? pageData.updatedAt : "";
+  const details =
+    pageData.details && Object.keys(pageData.details).length > 0
+      ? pageData.details
+      : {
+          title: meta?.title || "BioLink",
+          bio: meta?.bio || "",
+          coverPhoto: meta?.coverPhoto || ""
+        };
+
+  const updatedAt = typeof pageData.updatedAt === "string" ? pageData.updatedAt : "";
   const etag = `"${id}-${updatedAt}"`;
   res.set("ETag", etag);
   res.set("Cache-Control", status === "Live" ? "public, max-age=30, stale-while-revalidate=120" : "no-store");
@@ -693,10 +699,14 @@ app.get("/api/page/:id", (req, res) => {
     res.status(304).end();
     return;
   }
-  res.json(pageData);
+  res.json({
+    blocks: pageData.blocks,
+    details,
+    updatedAt
+  });
 });
 
-app.post("/api/page/:id", requireAuth, (req, res) => {
+app.post("/api/page/:id", requireAuth, async (req, res) => {
   const { id } = req.params;
   const { blocks, details } = req.body;
   const store = readStore();
@@ -707,8 +717,11 @@ app.post("/api/page/:id", requireAuth, (req, res) => {
     res.status(404).json({ error: "Page not found." });
     return;
   }
-  store[id] = { blocks, details, updatedAt: new Date().toISOString() };
-  writeStore(store);
+  await savePageDocument(
+    id,
+    Array.isArray(blocks) ? blocks : [],
+    details && typeof details === "object" ? details : {}
+  );
   res.json({ success: true });
 });
 

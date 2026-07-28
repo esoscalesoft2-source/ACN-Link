@@ -165,10 +165,10 @@ export default function ContactsScreen({
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isModalOpen) return;
+    if (!isModalOpen && !detailContact) return;
     document.body.classList.add("acn-contact-modal-open");
     return () => document.body.classList.remove("acn-contact-modal-open");
-  }, [isModalOpen]);
+  }, [isModalOpen, detailContact]);
 
   const triggerToast = (message: string) => {
     setToast(message);

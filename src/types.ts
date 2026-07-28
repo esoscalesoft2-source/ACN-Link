@@ -36,6 +36,8 @@ export interface BioPage {
   bio?: string;
   coverPhoto?: string;
   handle?: string;
+  /** Bio link page (default) or full customizable Thanks page after form/button submit. */
+  pageKind?: "bio" | "thanks";
   /** True while editing a template before Save Draft / Publish — hidden from Bio Pages history. */
   isUncommitted?: boolean;
 }
@@ -383,30 +385,6 @@ export interface BioCoverPhotoSettings {
   marginY: number;
 }
 
-export interface BioThankYouPageConfig {
-  emoji?: string;
-  title?: string;
-  message?: string;
-  buttonLabel?: string;
-  /** Optional WhatsApp community / business chat link */
-  whatsappCommunityUrl?: string;
-  whatsappCommunityLabel?: string;
-  /** Promotional headline + body shown on thank-you page */
-  promoTitle?: string;
-  promoMessage?: string;
-  /** Business details (address, hours, offer, etc.) */
-  businessName?: string;
-  businessDetails?: string;
-  /** Optional per-platform URLs (fallback: Socials block on the page) */
-  instagramUrl?: string;
-  facebookUrl?: string;
-  youtubeUrl?: string;
-  tiktokUrl?: string;
-  linkedinUrl?: string;
-  xUrl?: string;
-  telegramUrl?: string;
-}
-
 export interface BioPagePreviewDetails {
   title: string;
   bio: string;
@@ -417,8 +395,6 @@ export interface BioPagePreviewDetails {
   /** Linked template used to build / last save this page. */
   templateId?: string;
   templateName?: string;
-  /** Full thank-you page shown after Form / Smart Form submit (not a popup). */
-  thankYouPage?: BioThankYouPageConfig;
 }
 
 /** Full restorable editor state for drafts and templates */
@@ -431,7 +407,6 @@ export interface BioEditorState {
     handle?: string;
     pageTheme?: BioPagePreviewTheme;
     coverSettings?: BioCoverPhotoSettings;
-    thankYouPage?: BioThankYouPageConfig;
   };
   blocks: BioEditorBlock[];
 }

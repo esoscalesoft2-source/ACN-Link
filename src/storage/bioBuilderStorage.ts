@@ -284,8 +284,7 @@ export function buildEditorState(
   slug?: string,
   handle?: string,
   pageTheme: BioPagePreviewTheme = "dark",
-  coverSettings?: BioPagePreviewDetails["coverSettings"],
-  thankYouPage?: BioPagePreviewDetails["thankYouPage"]
+  coverSettings?: BioPagePreviewDetails["coverSettings"]
 ): BioEditorState {
   return {
     pageMeta: {
@@ -295,8 +294,7 @@ export function buildEditorState(
       coverImage: coverImage || DEFAULT_COVER,
       handle: normalizeHandleInput(handle || ""),
       pageTheme,
-      ...(coverSettings ? { coverSettings } : {}),
-      ...(thankYouPage ? { thankYouPage } : {})
+      ...(coverSettings ? { coverSettings } : {})
     },
     blocks: cloneBlocks(blocks)
   };

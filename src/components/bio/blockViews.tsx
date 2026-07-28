@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Copy, MessageSquare, MapPin, User, Phone, Mail, Megaphone } from "lucide-react";
 import {
   BlockRecord,
@@ -10,15 +10,6 @@ import {
   getFormFields,
   getFormSelectOptions,
   getFormSubmitLabel,
-  getFormSuccessButtonLabel,
-  getFormSuccessConnectLabel,
-  getFormSuccessConnectUrl,
-  getFormSuccessEmoji,
-  getFormSuccessMessage,
-  getFormSuccessTitle,
-  getEndTitlePageContent,
-  resolveNextEndTitlePage,
-  isEndTitlePageBlock,
   getGalleryItems,
   getPricingPlanFeatures,
   getPricingPlans,
@@ -38,8 +29,8 @@ import {
 import { getLinkArrowColor, getLinkButtonStyle, isDefaultBrightLink } from "../../lib/bioLinkColors";
 import type { BlockRendererContext, BlockRendererHandlers, BlockRenderMode } from "./blockTypes";
 import CountdownBlockView from "./CountdownBlockView";
-import FormSuccessPage from "./FormSuccessPage";
 import SocialLinksRow from "./SocialLinksRow";
+import { resolveThanksPageId } from "./ThanksPageTargetSelect";
 
 interface BlockViewProps {
   block: BlockRecord;
@@ -71,37 +62,6 @@ function openWhatsApp(handlers: BlockRendererHandlers, mode: BlockRenderMode, va
   }
   handlers.onWhatsApp?.(value);
   track(handlers, "click", label || "WhatsApp");
-}
-
-function resolveEndPageForSource(
-  sourceBlock: BlockRecord,
-  context: BlockRendererContext
-): BlockRecord | null {
-  const pages = context.endTitlePages || [];
-  if (!pages.length) return null;
-  return resolveNextEndTitlePage(sourceBlock, pages);
-}
-
-function thankYouPropsFromEndPage(
-  endPage: BlockRecord,
-  fallbackSocials?: BlockRendererContext["socialLinks"]
-) {
-  const content = getEndTitlePageContent(endPage);
-  return {
-    title: content.title,
-    message: content.message,
-    emoji: content.emoji,
-    buttonLabel: content.buttonLabel,
-    connectLabel: content.connectLabel,
-    connectUrl: content.connectUrl,
-    socialLinks: content.socialLinks.length ? content.socialLinks : fallbackSocials || [],
-    whatsappCommunityUrl: content.whatsappCommunityUrl,
-    whatsappCommunityLabel: content.whatsappCommunityLabel,
-    promoTitle: content.promoTitle,
-    promoMessage: content.promoMessage,
-    businessName: content.businessName,
-    businessDetails: content.businessDetails
-  };
 }
 
 export function HeaderBlockView({ block, context }: BlockViewProps) {
@@ -137,15 +97,11 @@ export function LinkButtonBlockView({ block, mode, context, handlers }: BlockVie
       type="button"
       onClick={() => {
         track(handlers, "click", `Button: ${block.label}`);
-        const nextId =
-          typeof block.nextPageBlockId === "string" ? block.nextPageBlockId.trim() : "";
-        if (nextId) {
-          const pages = context.endTitlePages || [];
-          const endPage = pages.find((page) => page.id === nextId) || resolveEndPageForSource(block, context);
-          if (endPage) {
-            handlers.onShowEndPage?.(endPage.id);
-            return;
-          }
+        const explicit =
+          typeof block.thanksPageId === "string" ? block.thanksPageId.trim() : "";
+        if (explicit && handlers.onShowThanksPage) {
+          handlers.onShowThanksPage(explicit);
+          return;
         }
         openLink(handlers, mode, block.value || "", block.label);
       }}
@@ -447,50 +403,6 @@ export function SmartFormBlockView({ block, mode, context, handlers }: BlockView
   const compact = context.compact;
   const leadEmail = handlers.leadEmails?.[block.id] || "";
   const destinationEmail = destinationEmailFromBlock(block);
-  const endPage = resolveEndPageForSource(block, context);
-  const endThanks = endPage ? thankYouPropsFromEndPage(endPage, context.socialLinks) : null;
-  const pageThanks = context.thankYouPage;
-  const successTitle =
-    endThanks?.title ||
-    pageThanks?.title?.trim() ||
-    (typeof block.successTitle === "string" && block.successTitle.trim()) ||
-    getFormSuccessTitle(block);
-  const successMessage =
-    endThanks?.message ||
-    pageThanks?.message?.trim() ||
-    (typeof block.successMessage === "string" && block.successMessage.trim()) ||
-    getFormSuccessMessage(block);
-  const successEmoji =
-    endThanks?.emoji ||
-    pageThanks?.emoji?.trim() ||
-    (typeof block.successEmoji === "string" && block.successEmoji.trim()) ||
-    getFormSuccessEmoji(block);
-  const successButtonLabel =
-    endThanks?.buttonLabel ||
-    pageThanks?.buttonLabel?.trim() ||
-    (typeof block.successButtonLabel === "string" && block.successButtonLabel.trim()) ||
-    getFormSuccessButtonLabel(block);
-  const successConnectLabel = endThanks?.connectLabel || getFormSuccessConnectLabel(block);
-  const successConnectUrl = endThanks?.connectUrl || getFormSuccessConnectUrl(block);
-  const [showSuccess, setShowSuccess] = useState(false);
-  const anchorRef = useRef<HTMLDivElement>(null);
-
-  const dismissSuccess = () => {
-    setShowSuccess(false);
-    handlers.onShowEndPage?.(null);
-  };
-
-  const handleConnect = (url: string) => {
-    if (mode === "preview") {
-      handlers.onToast?.(`🔗 Connect: ${url}`);
-      return;
-    }
-    if (url.includes("wa.me") || url.includes("whatsapp")) {
-      handlers.onWhatsApp?.(url);
-    } else {
-      handlers.onExternalLink?.(url, successConnectLabel || "Connect");
-    }
-  };
 
   const handleSubmit = () => {
     if (!leadEmail || !leadEmail.includes("@")) {
@@ -501,78 +413,53 @@ export function SmartFormBlockView({ block, mode, context, handlers }: BlockView
     }
     handlers.onLeadSubmit?.(block.id, leadEmail, destinationEmail);
     handlers.onLeadEmailChange?.(block.id, "");
-    if (endPage && handlers.onShowEndPage) {
-      handlers.onShowEndPage(endPage.id);
+    const thanksId = resolveThanksPageId(block, context.thanksPages || []);
+    if (thanksId && handlers.onShowThanksPage) {
+      handlers.onShowThanksPage(thanksId);
     } else {
-      setShowSuccess(true);
+      handlers.onToast?.(
+        mode === "preview"
+          ? "No Thanks page linked — create one from Bio Pages."
+          : "Thank you! We'll be in touch soon."
+      );
     }
   };
 
-  const useParentEndPage = Boolean(endPage && handlers.onShowEndPage && context.activeEndPageId === endPage.id);
-
   return (
-    <>
-      <div
-        ref={anchorRef}
-        className={`bg-white border border-slate-200 text-left shadow-sm ${
-          compact ? "p-4 rounded-2xl space-y-2" : "p-4.5 rounded-2xl space-y-2.5"
+    <div
+      className={`bg-white border border-slate-200 text-left shadow-sm ${
+        compact ? "p-4 rounded-2xl space-y-2" : "p-4.5 rounded-2xl space-y-2.5"
+      }`}
+    >
+      <span
+        className={`font-bold block text-center text-slate-700 uppercase tracking-widest font-mono ${
+          compact ? "text-[9px]" : "text-[10px]"
         }`}
       >
-        <span
-          className={`font-bold block text-center text-slate-700 uppercase tracking-widest font-mono ${
-            compact ? "text-[9px]" : "text-[10px]"
+        {block.label}
+      </span>
+      <div className={compact ? "space-y-1.5" : "space-y-2"}>
+        <input
+          type="email"
+          required
+          value={leadEmail}
+          onChange={(e) => handlers.onLeadEmailChange?.(block.id, e.target.value)}
+          placeholder="Enter your email"
+          className={`w-full bg-slate-50 border border-slate-200 text-slate-800 focus:outline-none focus:ring-1 focus:ring-violet-500 ${
+            compact ? "rounded-lg py-1.5 px-3.5 text-xs" : "rounded-xl py-2 px-3 text-xs"
+          }`}
+        />
+        <button
+          type="button"
+          onClick={handleSubmit}
+          className={`w-full bg-[#7c3aed] hover:bg-[#6d28d9] text-white font-bold transition-colors shadow-md shadow-violet-500/25 ${
+            compact ? "py-1.5 rounded-lg text-xs" : "py-2 rounded-xl text-xs"
           }`}
         >
-          {block.label}
-        </span>
-        <div className={compact ? "space-y-1.5" : "space-y-2"}>
-          <input
-            type="email"
-            required
-            value={leadEmail}
-            onChange={(e) => handlers.onLeadEmailChange?.(block.id, e.target.value)}
-            placeholder="Enter your email"
-            className={`w-full bg-slate-50 border border-slate-200 text-slate-800 focus:outline-none focus:ring-1 focus:ring-violet-500 ${
-              compact ? "rounded-lg py-1.5 px-3.5 text-xs" : "rounded-xl py-2 px-3 text-xs"
-            }`}
-          />
-          <button
-            type="button"
-            onClick={handleSubmit}
-            className={`w-full bg-[#7c3aed] hover:bg-[#6d28d9] text-white font-bold transition-colors shadow-md shadow-violet-500/25 ${
-              compact ? "py-1.5 rounded-lg text-xs" : "py-2 rounded-xl text-xs"
-            }`}
-          >
-            {mode === "preview" ? "Submit" : "Subscribe"}
-          </button>
-        </div>
+          {mode === "preview" ? "Submit" : "Subscribe"}
+        </button>
       </div>
-      {!useParentEndPage ? (
-        <FormSuccessPage
-          open={showSuccess}
-          onClose={dismissSuccess}
-          title={successTitle}
-          message={successMessage}
-          emoji={successEmoji}
-          buttonLabel={successButtonLabel}
-          connectLabel={successConnectLabel}
-          connectUrl={successConnectUrl}
-          onConnect={handleConnect}
-          anchorRef={anchorRef}
-          socialLinks={endThanks?.socialLinks || context.socialLinks}
-          whatsappCommunityUrl={
-            endThanks?.whatsappCommunityUrl || pageThanks?.whatsappCommunityUrl
-          }
-          whatsappCommunityLabel={
-            endThanks?.whatsappCommunityLabel || pageThanks?.whatsappCommunityLabel
-          }
-          promoTitle={endThanks?.promoTitle || pageThanks?.promoTitle}
-          promoMessage={endThanks?.promoMessage || pageThanks?.promoMessage}
-          businessName={endThanks?.businessName || pageThanks?.businessName}
-          businessDetails={endThanks?.businessDetails || pageThanks?.businessDetails}
-        />
-      ) : null}
-    </>
+    </div>
   );
 }
 
@@ -580,31 +467,6 @@ export function FormBlockView({ block, mode, context, handlers }: BlockViewProps
   const compact = context.compact;
   const destinationEmail = destinationEmailFromBlock(block);
   const submitLabel = getFormSubmitLabel(block);
-  const endPage = resolveEndPageForSource(block, context);
-  const endThanks = endPage ? thankYouPropsFromEndPage(endPage, context.socialLinks) : null;
-  const pageThanks = context.thankYouPage;
-  const successTitle =
-    endThanks?.title ||
-    pageThanks?.title?.trim() ||
-    (typeof block.successTitle === "string" && block.successTitle.trim()) ||
-    getFormSuccessTitle(block);
-  const successMessage =
-    endThanks?.message ||
-    pageThanks?.message?.trim() ||
-    (typeof block.successMessage === "string" && block.successMessage.trim()) ||
-    getFormSuccessMessage(block);
-  const successEmoji =
-    endThanks?.emoji ||
-    pageThanks?.emoji?.trim() ||
-    (typeof block.successEmoji === "string" && block.successEmoji.trim()) ||
-    getFormSuccessEmoji(block);
-  const successButtonLabel =
-    endThanks?.buttonLabel ||
-    pageThanks?.buttonLabel?.trim() ||
-    (typeof block.successButtonLabel === "string" && block.successButtonLabel.trim()) ||
-    getFormSuccessButtonLabel(block);
-  const successConnectLabel = endThanks?.connectLabel || getFormSuccessConnectLabel(block);
-  const successConnectUrl = endThanks?.connectUrl || getFormSuccessConnectUrl(block);
   const description = typeof block.description === "string" ? block.description.trim() : "";
   const fields = useMemo(() => getFormFields(block), [block]);
 
@@ -615,30 +477,10 @@ export function FormBlockView({ block, mode, context, handlers }: BlockViewProps
   }, [fields]);
 
   const [values, setValues] = useState<FormSubmitPayload>(emptyValues);
-  const [showSuccess, setShowSuccess] = useState(false);
-  const anchorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setValues(emptyValues);
-    setShowSuccess(false);
   }, [emptyValues]);
-
-  const dismissSuccess = () => {
-    setShowSuccess(false);
-    handlers.onShowEndPage?.(null);
-  };
-
-  const handleConnect = (url: string) => {
-    if (mode === "preview") {
-      handlers.onToast?.(`🔗 Connect: ${url}`);
-      return;
-    }
-    if (url.includes("wa.me") || url.includes("whatsapp")) {
-      handlers.onWhatsApp?.(url);
-    } else {
-      handlers.onExternalLink?.(url, successConnectLabel || "Connect");
-    }
-  };
 
   const inputClass = `w-full bg-slate-50 border border-slate-200 text-slate-800 focus:outline-none focus:ring-1 focus:ring-violet-500 ${
     compact ? "rounded-lg py-1.5 px-3 text-xs" : "rounded-xl py-2 px-3 text-xs"
@@ -646,7 +488,6 @@ export function FormBlockView({ block, mode, context, handlers }: BlockViewProps
 
   const updateField = (fieldId: string, value: string) => {
     setValues((prev) => ({ ...prev, [fieldId]: value }));
-    setShowSuccess(false);
   };
 
   const handleSubmit = () => {
@@ -701,23 +542,24 @@ export function FormBlockView({ block, mode, context, handlers }: BlockViewProps
     }
 
     setValues(emptyValues);
-    if (endPage && handlers.onShowEndPage) {
-      handlers.onShowEndPage(endPage.id);
+    const thanksId = resolveThanksPageId(block, context.thanksPages || []);
+    if (thanksId && handlers.onShowThanksPage) {
+      handlers.onShowThanksPage(thanksId);
     } else {
-      setShowSuccess(true);
+      handlers.onToast?.(
+        mode === "preview"
+          ? "No Thanks page linked — create one from Bio Pages."
+          : "Thank you! Your submission was received."
+      );
     }
   };
 
-  const useParentEndPage = Boolean(endPage && handlers.onShowEndPage && context.activeEndPageId === endPage.id);
-
   return (
-    <>
-      <div
-        ref={anchorRef}
-        className={`bg-white border border-slate-200 text-left shadow-sm ${
-          compact ? "p-4 rounded-2xl space-y-2" : "p-4.5 rounded-2xl space-y-2.5"
-        }`}
-      >
+    <div
+      className={`bg-white border border-slate-200 text-left shadow-sm ${
+        compact ? "p-4 rounded-2xl space-y-2" : "p-4.5 rounded-2xl space-y-2.5"
+      }`}
+    >
         <span className={`font-bold block text-center text-slate-800 ${compact ? "text-xs" : "text-sm"}`}>
           {block.label}
         </span>
@@ -823,53 +665,6 @@ export function FormBlockView({ block, mode, context, handlers }: BlockViewProps
             </button>
           </div>
         )}
-      </div>
-      {!useParentEndPage ? (
-        <FormSuccessPage
-          open={showSuccess}
-          onClose={dismissSuccess}
-          title={successTitle}
-          message={successMessage}
-          emoji={successEmoji}
-          buttonLabel={successButtonLabel}
-          connectLabel={successConnectLabel}
-          connectUrl={successConnectUrl}
-          onConnect={handleConnect}
-          anchorRef={anchorRef}
-          socialLinks={endThanks?.socialLinks || context.socialLinks}
-          whatsappCommunityUrl={
-            endThanks?.whatsappCommunityUrl || pageThanks?.whatsappCommunityUrl
-          }
-          whatsappCommunityLabel={
-            endThanks?.whatsappCommunityLabel || pageThanks?.whatsappCommunityLabel
-          }
-          promoTitle={endThanks?.promoTitle || pageThanks?.promoTitle}
-          promoMessage={endThanks?.promoMessage || pageThanks?.promoMessage}
-          businessName={endThanks?.businessName || pageThanks?.businessName}
-          businessDetails={endThanks?.businessDetails || pageThanks?.businessDetails}
-        />
-      ) : null}
-    </>
-  );
-}
-
-export function EndTitlePageBlockView({ block, mode }: BlockViewProps) {
-  // Hidden from the live bio scroll — designed only as a next-page thank-you screen.
-  if (mode === "live") return null;
-  const content = getEndTitlePageContent(block);
-  return (
-    <div className="rounded-2xl border border-dashed border-indigo-300 bg-indigo-50/90 p-3.5 text-center space-y-1.5">
-      <p className="text-[9px] font-extrabold text-indigo-600 uppercase tracking-widest">
-        End Title Page
-      </p>
-      <p className="text-lg leading-none" aria-hidden>
-        {content.emoji}
-      </p>
-      <p className="text-xs font-bold text-slate-900">{content.title}</p>
-      <p className="text-[10px] text-slate-500 leading-relaxed">{content.message}</p>
-      <p className="text-[9px] text-indigo-500 font-semibold pt-1">
-        Not shown on main page — opens after Submit / button click
-      </p>
     </div>
   );
 }
@@ -1731,9 +1526,6 @@ export function renderBlockView(props: BlockViewProps): React.ReactNode {
       return <SmartFormBlockView {...props} />;
     case "Form":
       return <FormBlockView {...props} />;
-    case "End Title Page":
-    case "EndTitlePage":
-      return <EndTitlePageBlockView {...props} />;
     case "FAQ":
       return <FaqBlockView {...props} />;
     case "Testimonials":

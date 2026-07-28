@@ -4,7 +4,8 @@ import {
   AuthUserRecord,
   hashPassword,
   publicUser,
-  randomToken
+  randomToken,
+  verifyPassword
 } from "./crypto";
 import { buildDefaultAvatarUrl } from "./avatars";
 
@@ -31,12 +32,48 @@ function emptyAuthStore(): AuthStoreShape {
   };
 }
 
-function seedDemoUser(store: AuthStoreShape): AuthStoreShape {
-  const email = "acnlink@gmail.com";
-  if (store.users.some((user) => user.email === email)) return store;
+const DEMO_EMAIL = "acnlink@gmail.com";
+const DEMO_PASSWORD = "acnlink1234";
 
-  const { salt, hash } = hashPassword("acnlink1234");
+/** Returns true when the auth store was mutated (create or password repair). */
+function seedDemoUser(store: AuthStoreShape): boolean {
+  const email = DEMO_EMAIL;
+  const existing = store.users.find((user) => (user.email || "").trim().toLowerCase() === email);
   const now = new Date().toISOString();
+
+  if (existing) {
+    const passwordOk =
+      Boolean(existing.passwordHash) &&
+      Boolean(existing.passwordSalt) &&
+      verifyPassword(DEMO_PASSWORD, existing.passwordSalt, existing.passwordHash);
+
+    let mutated = false;
+    if (!passwordOk) {
+      const { salt, hash } = hashPassword(DEMO_PASSWORD);
+      existing.passwordHash = hash;
+      existing.passwordSalt = salt;
+      mutated = true;
+    }
+
+    if (existing.status !== "active") {
+      existing.status = "active";
+      mutated = true;
+    }
+    if (!existing.emailVerified || !existing.isVerified) {
+      existing.emailVerified = true;
+      existing.isVerified = true;
+      mutated = true;
+    }
+    if (existing.lockedUntil || existing.failedLoginAttempts > 0) {
+      existing.lockedUntil = null;
+      existing.failedLoginAttempts = 0;
+      mutated = true;
+    }
+    if (mutated) existing.updatedAt = now;
+    return mutated;
+  }
+
+  const { salt, hash } = hashPassword(DEMO_PASSWORD);
   const demo: AuthUserRecord = {
     id: "user_demo_acnlink",
     email,
@@ -63,7 +100,13 @@ function seedDemoUser(store: AuthStoreShape): AuthStoreShape {
   };
 
   store.users.unshift(demo);
-  return store;
+  return true;
+}
+
+function shouldSeedDemoUser(): boolean {
+  if (process.env.AUTH_SEED_DEMO === "true") return true;
+  if (process.env.AUTH_SEED_DEMO === "false") return false;
+  return process.env.NODE_ENV !== "production";
 }
 
 export function readAuthStore(): AuthStoreShape {
@@ -83,10 +126,15 @@ export function readAuthStore(): AuthStoreShape {
     auditLogs: Array.isArray(raw.auditLogs) ? raw.auditLogs : [],
     rateLimits: raw.rateLimits && typeof raw.rateLimits === "object" ? raw.rateLimits : {}
   };
-  const allowDemo =
-    process.env.AUTH_SEED_DEMO === "true" ||
-    (process.env.NODE_ENV !== "production" && process.env.AUTH_SEED_DEMO !== "false");
-  return allowDemo ? seedDemoUser(store) : store;
+
+  if (shouldSeedDemoUser()) {
+    const mutated = seedDemoUser(store);
+    if (mutated) {
+      root.auth = store;
+      writeRootStore(root);
+    }
+  }
+  return store;
 }
 
 export function writeAuthStore(store: AuthStoreShape) {
@@ -97,7 +145,9 @@ export function writeAuthStore(store: AuthStoreShape) {
 
 export function findUserByEmail(store: AuthStoreShape, email: string) {
   const normalized = email.trim().toLowerCase();
-  return store.users.find((user) => user.email === normalized) || null;
+  return (
+    store.users.find((user) => (user.email || "").trim().toLowerCase() === normalized) || null
+  );
 }
 
 export function findUserById(store: AuthStoreShape, id: string) {

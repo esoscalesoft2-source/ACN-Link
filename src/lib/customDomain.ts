@@ -5,17 +5,13 @@ import {
   parsePlatformSubdomainSlug
 } from "./platformSubdomain";
 
-const ROUTED_PAGE_COOKIE = "acn_routed_page";
-
-function readRoutedPageCookie(): string | null {
-  const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${ROUTED_PAGE_COOKIE}=([^;]+)`));
-  if (!match) return null;
-  try {
-    return decodeURIComponent(match[1]).trim() || null;
-  } catch {
-    return match[1].trim() || null;
-  }
-}
+export type BrandedPageResolve = {
+  pageId: string;
+  title?: string | null;
+  slug?: string | null;
+  bio?: string | null;
+  coverPhoto?: string | null;
+};
 
 export function currentHostname() {
   return window.location.hostname.toLowerCase().replace(/:\d+$/, "");
@@ -26,11 +22,21 @@ export function isPlatformHostname(hostname = currentHostname()) {
   return isPlatformApexHostname(hostname);
 }
 
-export async function resolveBrandedDomainPageId(hostname = currentHostname()): Promise<string | null> {
-  if (isPlatformHostname(hostname)) return null;
+/**
+ * Resolve which published bio page a branded hostname should open.
+ * Always hits the public API for the current hostname (never trust a stale cookie).
+ */
+export async function resolveBrandedDomainPageId(
+  hostname = currentHostname()
+): Promise<string | null> {
+  const resolved = await resolveBrandedDomain(hostname);
+  return resolved?.pageId || null;
+}
 
-  const fromCookie = readRoutedPageCookie();
-  if (fromCookie) return fromCookie;
+export async function resolveBrandedDomain(
+  hostname = currentHostname()
+): Promise<BrandedPageResolve | null> {
+  if (isPlatformHostname(hostname)) return null;
 
   const platformSlug = parsePlatformSubdomainSlug(hostname);
   if (platformSlug) {
@@ -40,8 +46,15 @@ export async function resolveBrandedDomainPageId(hostname = currentHostname()): 
         { headers: { Accept: "application/json" } }
       );
       if (response.ok) {
-        const data = (await response.json()) as { pageId?: string };
-        return data.pageId || null;
+        const data = (await response.json()) as BrandedPageResolve & { pageId?: string };
+        if (!data.pageId) return null;
+        return {
+          pageId: data.pageId,
+          title: data.title ?? null,
+          slug: data.slug ?? null,
+          bio: data.bio ?? null,
+          coverPhoto: data.coverPhoto ?? null
+        };
       }
     } catch {
       /* fall through */
@@ -54,8 +67,15 @@ export async function resolveBrandedDomainPageId(hostname = currentHostname()): 
       { headers: { Accept: "application/json" } }
     );
     if (!response.ok) return null;
-    const data = (await response.json()) as { pageId?: string };
-    return data.pageId || null;
+    const data = (await response.json()) as BrandedPageResolve & { pageId?: string };
+    if (!data.pageId) return null;
+    return {
+      pageId: data.pageId,
+      title: data.title ?? null,
+      slug: data.slug ?? null,
+      bio: data.bio ?? null,
+      coverPhoto: data.coverPhoto ?? null
+    };
   } catch {
     return null;
   }

@@ -38,7 +38,7 @@ import {
 import { apiUrl } from "./lib/apiBase";
 import {
   isPlatformHostname,
-  resolveBrandedDomainPageId,
+  resolveBrandedDomain,
   stripPreviewQueryFromUrl
 } from "./lib/customDomain";
 import {
@@ -169,6 +169,12 @@ export default function App() {
   }, []);
 
   const [brandedPageId, setBrandedPageId] = useState<string | null>(null);
+  const [brandedPageMeta, setBrandedPageMeta] = useState<{
+    title?: string | null;
+    slug?: string | null;
+    bio?: string | null;
+    coverPhoto?: string | null;
+  } | null>(null);
   const [brandedResolveState, setBrandedResolveState] = useState<"pending" | "ready" | "missing">(
     isBrandedHost ? "pending" : "missing"
   );
@@ -176,19 +182,28 @@ export default function App() {
   // Parse URL search parameters for standalone public preview on the platform host
   const urlParams = new URLSearchParams(window.location.search);
   const previewPageId = urlParams.get("previewPageId");
+  /** Visit-page / custom-domain tabs must stay light — no workspace sync storms. */
+  const isPublicSurface = Boolean(previewPageId) || isBrandedHost;
 
   React.useEffect(() => {
     if (!isBrandedHost) return;
     let cancelled = false;
 
     void (async () => {
-      const pageId = await resolveBrandedDomainPageId();
+      const resolved = await resolveBrandedDomain();
       if (cancelled) return;
-      if (pageId) {
-        setBrandedPageId(pageId);
+      if (resolved?.pageId) {
+        setBrandedPageId(resolved.pageId);
+        setBrandedPageMeta({
+          title: resolved.title,
+          slug: resolved.slug,
+          bio: resolved.bio,
+          coverPhoto: resolved.coverPhoto
+        });
         setBrandedResolveState("ready");
         stripPreviewQueryFromUrl();
       } else {
+        setBrandedPageMeta(null);
         setBrandedResolveState("missing");
       }
     })();
@@ -434,7 +449,7 @@ export default function App() {
 
   // Load shared templates from server on startup
   React.useEffect(() => {
-    if (!isLoggedIn) return;
+    if (isPublicSurface || !isLoggedIn) return;
     fetchServerTemplates().then((remote) => {
       if (remote.length === 0) return;
       setSavedTemplates((local) => {
@@ -443,10 +458,11 @@ export default function App() {
         return merged;
       });
     });
-  }, [isLoggedIn]);
+  }, [isLoggedIn, isPublicSurface]);
 
   // Hydrate drafts, pages, and editor blocks from server (cross-device sync)
   React.useEffect(() => {
+    if (isPublicSurface) return;
     if (!isLoggedIn || isPreviewToken(getAccessToken())) {
       setWorkspaceHydrated(false);
       return;
@@ -475,7 +491,7 @@ export default function App() {
       if (Array.isArray(exported.pages) && exported.pages.length > 0) {
         setPages((localPages) => {
           const merged = new Map(localPages.map((page) => [page.id, page]));
-          exported.pages!.forEach((page) => merged.set(page.id, page as BioPage));
+          exported.pages!.forEach((page) => merged.set(page.id, page as unknown as BioPage));
           return Array.from(merged.values());
         });
       }
@@ -505,19 +521,21 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [isLoggedIn]);
+  }, [isLoggedIn, isPublicSurface]);
 
   const didPushLocalPagesRef = React.useRef(false);
   React.useEffect(() => {
+    if (isPublicSurface) return;
     if (!isLoggedIn || !workspaceHydrated || isPreviewToken(getAccessToken())) return;
     const toSync = pages.filter((page) => !page.isUncommitted);
     if (!toSync.length || didPushLocalPagesRef.current) return;
     didPushLocalPagesRef.current = true;
     void syncAllLocalPageDocumentsToServer(toSync);
-  }, [isLoggedIn, workspaceHydrated, pages]);
+  }, [isLoggedIn, workspaceHydrated, pages, isPublicSurface]);
 
   // Notify on new live analytics events (skip initial load)
   React.useEffect(() => {
+    if (isPublicSurface) return;
     if (!serverMetrics?.events?.length) return;
     const latest = serverMetrics.events[0];
     if (!latest?.id) return;
@@ -541,6 +559,7 @@ export default function App() {
 
   // 1. Initial fetch of pages list and analytics from the server
   React.useEffect(() => {
+    if (isPublicSurface) return;
     if (!isLoggedIn || isPreviewToken(getAccessToken())) return;
 
     async function loadInitialData() {
@@ -776,6 +795,7 @@ export default function App() {
   }, []);
 
   React.useEffect(() => {
+    if (isPublicSurface) return;
     if (isLoggedIn) {
       void loadDomains();
       void loadPlatformSubdomains();
@@ -787,11 +807,12 @@ export default function App() {
       setLinkRotators([]);
       setLinks([]);
     }
-  }, [isLoggedIn, loadDomains, loadPlatformSubdomains, loadLinkRotators, loadShortLinks]);
+  }, [isLoggedIn, isPublicSurface, loadDomains, loadPlatformSubdomains, loadLinkRotators, loadShortLinks]);
   const [articles] = useState<HelpArticle[]>(initialHelpArticles);
 
   // Push browser workspace fields → Railway → Supabase normalized tables
   React.useEffect(() => {
+    if (isPublicSurface) return;
     if (!isLoggedIn || !workspaceHydrated) return;
 
     const timer = window.setTimeout(() => {
@@ -872,10 +893,11 @@ export default function App() {
       return (
         <PublicBioPageView
           pageId={brandedPageId}
-          pageTitle={pageToPreview?.title || "BioLink"}
-          pageSlug={pageToPreview?.slug || "biolink"}
-          pageBio={pageToPreview?.bio}
-          pageCoverPhoto={pageToPreview?.coverPhoto}
+          pageTitle={pageToPreview?.title || brandedPageMeta?.title || "BioLink"}
+          pageSlug={pageToPreview?.slug || brandedPageMeta?.slug || "biolink"}
+          pageBio={pageToPreview?.bio || brandedPageMeta?.bio || undefined}
+          pageCoverPhoto={pageToPreview?.coverPhoto || brandedPageMeta?.coverPhoto || undefined}
+          allPages={pages}
           mode="live"
         />
       );
@@ -890,29 +912,17 @@ export default function App() {
     );
   }
 
-  // Platform preview (?previewPageId=) — only Live pages are publicly visitable.
+  // Platform preview (?previewPageId=) — content comes from /api/page (Live enforced server-side).
   if (previewPageId) {
     const pageToPreview = pages.find((p) => p.id === previewPageId);
-    if (!pageToPreview || pageToPreview.status !== "Live") {
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-slate-50 px-6">
-          <div className="max-w-md text-center">
-            <h1 className="text-xl font-bold text-slate-900">Page not available</h1>
-            <p className="mt-2 text-sm text-slate-600">
-              This bio page is still a draft. Publish it from Bio Pages before visitors can open the
-              link.
-            </p>
-          </div>
-        </div>
-      );
-    }
     return (
       <PublicBioPageView
         pageId={previewPageId}
-        pageTitle={pageToPreview.title || "BioLink"}
-        pageSlug={pageToPreview.slug || "biolink"}
-        pageBio={pageToPreview.bio}
-        pageCoverPhoto={pageToPreview.coverPhoto}
+        pageTitle={pageToPreview?.title || "BioLink"}
+        pageSlug={pageToPreview?.slug || "biolink"}
+        pageBio={pageToPreview?.bio}
+        pageCoverPhoto={pageToPreview?.coverPhoto}
+        allPages={pages}
         mode="preview"
       />
     );
@@ -967,14 +977,22 @@ export default function App() {
     return () => window.removeEventListener("acnlink:auth-expired", onAuthExpired);
   }, [navigate]);
 
-  const handleAddPage = (title: string, slug: string, pageId?: string) => {
+  const handleAddPage = (title: string, slug: string, pageId?: string, pageKind: "bio" | "thanks" = "bio") => {
     const newPage: BioPage = {
       id: pageId?.trim() || createUniquePageId(),
       title,
       slug,
       status: "Draft",
       views: 0,
-      createdAt: "7 Jul 2026"
+      createdAt: "7 Jul 2026",
+      pageKind,
+      ...(pageKind === "thanks"
+        ? {
+            bio: "Thanks for connecting with us.",
+            coverPhoto:
+              "https://images.unsplash.com/photo-1557683316-973673baf926?auto=format&fit=crop&q=80&w=800"
+          }
+        : {})
     };
     setPages((currentPages) => [newPage, ...currentPages]);
     return newPage;

@@ -239,13 +239,13 @@ export const DEFAULT_LINK_SPIN_PRIZES = [
   "Try again on your next visit!"
 ];
 
-export function getCurrencySymbol(currency: string = "? INR"): string {
-  if (currency.startsWith("?")) return "?";
+export function getCurrencySymbol(currency: string = "\u20B9 INR"): string {
+  if (currency.startsWith("\u20B9")) return "\u20B9";
   if (currency.startsWith("$")) return "$";
-  if (currency.startsWith("ù")) return "ù";
-  if (currency.startsWith("ù")) return "ù";
-  if (currency.startsWith("ù")) return "ù";
-  return currency.split(" ")[0] || "?";
+  if (currency.startsWith("\u20AC")) return "\u20AC";
+  if (currency.startsWith("\u00A3")) return "\u00A3";
+  if (currency.startsWith("\u00A5")) return "\u00A5";
+  return currency.split(" ")[0] || "\u20B9";
 }
 
 export function getVideoThumbnail(block: BlockRecord): string {
@@ -429,7 +429,7 @@ export function createDefaultFormFields(): Record<string, unknown> {
   };
 }
 
-/** Resolve form fields ù supports new dynamic list and legacy showName/showEmail toggles. */
+/** Resolve form fields - supports new dynamic list and legacy showName/showEmail toggles. */
 export function getFormFields(block: BlockRecord): DynamicFormField[] {
   if (Array.isArray(block.formFields)) {
     const normalized = block.formFields
@@ -719,7 +719,7 @@ export function createDefaultTestimonials(): TestimonialRecord[] {
   return [
     {
       id: "tm_1",
-      quote: "Amazing experience ù highly recommended!",
+      quote: "Amazing experience - highly recommended!",
       author: "Alex",
       role: "Customer"
     }
@@ -729,7 +729,7 @@ export function createDefaultTestimonials(): TestimonialRecord[] {
 export function createTestimonial(partial?: Partial<TestimonialRecord>): TestimonialRecord {
   return {
     id: `tm_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-    quote: "Share a customer quoteù",
+    quote: "Share a customer quote.",
     author: "Customer",
     role: "",
     ...partial
@@ -878,7 +878,7 @@ export function resolveGoogleMap(block: BlockRecord): ResolvedGoogleMap {
             if (ll) query = ll.split(",").slice(0, 2).join(",");
           }
         } else {
-          // Non-Google URL ù still try as open link; use address for embed
+          // Non-Google URL - still try as open link; use address for embed
           openFromInput = parsed.toString();
         }
       } catch {
@@ -934,7 +934,7 @@ export function createDefaultDividerFields(): Record<string, string> {
 export function createDefaultCallFields(): Record<string, string> {
   return {
     phone: "+919876543210",
-    subtext: "MonùSat 10amù6pm",
+    subtext: "Mon-Sat 10am-6pm",
     bgColor: "#0f172a",
     textColor: "#ffffff"
   };
@@ -1049,7 +1049,7 @@ export function getPricingPlanFeatures(plan: PricingPlanRecord): string[] {
 
 export function createDefaultBannerFields(): Record<string, string> {
   return {
-    bannerEmoji: "??",
+    bannerEmoji: "\u2728",
     bannerTitle: "New offer live!",
     bannerMessage: "Check out our latest collection today.",
     bannerLink: "",
@@ -1084,7 +1084,7 @@ export function createStatItem(partial?: Partial<StatItemRecord>): StatItemRecor
 export function createDefaultStatItems(): StatItemRecord[] {
   return [
     createStatItem({ value: "10K+", label: "Happy customers" }),
-    createStatItem({ value: "4.9?", label: "Average rating" }),
+    createStatItem({ value: "4.9\u2605", label: "Average rating" }),
     createStatItem({ value: "24/7", label: "Support" })
   ];
 }
@@ -1097,7 +1097,7 @@ export function getStatItems(block: BlockRecord): StatItemRecord[] {
       const item = raw as Record<string, unknown>;
       return {
         id: typeof item.id === "string" && item.id ? item.id : `stat_${index}`,
-        value: typeof item.value === "string" ? item.value : "ù",
+        value: typeof item.value === "string" ? item.value : "0",
         label: typeof item.label === "string" ? item.label : `Stat ${index + 1}`
       } satisfies StatItemRecord;
     })

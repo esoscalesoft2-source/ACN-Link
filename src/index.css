@@ -8991,13 +8991,6 @@ body.acn-editor-open header.acn-glass-header {
   white-space: nowrap;
 }
 
-.acn-contacts-table thead th.acn-contacts-table__reveal,
-.acn-contacts-table tbody td.acn-contacts-table__reveal {
-  width: 3rem;
-  padding-left: 0.85rem;
-  padding-right: 0.25rem;
-}
-
 .acn-contacts-table tbody td {
   padding: 0.9rem 1rem;
   vertical-align: middle;

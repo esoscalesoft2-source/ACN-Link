@@ -42,21 +42,27 @@ export function buildRotatorAnalytics(record: LinkRotatorRecord): {
   const weekStart = now.getTime() - 7 * MS_DAY;
   const monthStart = now.getTime() - 30 * MS_DAY;
 
+  // Lifetime totals come from stored counters only (real redirect hits).
+  // clickEvents power period breakdowns and may be capped, so never inflate totals from them.
+  const destinationsStoredTotal = record.destinations.reduce(
+    (sum, destination) => sum + (Number(destination.clicks) || 0),
+    0
+  );
   const summary: PeriodCounts = {
-    total: record.totalClicks || events.length,
+    total: destinationsStoredTotal || Number(record.totalClicks) || 0,
     today: countEvents(events, (e) => inRange(e.at, todayStart)),
     week: countEvents(events, (e) => inRange(e.at, weekStart)),
     month: countEvents(events, (e) => inRange(e.at, monthStart))
   };
 
   const destinations: DestinationAnalytics[] = record.destinations.map((destination) => {
-    const destEvents = events.filter(
-      (event) =>
-        (event.destinationId && event.destinationId === destination.id) ||
-        (event.url && event.url === destination.url)
-    );
-    const stored = Number(destination.clicks) || 0;
-    const total = Math.max(stored, destEvents.length);
+    const destEvents = events.filter((event) => {
+      if (event.destinationId && destination.id) {
+        return event.destinationId === destination.id;
+      }
+      return Boolean(event.url && event.url === destination.url);
+    });
+    const total = Number(destination.clicks) || 0;
     const clicks: PeriodCounts = {
       total,
       today: countEvents(destEvents, (e) => inRange(e.at, todayStart)),

@@ -212,18 +212,32 @@ export function recordLinkRotatorClick(
   const destId = String(destination?.id || "").trim();
   const destUrl = String(destination?.url || "").trim();
 
-  const destinations = current.destinations.map((item) => {
-    const match =
-      (destId && item.id === destId) || (destUrl && item.url === destUrl);
-    if (!match) return item;
+  // Match exactly one destination: prefer id, else first url match only.
+  // Avoid id||url OR matching, which double-increments when urls collide.
+  let matchedIndex = -1;
+  if (destId) {
+    matchedIndex = current.destinations.findIndex((item) => item.id === destId);
+  }
+  if (matchedIndex < 0 && destUrl) {
+    matchedIndex = current.destinations.findIndex((item) => item.url === destUrl);
+  }
+
+  const destinations = current.destinations.map((item, i) => {
+    if (i !== matchedIndex) return item;
     return { ...item, clicks: (item.clicks || 0) + 1 };
   });
 
-  const event: LinkRotatorClickEvent | null =
-    destId || destUrl
+  const matched = matchedIndex >= 0 ? destinations[matchedIndex] : null;
+  const event: LinkRotatorClickEvent | null = matched
+    ? {
+        destinationId: matched.id,
+        url: matched.url,
+        at: now
+      }
+    : destId || destUrl
       ? {
-          destinationId: destId || destinations.find((d) => d.url === destUrl)?.id || "",
-          url: destUrl || destinations.find((d) => d.id === destId)?.url || "",
+          destinationId: destId,
+          url: destUrl,
           at: now
         }
       : null;

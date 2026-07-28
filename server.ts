@@ -252,18 +252,23 @@ app.get("/r/:slug", (req, res) => {
       return;
     }
 
-    recordLinkRotatorClick(record.id, { id: destination.id, url: target });
-
     // Prefer HTML/JS redirect over bare 302:
     // Custom-domain edges sometimes follow 302 and serve destination HTML under
     // the customer host (broken CSS). Browser-only location.replace avoids that.
     const wantsHeadersOnly = req.method === "HEAD";
+    const fetchPurpose = String(req.get("Sec-Fetch-Purpose") || req.get("Purpose") || "").toLowerCase();
+    const isPrefetch = fetchPurpose === "prefetch" || fetchPurpose === "prerender";
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
     res.setHeader("Referrer-Policy", "no-referrer");
     if (wantsHeadersOnly) {
+      // Do not count HEAD probes — browsers/link checkers often HEAD then GET,
+      // which previously doubled every destination click.
       res.setHeader("Location", target);
       res.status(302).end();
       return;
+    }
+    if (!isPrefetch) {
+      recordLinkRotatorClick(record.id, { id: destination.id, url: destination.url || target });
     }
     res.status(200).type("html").send(buildLinkRotatorRedirectHtml(target));
   } catch (error) {

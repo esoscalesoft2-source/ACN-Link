@@ -3,8 +3,6 @@ import { Contact } from "../types";
 import {
   Download,
   Plus,
-  Eye,
-  EyeOff,
   Search,
   ChevronDown,
   X,
@@ -86,7 +84,6 @@ export default function ContactsScreen({
   onUpdateContact,
   onDeleteContact
 }: ContactsScreenProps) {
-  const [unmaskedIds, setUnmaskedIds] = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState("All sources");
   const [tagFilter, setTagFilter] = useState("All tags");
@@ -161,13 +158,6 @@ export default function ContactsScreen({
       return matchesSearch && matchesSource && matchesTag;
     });
   }, [contacts, searchQuery, sourceFilter, tagFilter]);
-
-  const toggleMask = (id: string) => {
-    setUnmaskedIds((prev) => ({
-      ...prev,
-      [id]: !prev[id]
-    }));
-  };
 
   const openCreateModal = () => {
     setEditingContact(null);
@@ -597,7 +587,6 @@ export default function ContactsScreen({
           <Workspace className="acn-contacts-workspace !p-0 sm:!p-0">
             <div className="lg:hidden divide-y divide-slate-100">
               {filteredContacts.map((contact) => {
-                const isUnmasked = !!unmaskedIds[contact.id];
                 const tags = visibleTags(contact);
                 return (
                   <article key={contact.id} className="acn-contact-card p-4 space-y-3">
@@ -612,22 +601,13 @@ export default function ContactsScreen({
                               {contact.name}
                             </p>
                             <p className="text-xs text-slate-500 font-mono mt-0.5 truncate">
-                              {isUnmasked ? contact.email : contact.maskedEmail}
+                              {contact.email}
                             </p>
                             <p className="text-xs text-slate-500 font-mono truncate">
-                              {isUnmasked ? contact.phone : contact.maskedPhone}
+                              {contact.phone}
                             </p>
                           </div>
                           <div className="flex items-center gap-0.5 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => toggleMask(contact.id)}
-                              className="acn-contact-icon-btn"
-                              title={isUnmasked ? "Mask credentials" : "Show credentials"}
-                              aria-label={isUnmasked ? "Mask credentials" : "Show credentials"}
-                            >
-                              {isUnmasked ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                            </button>
                             <button
                               type="button"
                               onClick={() => setDetailContact(contact)}
@@ -691,9 +671,6 @@ export default function ContactsScreen({
               <table className="acn-contacts-table">
                 <thead>
                   <tr>
-                    <th className="acn-contacts-table__reveal">
-                      <span className="sr-only">Reveal</span>
-                    </th>
                     <th>Contact</th>
                     <th>Phone</th>
                     <th>Source</th>
@@ -705,26 +682,10 @@ export default function ContactsScreen({
                 </thead>
                 <tbody>
                   {filteredContacts.map((contact) => {
-                    const isUnmasked = !!unmaskedIds[contact.id];
                     const tags = visibleTags(contact);
 
                     return (
                       <tr key={contact.id}>
-                        <td className="acn-contacts-table__reveal">
-                          <button
-                            type="button"
-                            onClick={() => toggleMask(contact.id)}
-                            className="acn-contact-icon-btn"
-                            title={isUnmasked ? "Mask credentials" : "Show credentials"}
-                            aria-label={isUnmasked ? "Mask credentials" : "Show credentials"}
-                          >
-                            {isUnmasked ? (
-                              <EyeOff className="h-4 w-4" />
-                            ) : (
-                              <Eye className="h-4 w-4" />
-                            )}
-                          </button>
-                        </td>
                         <td>
                           <div className="acn-contact-identity">
                             <div className="acn-contact-avatar" aria-hidden>
@@ -732,16 +693,12 @@ export default function ContactsScreen({
                             </div>
                             <div className="min-w-0">
                               <p className="acn-contact-name">{contact.name}</p>
-                              <p className="acn-contact-email">
-                                {isUnmasked ? contact.email : contact.maskedEmail}
-                              </p>
+                              <p className="acn-contact-email">{contact.email}</p>
                             </div>
                           </div>
                         </td>
                         <td>
-                          <span className="acn-contact-mono">
-                            {isUnmasked ? contact.phone : contact.maskedPhone}
-                          </span>
+                          <span className="acn-contact-mono">{contact.phone || "—"}</span>
                         </td>
                         <td>
                           <span className={`acn-contact-source ${sourceTone(contact.source)}`}>

@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
   Copy,
@@ -10,11 +11,12 @@ import {
   Shuffle,
   Trash2
 } from "lucide-react";
-import type {
-  CustomDomain,
-  LinkRotator,
-  LinkRotatorAnalytics,
-  LinkRotatorDestination
+import {
+  ScreenId,
+  type CustomDomain,
+  type LinkRotator,
+  type LinkRotatorAnalytics,
+  type LinkRotatorDestination
 } from "../types";
 import {
   createLinkRotator,
@@ -24,6 +26,7 @@ import {
   updateLinkRotator,
   type LinkRotatorInput
 } from "../lib/linkRotatorApi";
+import { screenToPath } from "../navigation";
 import { PRIMARY_DOMAIN } from "../storage/publishStorage";
 import PageShell, { PageHeader, SectionCard, Workspace } from "./layout/PageShell";
 
@@ -250,15 +253,17 @@ function periodPercent(value: number, total: number) {
   return Math.round((value / total) * 1000) / 10;
 }
 
-function destinationClickTotal(
-  destination: LinkRotatorDestination,
-  analytics: LinkRotatorAnalytics | null | undefined
-): number {
-  const fromAnalytics = analytics?.destinations.find(
-    (item) => item.id === destination.id || item.url === destination.url
-  )?.clicks.total;
-  if (typeof fromAnalytics === "number") return fromAnalytics;
-  return destination.clicks || 0;
+function destinationClickTotal(destination: LinkRotatorDestination): number {
+  // Always show the real stored destination click counter.
+  return Number(destination.clicks) || 0;
+}
+
+function rotatorDestinationClicksTotal(rotator: LinkRotator): number {
+  const fromDestinations = rotator.destinations.reduce(
+    (sum, destination) => sum + destinationClickTotal(destination),
+    0
+  );
+  return fromDestinations > 0 ? fromDestinations : Number(rotator.totalClicks) || 0;
 }
 
 export default function LinkRotatorScreen({
@@ -269,9 +274,14 @@ export default function LinkRotatorScreen({
   loading = false,
   loadError = null
 }: LinkRotatorScreenProps) {
-  const [mode, setMode] = useState<ScreenMode>("list");
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const viewIdFromUrl = searchParams.get("view");
+  const [mode, setMode] = useState<ScreenMode>(() => (searchParams.get("view") ? "view" : "list"));
   const [searchQuery, setSearchQuery] = useState("");
   const [form, setForm] = useState(() => emptyForm(PRIMARY_DOMAIN));
+  const [viewBootstrapping, setViewBootstrapping] = useState(() => Boolean(searchParams.get("view")));
+  const loadedViewIdRef = useRef<string | null>(null);
 
   const hostOptions = useMemo(() => {
     const custom = domains
@@ -404,7 +414,15 @@ export default function LinkRotatorScreen({
     setAnalyticsError(null);
     setSelectedDestinationKey(first ? first.id || first.url : "");
     setMode("view");
+    setViewBootstrapping(false);
+    loadedViewIdRef.current = rotator.id;
     void loadViewAnalytics(rotator.id, rotator);
+    // Push history so browser Back closes this view instead of leaving Link Rotator.
+    if (viewIdFromUrl !== rotator.id) {
+      navigate(
+        `${screenToPath(ScreenId.LINK_ROTATOR)}?view=${encodeURIComponent(rotator.id)}`
+      );
+    }
   };
 
   const backToList = (options?: { force?: boolean }) => {
@@ -415,9 +433,85 @@ export default function LinkRotatorScreen({
     setViewAnalytics(null);
     setSelectedDestinationKey("");
     setAnalyticsError(null);
+    setAnalyticsLoading(false);
+    setViewBootstrapping(false);
+    loadedViewIdRef.current = null;
     setForm(emptyForm(PRIMARY_DOMAIN));
     setFormError("");
+    if (searchParams.has("view")) {
+      navigate(screenToPath(ScreenId.LINK_ROTATOR), { replace: true });
+    }
   };
+
+  // Keep eye-view tied to ?view= so refresh and Chrome Back stay on Link Rotator.
+  useEffect(() => {
+    if (!viewIdFromUrl) {
+      setViewBootstrapping(false);
+      loadedViewIdRef.current = null;
+      if (mode === "view") {
+        setMode("list");
+        setViewing(null);
+        setViewAnalytics(null);
+        setSelectedDestinationKey("");
+        setAnalyticsError(null);
+        setAnalyticsLoading(false);
+      }
+      return;
+    }
+
+    setMode("view");
+    setEditingId(null);
+
+    const applyRotator = (rotator: LinkRotator, analytics?: LinkRotatorAnalytics | null) => {
+      const first = rotator.destinations[0];
+      setViewing(rotator);
+      if (analytics) setViewAnalytics(analytics);
+      setSelectedDestinationKey((current) => {
+        const keys = rotator.destinations.map((item) => item.id || item.url);
+        return current && keys.includes(current) ? current : first ? first.id || first.url : "";
+      });
+      setViewBootstrapping(false);
+      setAnalyticsError(null);
+      if (loadedViewIdRef.current !== rotator.id) {
+        loadedViewIdRef.current = rotator.id;
+        if (!analytics) setViewAnalytics(buildLocalAnalytics(rotator));
+        void loadViewAnalytics(rotator.id, rotator);
+      }
+    };
+
+    const fromList = rotators.find((item) => item.id === viewIdFromUrl);
+    if (fromList) {
+      applyRotator(fromList);
+      return;
+    }
+
+    // List not ready yet (page refresh) — fetch this rotator directly; keep ?view=.
+    if (loading || rotators.length === 0) {
+      setViewBootstrapping(true);
+      let cancelled = false;
+      void (async () => {
+        try {
+          const data = await fetchLinkRotatorAnalytics(viewIdFromUrl);
+          if (cancelled || !data.rotator) return;
+          loadedViewIdRef.current = data.rotator.id;
+          applyRotator(data.rotator, data);
+        } catch {
+          if (!cancelled && !loading && rotators.length > 0) {
+            setViewBootstrapping(false);
+            navigate(screenToPath(ScreenId.LINK_ROTATOR), { replace: true });
+          }
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    // List loaded but this id is gone.
+    setViewBootstrapping(false);
+    navigate(screenToPath(ScreenId.LINK_ROTATOR), { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync from URL only
+  }, [viewIdFromUrl, rotators, loading]);
 
   const copyText = async (value: string) => {
     try {
@@ -757,6 +851,32 @@ export default function LinkRotatorScreen({
     );
   }
 
+  if ((mode === "view" || viewIdFromUrl) && !viewing && (viewBootstrapping || loading)) {
+    return (
+      <PageShell>
+        <PageHeader
+          title="Link Rotator"
+          subtitle="Loading destination stats…"
+          actions={
+            <button
+              type="button"
+              onClick={backToList}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back
+            </button>
+          }
+        />
+        <Workspace panel>
+          <SectionCard className="p-8 text-center text-sm font-semibold text-slate-500">
+            Opening destinations…
+          </SectionCard>
+        </Workspace>
+      </PageShell>
+    );
+  }
+
   if (mode === "view" && viewing) {
     return (
       <PageShell className="font-sans text-slate-800">
@@ -824,9 +944,9 @@ export default function LinkRotatorScreen({
                   </p>
                   <p
                     className="mt-1.5 text-sm font-bold tabular-nums text-slate-900"
-                    title={formatCountDisplay(viewing.totalClicks).title}
+                    title={formatCountDisplay(rotatorDestinationClicksTotal(viewing)).title}
                   >
-                    {formatCountDisplay(viewing.totalClicks).text}
+                    {formatCountDisplay(rotatorDestinationClicksTotal(viewing)).text}
                   </p>
                 </div>
                 <div>
@@ -862,7 +982,7 @@ export default function LinkRotatorScreen({
                 </div>
                 <div className="divide-y divide-slate-100">
                   {viewing.destinations.map((destination: LinkRotatorDestination, index) => {
-                    const clicks = destinationClickTotal(destination, viewAnalytics);
+                    const clicks = destinationClickTotal(destination);
                     const count = formatCountDisplay(clicks);
                     return (
                       <div
@@ -947,23 +1067,19 @@ export default function LinkRotatorScreen({
                 if (!selected) return null;
 
                 const selectedAnalytics = viewAnalytics?.destinations.find(
-                  (item) =>
-                    item.id === selected.id ||
-                    item.url === selected.url ||
-                    (selected.id || selected.url) === item.id
+                  (item) => item.id === selected.id
                 );
-                const clicks = selectedAnalytics?.clicks || {
-                  total: selected.clicks || 0,
-                  today: 0,
-                  week: 0,
-                  month: 0
+                // Lifetime total is always the real stored destination counter.
+                const realTotal = destinationClickTotal(selected);
+                const clicks = {
+                  total: realTotal,
+                  today: selectedAnalytics?.clicks.today ?? 0,
+                  week: selectedAnalytics?.clicks.week ?? 0,
+                  month: selectedAnalytics?.clicks.month ?? 0
                 };
-                const summaryTotal =
-                  viewAnalytics?.summary.total ?? viewing.totalClicks ?? 0;
+                const summaryTotal = rotatorDestinationClicksTotal(viewing);
                 const destTotal = Math.max(clicks.total, 1);
-                const sharePercent =
-                  selectedAnalytics?.clickSharePercent ??
-                  periodPercent(clicks.total, summaryTotal);
+                const sharePercent = periodPercent(clicks.total, summaryTotal);
                 const totalCount = formatCountDisplay(clicks.total);
 
                 return (

@@ -10,7 +10,7 @@ import {
   Pencil,
   Trash2,
   Users,
-  FileText
+  Eye
 } from "lucide-react";
 import PageShell, { PageHeader, SectionCard, StatCard, StatCardGrid, Workspace } from "./layout/PageShell";
 
@@ -21,6 +21,11 @@ interface ContactsScreenProps {
   onAddContact: (contact: ContactInput) => void;
   onUpdateContact: (id: string, contact: ContactInput) => void;
   onDeleteContact: (id: string) => void;
+}
+
+interface SubmissionSheetRow {
+  field: string;
+  value: string;
 }
 
 function formatCapturedAt(value: string): string {
@@ -42,6 +47,69 @@ function parseCapturedTime(value: string): number {
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
+/** Build Excel-style Field | Value rows from every form entry + core contact data. */
+function buildSubmissionSheetRows(contact: Contact): SubmissionSheetRow[] {
+  const rows: SubmissionSheetRow[] = [];
+  const seen = new Set<string>();
+
+  const push = (field: string, value: string | undefined | null) => {
+    const label = (field || "").trim();
+    if (!label) return;
+    const key = label.toLowerCase();
+    const text = value == null ? "" : String(value).trim();
+    if (seen.has(key)) {
+      const existing = rows.find((row) => row.field.toLowerCase() === key);
+      if (existing && !existing.value && text) existing.value = text;
+      return;
+    }
+    seen.add(key);
+    rows.push({ field: label, value: text || "—" });
+  };
+
+  for (const entry of contact.formFields || []) {
+    push(entry.label, entry.value);
+  }
+
+  const hasMatcher = (...matchers: string[]) =>
+    rows.some((row) => matchers.some((m) => row.field.toLowerCase().includes(m)));
+
+  // Ensure core identity columns always appear even if formFields omitted them.
+  if (!hasMatcher("name", "full name")) push("Full name", contact.name);
+  if (!hasMatcher("email", "e-mail")) push("Email", contact.email);
+  if (!hasMatcher("phone", "mobile", "whatsapp", "tel")) push("Phone", contact.phone);
+
+  // Legacy notes often store extra custom fields as "Label: value" lines.
+  if (contact.notes?.trim()) {
+    const noteLines = contact.notes
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const leftover: string[] = [];
+    for (const line of noteLines) {
+      const match = line.match(/^([^:]{1,80}):\s*(.+)$/);
+      if (match) {
+        push(match[1].trim(), match[2].trim());
+      } else {
+        leftover.push(line);
+      }
+    }
+    if (leftover.length) {
+      push("Notes", leftover.join("\n"));
+    }
+  }
+
+  push("Source", contact.source);
+  if (contact.sourceDomain) push("Origin / Domain", contact.sourceDomain);
+  if (contact.pageTitle) push("Bio page", contact.pageTitle);
+  if (contact.blockLabel) push("Form block", contact.blockLabel);
+  if (contact.templateName) push("Template", contact.templateName);
+  if (contact.pageSlug) push("Page slug", contact.pageSlug);
+  push("Captured", formatCapturedAt(contact.capturedAt));
+  push("Marketing opt-in", contact.marketingOptIn ? "Yes" : "No");
+
+  return rows;
 }
 
 function emptyForm() {
@@ -329,6 +397,8 @@ export default function ContactsScreen({
 
   const hasActiveFilters =
     searchQuery.trim().length > 0 || sourceFilter !== "All sources" || tagFilter !== "All tags";
+
+  const detailSheetRows = detailContact ? buildSubmissionSheetRows(detailContact) : [];
 
   return (
     <PageShell>
@@ -623,7 +693,7 @@ export default function ContactsScreen({
                               title="View record"
                               aria-label={`View ${contact.name}`}
                             >
-                              <FileText className="h-4 w-4" />
+                              <Eye className="h-4 w-4" />
                             </button>
                             <button
                               type="button"
@@ -646,7 +716,12 @@ export default function ContactsScreen({
                           </div>
                         </div>
 
-                        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          className="mt-2.5 w-full text-left"
+                          onClick={() => setDetailContact(contact)}
+                        >
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <span className={`acn-contact-source ${sourceTone(contact.source)}`}>
                             {contact.source}
                           </span>
@@ -667,7 +742,13 @@ export default function ContactsScreen({
                           {contact.sourceDomain ? <span>{contact.sourceDomain}</span> : null}
                           {contact.templateName ? <span>{contact.templateName}</span> : null}
                           <span>{formatCapturedAt(contact.capturedAt)}</span>
+                          {(contact.formFields?.length || 0) > 0 ? (
+                            <span className="text-indigo-500 font-semibold">
+                              {contact.formFields!.length} fields
+                            </span>
+                          ) : null}
                         </div>
+                        </button>
                       </div>
                     </div>
                   </article>
@@ -693,7 +774,11 @@ export default function ContactsScreen({
                     const tags = visibleTags(contact);
 
                     return (
-                      <tr key={contact.id}>
+                      <tr
+                        key={contact.id}
+                        className="acn-contacts-table__row--clickable"
+                        onClick={() => setDetailContact(contact)}
+                      >
                         <td>
                           <div className="acn-contact-identity">
                             <div className="acn-contact-avatar" aria-hidden>
@@ -758,7 +843,7 @@ export default function ContactsScreen({
                           <span className="acn-contact-date">{formatCapturedAt(contact.capturedAt)}</span>
                         </td>
                         <td>
-                          <div className="acn-contact-actions">
+                          <div className="acn-contact-actions" onClick={(event) => event.stopPropagation()}>
                             <button
                               type="button"
                               onClick={() => setDetailContact(contact)}
@@ -766,7 +851,7 @@ export default function ContactsScreen({
                               title="View submission"
                               aria-label={`View ${contact.name} details`}
                             >
-                              <FileText className="h-4 w-4" />
+                              <Eye className="h-4 w-4" />
                             </button>
                             <button
                               type="button"
@@ -809,7 +894,7 @@ export default function ContactsScreen({
             role="dialog"
             aria-modal="true"
             aria-labelledby="contact-detail-title"
-            className="acn-contact-detail-dialog"
+            className="acn-contact-detail-dialog acn-contact-detail-dialog--sheet"
           >
             <div className="acn-contact-detail-dialog__head">
               <div className="flex items-start gap-3 min-w-0">
@@ -818,7 +903,7 @@ export default function ContactsScreen({
                 </div>
                 <div className="min-w-0">
                   <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-indigo-500">
-                    Contact record
+                    Form submission sheet
                   </p>
                   <h3
                     id="contact-detail-title"
@@ -840,70 +925,39 @@ export default function ContactsScreen({
             </div>
 
             <div className="acn-contact-detail-dialog__body">
-              <div className="acn-contact-detail-grid">
-                <div>
-                  <span>Phone</span>
-                  <strong>{detailContact.phone}</strong>
-                </div>
-                <div>
-                  <span>Source</span>
-                  <strong>{detailContact.source}</strong>
-                </div>
-                <div>
-                  <span>Captured</span>
-                  <strong>{formatCapturedAt(detailContact.capturedAt)}</strong>
-                </div>
-                <div>
-                  <span>Marketing</span>
-                  <strong>{detailContact.marketingOptIn ? "Opted in" : "Not opted in"}</strong>
-                </div>
+              <div className="acn-contact-sheet-meta">
+                <span className={`acn-contact-source ${sourceTone(detailContact.source)}`}>
+                  {detailContact.source}
+                </span>
                 {detailContact.sourceDomain ? (
-                  <div>
-                    <span>Domain</span>
-                    <strong className="font-mono">{detailContact.sourceDomain}</strong>
-                  </div>
+                  <span className="acn-contact-sheet-meta__item">{detailContact.sourceDomain}</span>
                 ) : null}
-                {detailContact.templateName ? (
-                  <div>
-                    <span>Template</span>
-                    <strong>{detailContact.templateName}</strong>
-                  </div>
-                ) : null}
-                {detailContact.pageTitle ? (
-                  <div>
-                    <span>Bio page</span>
-                    <strong>{detailContact.pageTitle}</strong>
-                  </div>
-                ) : null}
-                {detailContact.blockLabel ? (
-                  <div>
-                    <span>Block</span>
-                    <strong>{detailContact.blockLabel}</strong>
-                  </div>
-                ) : null}
+                <span className="acn-contact-sheet-meta__item">
+                  {formatCapturedAt(detailContact.capturedAt)}
+                </span>
+                <span className="acn-contact-sheet-meta__count">
+                  {detailSheetRows.length} rows
+                </span>
               </div>
 
-              {(detailContact.formFields?.length || detailContact.notes) && (
-                <div className="acn-contact-detail-fields">
-                  <p className="acn-contact-detail-fields__label">Submission data</p>
-                  {detailContact.formFields && detailContact.formFields.length > 0 ? (
-                    <dl>
-                      {detailContact.formFields.map((field, index) => (
-                        <div key={`${detailContact.id}-d-${field.label}-${index}`}>
-                          <dt>{field.label}</dt>
-                          <dd>{field.value || "—"}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  ) : null}
-                  {detailContact.notes ? (
-                    <div className="acn-contact-detail-fields__notes">
-                      <p className="acn-contact-detail-fields__label">Notes</p>
-                      <p className="text-sm text-slate-600 whitespace-pre-wrap">{detailContact.notes}</p>
-                    </div>
-                  ) : null}
-                </div>
-              )}
+              <div className="acn-contact-sheet-wrap">
+                <table className="acn-contact-sheet-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Field</th>
+                      <th scope="col">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detailSheetRows.map((row, index) => (
+                      <tr key={`${detailContact.id}-sheet-${row.field}-${index}`}>
+                        <th scope="row">{row.field}</th>
+                        <td>{row.value}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
 
               {visibleTags(detailContact).length > 0 && (
                 <div className="acn-contact-tags pt-1">

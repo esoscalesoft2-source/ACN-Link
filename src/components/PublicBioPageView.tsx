@@ -9,10 +9,14 @@ import {
   getLinkSpinPrizes,
   normalizeExternalUrl,
   collectPageSocialLinks,
-  socialLinksFromThankYouConfig
+  socialLinksFromThankYouConfig,
+  filterVisibleBioBlocks,
+  listEndTitlePageBlocks,
+  getEndTitlePageContent
 } from "../lib/bioBlocks";
 import { apiUrl } from "../lib/apiBase";
 import BlockRenderer, { type BlockRendererHandlers } from "./bio/BlockRenderer";
+import FormSuccessPage from "./bio/FormSuccessPage";
 import CoverPhotoView from "./bio/CoverPhotoView";
 import { normalizeCoverSettings } from "../lib/bioCoverPhoto";
 import { formatDisplayHandle, readLocalPageUpdatedAt } from "../storage/bioBuilderStorage";
@@ -169,6 +173,8 @@ export default function PublicBioPageView({
   const [toast, setToast] = useState<string | null>(null);
   const [leadEmails, setLeadEmails] = useState<Record<string, string>>({});
   const [showSpinWheel, setShowSpinWheel] = useState(false);
+  const [activeEndPageId, setActiveEndPageId] = useState<string | null>(null);
+  const publicScreenRef = useRef<HTMLDivElement | null>(null);
   const [activeSpinBlockId, setActiveSpinBlockId] = useState<string | null>(null);
   const [isSpinning, setIsSpinning] = useState(false);
   const [spinResult, setSpinResult] = useState<string | null>(null);
@@ -497,6 +503,12 @@ export default function PublicBioPageView({
     if (fromConfig.length) return fromConfig;
     return collectPageSocialLinks(blocks as BlockRecord[]);
   })();
+  const endTitlePages = listEndTitlePageBlocks(blocks as BlockRecord[]);
+  const visibleBlocks = filterVisibleBioBlocks(blocks);
+  const activeEndPageBlock = activeEndPageId
+    ? endTitlePages.find((page) => page.id === activeEndPageId) || null
+    : null;
+  const activeEndPageContent = activeEndPageBlock ? getEndTitlePageContent(activeEndPageBlock) : null;
 
   const liveBlockHandlers: BlockRendererHandlers = {
     onToast: triggerToast,
@@ -612,7 +624,8 @@ export default function PublicBioPageView({
     },
     onTrack: trackAction,
     leadEmails,
-    onLeadEmailChange: (blockId, email) => setLeadEmails((prev) => ({ ...prev, [blockId]: email }))
+    onLeadEmailChange: (blockId, email) => setLeadEmails((prev) => ({ ...prev, [blockId]: email })),
+    onShowEndPage: (blockId) => setActiveEndPageId(blockId)
   };
 
   return (
@@ -621,6 +634,7 @@ export default function PublicBioPageView({
       style={getBioPageThemeStyle(pageTheme)}
     >
       <div
+        ref={publicScreenRef}
         className={`acn-public-bio-page__card acn-preview-isolate acn-public-bio-page__screen ${getBioPageThemeClass(pageTheme)} w-full max-w-md`}
         style={getBioPageThemeStyle(pageTheme)}
       >
@@ -643,13 +657,13 @@ export default function PublicBioPageView({
           {displayBio && <p className="acn-phone-preview__bio-text">{displayBio}</p>}
 
           <div className="acn-phone-preview__blocks space-y-4">
-          {pageLoadStatus === "loading" && blocks.length === 0 && <BlockSkeleton />}
-          {loadError && blocks.length === 0 && (
+          {pageLoadStatus === "loading" && visibleBlocks.length === 0 && <BlockSkeleton />}
+          {loadError && visibleBlocks.length === 0 && (
             <p className="acn-public-bio-page__loading rounded-2xl border p-4 text-center text-xs">
               {loadError}
             </p>
           )}
-          {blocks.map((block) => (
+          {visibleBlocks.map((block) => (
             <BlockRenderer
               key={block.id}
               block={block as BlockRecord}
@@ -658,7 +672,9 @@ export default function PublicBioPageView({
                 displayTitle,
                 displayHandle,
                 thankYouPage,
-                socialLinks: thankYouSocials
+                socialLinks: thankYouSocials,
+                endTitlePages,
+                activeEndPageId
               }}
               handlers={liveBlockHandlers}
             />
@@ -669,6 +685,38 @@ export default function PublicBioPageView({
             <span>Powered by ACN Link</span>
           </div>
         </div>
+
+        {activeEndPageContent ? (
+          <FormSuccessPage
+            open
+            onClose={() => setActiveEndPageId(null)}
+            title={activeEndPageContent.title}
+            message={activeEndPageContent.message}
+            emoji={activeEndPageContent.emoji}
+            buttonLabel={activeEndPageContent.buttonLabel}
+            connectLabel={activeEndPageContent.connectLabel}
+            connectUrl={activeEndPageContent.connectUrl}
+            onConnect={(url) => {
+              if (url.includes("wa.me") || url.includes("whatsapp")) {
+                openWhatsAppLink(url);
+              } else {
+                openExternalLink(url);
+              }
+            }}
+            anchorRef={publicScreenRef}
+            socialLinks={
+              activeEndPageContent.socialLinks.length
+                ? activeEndPageContent.socialLinks
+                : thankYouSocials
+            }
+            whatsappCommunityUrl={activeEndPageContent.whatsappCommunityUrl}
+            whatsappCommunityLabel={activeEndPageContent.whatsappCommunityLabel}
+            promoTitle={activeEndPageContent.promoTitle}
+            promoMessage={activeEndPageContent.promoMessage}
+            businessName={activeEndPageContent.businessName}
+            businessDetails={activeEndPageContent.businessDetails}
+          />
+        ) : null}
 
         {/* Interactive Simulator Toast Overlay */}
         {toast && (

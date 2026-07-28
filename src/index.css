@@ -9422,6 +9422,108 @@ body.acn-editor-open header.acn-glass-header {
   box-shadow: 0 28px 60px -20px rgba(15, 23, 42, 0.35);
 }
 
+.acn-contact-detail-dialog--sheet {
+  width: min(100%, 42rem);
+  max-height: min(90dvh, 820px);
+}
+
+.acn-contacts-table__row--clickable {
+  cursor: pointer;
+}
+
+.acn-contacts-table__row--clickable:hover td {
+  background: #f8fafc;
+}
+
+.acn-contact-sheet-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.acn-contact-sheet-meta__item {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.acn-contact-sheet-meta__count {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6366f1;
+}
+
+.acn-contact-sheet-wrap {
+  border: 1px solid #cbd5e1;
+  border-radius: 0.75rem;
+  overflow: auto;
+  max-height: min(52dvh, 480px);
+  background: #fff;
+}
+
+.acn-contact-sheet-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 20rem;
+  font-size: 0.8125rem;
+}
+
+.acn-contact-sheet-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #eef2ff;
+  color: #312e81;
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: left;
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid #c7d2fe;
+}
+
+.acn-contact-sheet-table tbody th,
+.acn-contact-sheet-table tbody td {
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid #e2e8f0;
+  vertical-align: top;
+  text-align: left;
+}
+
+.acn-contact-sheet-table tbody tr:nth-child(even) th,
+.acn-contact-sheet-table tbody tr:nth-child(even) td {
+  background: #f8fafc;
+}
+
+.acn-contact-sheet-table tbody tr:last-child th,
+.acn-contact-sheet-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.acn-contact-sheet-table tbody th {
+  width: 38%;
+  max-width: 14rem;
+  font-weight: 700;
+  color: #334155;
+  background: #f1f5f9;
+  border-right: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+.acn-contact-sheet-table tbody td {
+  color: #0f172a;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
 .acn-contact-detail-dialog__head,
 .acn-contact-detail-dialog__foot {
   display: flex;

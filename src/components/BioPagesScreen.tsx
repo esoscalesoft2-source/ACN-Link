@@ -83,11 +83,18 @@ import {
   toDatetimeLocalValue,
   collectPageSocialLinks,
   socialLinksFromThankYouConfig,
+  createDefaultEndTitlePageFields,
+  filterVisibleBioBlocks,
+  listEndTitlePageBlocks,
+  getEndTitlePageContent,
   type BlockRecord
 } from "../lib/bioBlocks";
 import BlockRenderer, { type BlockRendererHandlers } from "./bio/BlockRenderer";
 import FormFieldsEditor from "./bio/FormFieldsEditor";
 import FormSuccessEditorFields from "./bio/FormSuccessEditorFields";
+import FormSuccessPage from "./bio/FormSuccessPage";
+import EndTitlePageEditorFields from "./bio/EndTitlePageEditorFields";
+import NextPageTargetSelect from "./bio/NextPageTargetSelect";
 import BioPageThemePicker from "./bio/BioPageThemePicker";
 import CoverPhotoView from "./bio/CoverPhotoView";
 import CoverPhotoControls from "./bio/CoverPhotoControls";
@@ -283,6 +290,8 @@ const getBlockIcon = (type: string) => {
       return <div className={`${iconClass} acn-editor-block-icon--violet`}><User className="h-4 w-4" /></div>;
     case "Form":
       return <div className={`${iconClass} acn-editor-block-icon--violet`}><ClipboardList className="h-4 w-4" /></div>;
+    case "End Title Page":
+      return <div className={`${iconClass} acn-editor-block-icon--indigo`}><Sparkles className="h-4 w-4" /></div>;
     case "FAQ":
       return <div className={`${iconClass} acn-editor-block-icon--indigo`}><HelpCircle className="h-4 w-4" /></div>;
     case "Testimonials":
@@ -686,6 +695,7 @@ export default function BioPagesScreen({
   // Interactive Simulator States
   const [simulatorToast, setSimulatorToast] = useState<string | null>(null);
   const [simulatorLeadEmail, setSimulatorLeadEmail] = useState("");
+  const [activeEndPageId, setActiveEndPageId] = useState<string | null>(null);
   const [showSpinWheel, setShowSpinWheel] = useState(false);
   const [activeSpinBlockId, setActiveSpinBlockId] = useState<string | null>(null);
   const [isSpinning, setIsSpinning] = useState(false);
@@ -843,6 +853,7 @@ export default function BioPagesScreen({
         "WhatsApp",
         "Smart Form",
         "Form",
+        "End Title Page",
         "FAQ",
         "Testimonials",
         "Tip Jar",
@@ -1197,6 +1208,12 @@ export default function BioPagesScreen({
     if (fromConfig.length) return fromConfig;
     return collectPageSocialLinks(editorBlocks as BlockRecord[]);
   })();
+  const previewEndTitlePages = listEndTitlePageBlocks(editorBlocks as BlockRecord[]);
+  const activeEndPageBlock = activeEndPageId
+    ? previewEndTitlePages.find((page) => page.id === activeEndPageId) || null
+    : null;
+  const activeEndPageContent = activeEndPageBlock ? getEndTitlePageContent(activeEndPageBlock) : null;
+  const phonePreviewScreenRef = useRef<HTMLDivElement | null>(null);
   const activeSpinBlock = activeSpinBlockId
     ? editorBlocks.find((block) => block.id === activeSpinBlockId)
     : editorBlocks.find((block) => block.type === "Link Spin");
@@ -1293,7 +1310,8 @@ export default function BioPagesScreen({
         .catch(() => {
           triggerSimulatorToast("Could not save form lead to Contacts yet.");
         });
-    }
+    },
+    onShowEndPage: (blockId) => setActiveEndPageId(blockId)
   };
 
   const syncPreviewStorage = (theme: BioPagePreviewTheme = editorPageTheme) => {
@@ -1310,6 +1328,7 @@ export default function BioPagesScreen({
 
   React.useEffect(() => {
     skipEditorAutoSyncRef.current = true;
+    setActiveEndPageId(null);
   }, [selectedEditPage?.id]);
 
   React.useEffect(() => {
@@ -1649,6 +1668,11 @@ export default function BioPagesScreen({
         label = "Contact Form";
         value = "leads@example.com";
         extraFields = createDefaultFormFields();
+        break;
+      case "End Title Page":
+        label = "Thank You Page";
+        value = "End Title Page";
+        extraFields = createDefaultEndTitlePageFields();
         break;
       case "FAQ":
         label = "Frequently Asked Questions";
@@ -3562,6 +3586,22 @@ export default function BioPagesScreen({
 
                         <button
                           draggable={true}
+                          onDragStart={(e) => handleDragStartBlockType(e, "End Title Page")}
+                          onClick={() => handleAddBlock("End Title Page")}
+                          className="flex items-center gap-2.5 bg-white hover:bg-slate-50 border border-indigo-200 p-3 rounded-2xl text-left transition-all group relative shadow-sm hover:border-indigo-300 cursor-grab active:cursor-grabbing hover:scale-[1.02]"
+                          title="Thank-you next page — hidden on main bio until Form submit"
+                        >
+                          <span className="h-8 w-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-sm group-hover:scale-105 transition-transform">
+                            🙏
+                          </span>
+                          <div>
+                            <span className="text-xs font-bold block text-slate-800">End Title Page</span>
+                            <span className="text-[9px] text-slate-400 block">Thank-you next page</span>
+                          </div>
+                        </button>
+
+                        <button
+                          draggable={true}
                           onDragStart={(e) => handleDragStartBlockType(e, "FAQ")}
                           onClick={() => handleAddBlock("FAQ")}
                           className="flex items-center gap-2.5 bg-white hover:bg-slate-50 border border-slate-200 p-3 rounded-2xl text-left transition-all group relative shadow-sm hover:border-slate-300 cursor-grab active:cursor-grabbing hover:scale-[1.02]"
@@ -4874,6 +4914,12 @@ export default function BioPagesScreen({
                                             placeholder="Submit"
                                             />
                                           </div>
+                                        <NextPageTargetSelect
+                                          block={block as BlockRecord}
+                                          allBlocks={editorBlocks as BlockRecord[]}
+                                          onUpdate={(field, value) => handleUpdateBlockField(block.id, field, value)}
+                                          label="After Submit → End Title Page"
+                                        />
                                         <FormSuccessEditorFields
                                           block={block as BlockRecord}
                                           onUpdate={(field, value) => handleUpdateBlockField(block.id, field, value)}
@@ -4887,11 +4933,43 @@ export default function BioPagesScreen({
 
                                     {block.type === "Smart Form" && (
                                       <div className="space-y-3 pt-1 border-t border-slate-100">
+                                        <NextPageTargetSelect
+                                          block={block as BlockRecord}
+                                          allBlocks={editorBlocks as BlockRecord[]}
+                                          onUpdate={(field, value) => handleUpdateBlockField(block.id, field, value)}
+                                          label="After Submit → End Title Page"
+                                        />
                                         <FormSuccessEditorFields
                                           block={block as BlockRecord}
                                           onUpdate={(field, value) => handleUpdateBlockField(block.id, field, value)}
                                         />
                                       </div>
+                                    )}
+
+                                    {block.type === "End Title Page" && (
+                                      <div className="space-y-3 pt-1 border-t border-slate-100">
+                                        <EndTitlePageEditorFields
+                                          block={block as BlockRecord}
+                                          onUpdate={(field, value) => handleUpdateBlockField(block.id, field, value)}
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => setActiveEndPageId(block.id)}
+                                          className="w-full rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-2.5"
+                                        >
+                                          Preview thank-you page in phone
+                                        </button>
+                                      </div>
+                                    )}
+
+                                    {(block.type === "Button" || block.type === "Deep Link") && (
+                                      <NextPageTargetSelect
+                                        block={block as BlockRecord}
+                                        allBlocks={editorBlocks as BlockRecord[]}
+                                        onUpdate={(field, value) => handleUpdateBlockField(block.id, field, value)}
+                                        label="On click → End Title Page (optional)"
+                                        requireExplicit
+                                      />
                                     )}
 
                                     {/* FAQ dynamic items */}
@@ -5737,6 +5815,7 @@ export default function BioPagesScreen({
                                 </div>
 
                 <div
+                  ref={phonePreviewScreenRef}
                   onDragOver={handleDragOverTarget}
                   onDragEnter={handleDragEnterPreview}
                   onDragLeave={handleDragLeavePreview}
@@ -5772,7 +5851,7 @@ export default function BioPagesScreen({
                           )}
 
                           <div className="acn-phone-preview__blocks">
-                    {editorBlocks.map((block) => {
+                    {filterVisibleBioBlocks(editorBlocks).map((block) => {
                       return (
                         <div
                           key={block.id}
@@ -5815,7 +5894,9 @@ export default function BioPagesScreen({
                                 displayTitle: editorTitle,
                                 displayHandle: previewHandle,
                                 thankYouPage: editorThankYou,
-                                socialLinks: previewThankYouSocials
+                                socialLinks: previewThankYouSocials,
+                                endTitlePages: previewEndTitlePages,
+                                activeEndPageId
                               }}
                               handlers={previewBlockHandlers}
                             />
@@ -5823,12 +5904,46 @@ export default function BioPagesScreen({
                         </div>
                       );
                     })}
+                    {previewEndTitlePages.length > 0 ? (
+                      <p className="text-center text-[9px] font-semibold text-indigo-500/90 px-2 py-1">
+                        {previewEndTitlePages.length} End Title Page
+                        {previewEndTitlePages.length === 1 ? "" : "s"} ready — opens after Submit
+                      </p>
+                    ) : null}
                   </div>
 
                   <div className="acn-bio-page-footer acn-phone-preview__footer">
                     <span>Powered by ACN Link</span>
                   </div>
                   </div>
+
+                  {activeEndPageContent ? (
+                    <FormSuccessPage
+                      open
+                      onClose={() => setActiveEndPageId(null)}
+                      title={activeEndPageContent.title}
+                      message={activeEndPageContent.message}
+                      emoji={activeEndPageContent.emoji}
+                      buttonLabel={activeEndPageContent.buttonLabel}
+                      connectLabel={activeEndPageContent.connectLabel}
+                      connectUrl={activeEndPageContent.connectUrl}
+                      onConnect={(url) => {
+                        triggerSimulatorToast(`🔗 Connect: ${url}`);
+                      }}
+                      anchorRef={phonePreviewScreenRef}
+                      socialLinks={
+                        activeEndPageContent.socialLinks.length
+                          ? activeEndPageContent.socialLinks
+                          : previewThankYouSocials
+                      }
+                      whatsappCommunityUrl={activeEndPageContent.whatsappCommunityUrl}
+                      whatsappCommunityLabel={activeEndPageContent.whatsappCommunityLabel}
+                      promoTitle={activeEndPageContent.promoTitle}
+                      promoMessage={activeEndPageContent.promoMessage}
+                      businessName={activeEndPageContent.businessName}
+                      businessDetails={activeEndPageContent.businessDetails}
+                    />
+                  ) : null}
 
                   {/* Interactive Simulator Toast Overlay */}
                   {simulatorToast && (

@@ -555,6 +555,122 @@ export function socialLinksFromThankYouConfig(
   return getSocialLinksFromBlock(asBlock).filter((link) => link.id !== "whatsapp");
 }
 
+export const END_TITLE_PAGE_TYPE = "End Title Page";
+
+export function isEndTitlePageBlock(block: { type?: string } | null | undefined): boolean {
+  return Boolean(block && (block.type === END_TITLE_PAGE_TYPE || block.type === "EndTitlePage"));
+}
+
+export function createDefaultEndTitlePageFields(): Record<string, string> {
+  return {
+    successEmoji: "\u{1F64F}",
+    successTitle: "Thanks for visiting my shop!",
+    successMessage: "Your details were received. We will connect with you soon.",
+    successButtonLabel: "Done",
+    whatsappCommunityLabel: "Join WhatsApp Community",
+    whatsappCommunityUrl: "",
+    promoTitle: "",
+    promoMessage: "",
+    businessName: "",
+    businessDetails: "",
+    instagramUrl: "",
+    facebookUrl: "",
+    youtubeUrl: "",
+    tiktokUrl: "",
+    linkedinUrl: "",
+    xUrl: "",
+    telegramUrl: "",
+    successConnectLabel: "",
+    successConnectUrl: ""
+  };
+}
+
+export interface EndTitlePageContent {
+  emoji: string;
+  title: string;
+  message: string;
+  buttonLabel: string;
+  connectLabel: string;
+  connectUrl: string;
+  whatsappCommunityUrl: string;
+  whatsappCommunityLabel: string;
+  promoTitle: string;
+  promoMessage: string;
+  businessName: string;
+  businessDetails: string;
+  socialLinks: SocialLinkItem[];
+}
+
+export function getEndTitlePageContent(block: BlockRecord): EndTitlePageContent {
+  const emoji =
+    (typeof block.successEmoji === "string" && block.successEmoji.trim()) ||
+    (typeof block.emoji === "string" && block.emoji.trim()) ||
+    "\u{1F64F}";
+  const title =
+    (typeof block.successTitle === "string" && block.successTitle.trim()) ||
+    (typeof block.title === "string" && block.title.trim()) ||
+    block.label?.trim() ||
+    "Thanks for visiting my shop!";
+  const message =
+    (typeof block.successMessage === "string" && block.successMessage.trim()) ||
+    (typeof block.message === "string" && block.message.trim()) ||
+    "Your details were received. We will connect with you soon.";
+  const buttonLabel =
+    (typeof block.successButtonLabel === "string" && block.successButtonLabel.trim()) ||
+    "Done";
+  const fromBlockSocials = socialLinksFromThankYouConfig({
+    instagramUrl: typeof block.instagramUrl === "string" ? block.instagramUrl : "",
+    facebookUrl: typeof block.facebookUrl === "string" ? block.facebookUrl : "",
+    youtubeUrl: typeof block.youtubeUrl === "string" ? block.youtubeUrl : "",
+    tiktokUrl: typeof block.tiktokUrl === "string" ? block.tiktokUrl : "",
+    linkedinUrl: typeof block.linkedinUrl === "string" ? block.linkedinUrl : "",
+    xUrl: typeof block.xUrl === "string" ? block.xUrl : "",
+    telegramUrl: typeof block.telegramUrl === "string" ? block.telegramUrl : ""
+  });
+
+  return {
+    emoji,
+    title,
+    message,
+    buttonLabel,
+    connectLabel: getFormSuccessConnectLabel(block),
+    connectUrl: getFormSuccessConnectUrl(block),
+    whatsappCommunityUrl:
+      (typeof block.whatsappCommunityUrl === "string" && block.whatsappCommunityUrl.trim()) || "",
+    whatsappCommunityLabel:
+      (typeof block.whatsappCommunityLabel === "string" && block.whatsappCommunityLabel.trim()) ||
+      "Join WhatsApp Community",
+    promoTitle: (typeof block.promoTitle === "string" && block.promoTitle.trim()) || "",
+    promoMessage: (typeof block.promoMessage === "string" && block.promoMessage.trim()) || "",
+    businessName: (typeof block.businessName === "string" && block.businessName.trim()) || "",
+    businessDetails: (typeof block.businessDetails === "string" && block.businessDetails.trim()) || "",
+    socialLinks: fromBlockSocials
+  };
+}
+
+export function listEndTitlePageBlocks(blocks: BlockRecord[]): BlockRecord[] {
+  return blocks.filter((block) => isEndTitlePageBlock(block));
+}
+
+export function resolveNextEndTitlePage(
+  sourceBlock: BlockRecord,
+  blocks: BlockRecord[]
+): BlockRecord | null {
+  const pages = listEndTitlePageBlocks(blocks);
+  if (!pages.length) return null;
+  const nextId =
+    typeof sourceBlock.nextPageBlockId === "string" ? sourceBlock.nextPageBlockId.trim() : "";
+  if (nextId) {
+    const matched = pages.find((page) => page.id === nextId);
+    if (matched) return matched;
+  }
+  return pages[0] || null;
+}
+
+export function filterVisibleBioBlocks<T extends { type?: string; id?: string }>(blocks: T[]): T[] {
+  return blocks.filter((block) => !isEndTitlePageBlock(block));
+}
+
 export interface FaqItemRecord {
   id: string;
   question: string;

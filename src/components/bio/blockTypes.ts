@@ -9,6 +9,10 @@ export interface BlockRendererContext {
   /** Page-level thank you config + socials for post-submit page */
   thankYouPage?: import("../../types").BioThankYouPageConfig;
   socialLinks?: import("../../lib/bioBlocks").SocialLinkItem[];
+  /** All End Title Page blocks on this bio (hidden from main scroll). */
+  endTitlePages?: import("../../lib/bioBlocks").BlockRecord[];
+  /** Currently visible end/thank-you page id (parent-controlled). */
+  activeEndPageId?: string | null;
 }
 
 export interface BlockRendererHandlers {
@@ -23,6 +27,8 @@ export interface BlockRendererHandlers {
   onTrack?: (action: string, label: string, meta?: Record<string, unknown>) => void;
   leadEmails?: Record<string, string>;
   onLeadEmailChange?: (blockId: string, email: string) => void;
+  /** Open End Title Page as the next screen after submit/click. */
+  onShowEndPage?: (blockId: string | null) => void;
 }
 
 export interface BlockRendererProps {

@@ -16,6 +16,9 @@ import {
   getFormSuccessEmoji,
   getFormSuccessMessage,
   getFormSuccessTitle,
+  getEndTitlePageContent,
+  resolveNextEndTitlePage,
+  isEndTitlePageBlock,
   getGalleryItems,
   getPricingPlanFeatures,
   getPricingPlans,
@@ -70,6 +73,37 @@ function openWhatsApp(handlers: BlockRendererHandlers, mode: BlockRenderMode, va
   track(handlers, "click", label || "WhatsApp");
 }
 
+function resolveEndPageForSource(
+  sourceBlock: BlockRecord,
+  context: BlockRendererContext
+): BlockRecord | null {
+  const pages = context.endTitlePages || [];
+  if (!pages.length) return null;
+  return resolveNextEndTitlePage(sourceBlock, pages);
+}
+
+function thankYouPropsFromEndPage(
+  endPage: BlockRecord,
+  fallbackSocials?: BlockRendererContext["socialLinks"]
+) {
+  const content = getEndTitlePageContent(endPage);
+  return {
+    title: content.title,
+    message: content.message,
+    emoji: content.emoji,
+    buttonLabel: content.buttonLabel,
+    connectLabel: content.connectLabel,
+    connectUrl: content.connectUrl,
+    socialLinks: content.socialLinks.length ? content.socialLinks : fallbackSocials || [],
+    whatsappCommunityUrl: content.whatsappCommunityUrl,
+    whatsappCommunityLabel: content.whatsappCommunityLabel,
+    promoTitle: content.promoTitle,
+    promoMessage: content.promoMessage,
+    businessName: content.businessName,
+    businessDetails: content.businessDetails
+  };
+}
+
 export function HeaderBlockView({ block, context }: BlockViewProps) {
   const compact = context.compact;
   return (
@@ -103,6 +137,16 @@ export function LinkButtonBlockView({ block, mode, context, handlers }: BlockVie
       type="button"
       onClick={() => {
         track(handlers, "click", `Button: ${block.label}`);
+        const nextId =
+          typeof block.nextPageBlockId === "string" ? block.nextPageBlockId.trim() : "";
+        if (nextId) {
+          const pages = context.endTitlePages || [];
+          const endPage = pages.find((page) => page.id === nextId) || resolveEndPageForSource(block, context);
+          if (endPage) {
+            handlers.onShowEndPage?.(endPage.id);
+            return;
+          }
+        }
         openLink(handlers, mode, block.value || "", block.label);
       }}
       style={getLinkButtonStyle(block as Parameters<typeof getLinkButtonStyle>[0])}
@@ -403,29 +447,38 @@ export function SmartFormBlockView({ block, mode, context, handlers }: BlockView
   const compact = context.compact;
   const leadEmail = handlers.leadEmails?.[block.id] || "";
   const destinationEmail = destinationEmailFromBlock(block);
+  const endPage = resolveEndPageForSource(block, context);
+  const endThanks = endPage ? thankYouPropsFromEndPage(endPage, context.socialLinks) : null;
   const pageThanks = context.thankYouPage;
   const successTitle =
+    endThanks?.title ||
     pageThanks?.title?.trim() ||
     (typeof block.successTitle === "string" && block.successTitle.trim()) ||
     getFormSuccessTitle(block);
   const successMessage =
+    endThanks?.message ||
     pageThanks?.message?.trim() ||
     (typeof block.successMessage === "string" && block.successMessage.trim()) ||
     getFormSuccessMessage(block);
   const successEmoji =
+    endThanks?.emoji ||
     pageThanks?.emoji?.trim() ||
     (typeof block.successEmoji === "string" && block.successEmoji.trim()) ||
     getFormSuccessEmoji(block);
   const successButtonLabel =
+    endThanks?.buttonLabel ||
     pageThanks?.buttonLabel?.trim() ||
     (typeof block.successButtonLabel === "string" && block.successButtonLabel.trim()) ||
     getFormSuccessButtonLabel(block);
-  const successConnectLabel = getFormSuccessConnectLabel(block);
-  const successConnectUrl = getFormSuccessConnectUrl(block);
+  const successConnectLabel = endThanks?.connectLabel || getFormSuccessConnectLabel(block);
+  const successConnectUrl = endThanks?.connectUrl || getFormSuccessConnectUrl(block);
   const [showSuccess, setShowSuccess] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
 
-  const dismissSuccess = () => setShowSuccess(false);
+  const dismissSuccess = () => {
+    setShowSuccess(false);
+    handlers.onShowEndPage?.(null);
+  };
 
   const handleConnect = (url: string) => {
     if (mode === "preview") {
@@ -448,8 +501,14 @@ export function SmartFormBlockView({ block, mode, context, handlers }: BlockView
     }
     handlers.onLeadSubmit?.(block.id, leadEmail, destinationEmail);
     handlers.onLeadEmailChange?.(block.id, "");
-    setShowSuccess(true);
+    if (endPage && handlers.onShowEndPage) {
+      handlers.onShowEndPage(endPage.id);
+    } else {
+      setShowSuccess(true);
+    }
   };
+
+  const useParentEndPage = Boolean(endPage && handlers.onShowEndPage && context.activeEndPageId === endPage.id);
 
   return (
     <>
@@ -488,25 +547,31 @@ export function SmartFormBlockView({ block, mode, context, handlers }: BlockView
           </button>
         </div>
       </div>
-      <FormSuccessPage
-        open={showSuccess}
-        onClose={dismissSuccess}
-        title={successTitle}
-        message={successMessage}
-        emoji={successEmoji}
-        buttonLabel={successButtonLabel}
-        connectLabel={successConnectLabel}
-        connectUrl={successConnectUrl}
-        onConnect={handleConnect}
-        anchorRef={anchorRef}
-        socialLinks={context.socialLinks}
-        whatsappCommunityUrl={pageThanks?.whatsappCommunityUrl}
-        whatsappCommunityLabel={pageThanks?.whatsappCommunityLabel}
-        promoTitle={pageThanks?.promoTitle}
-        promoMessage={pageThanks?.promoMessage}
-        businessName={pageThanks?.businessName}
-        businessDetails={pageThanks?.businessDetails}
-      />
+      {!useParentEndPage ? (
+        <FormSuccessPage
+          open={showSuccess}
+          onClose={dismissSuccess}
+          title={successTitle}
+          message={successMessage}
+          emoji={successEmoji}
+          buttonLabel={successButtonLabel}
+          connectLabel={successConnectLabel}
+          connectUrl={successConnectUrl}
+          onConnect={handleConnect}
+          anchorRef={anchorRef}
+          socialLinks={endThanks?.socialLinks || context.socialLinks}
+          whatsappCommunityUrl={
+            endThanks?.whatsappCommunityUrl || pageThanks?.whatsappCommunityUrl
+          }
+          whatsappCommunityLabel={
+            endThanks?.whatsappCommunityLabel || pageThanks?.whatsappCommunityLabel
+          }
+          promoTitle={endThanks?.promoTitle || pageThanks?.promoTitle}
+          promoMessage={endThanks?.promoMessage || pageThanks?.promoMessage}
+          businessName={endThanks?.businessName || pageThanks?.businessName}
+          businessDetails={endThanks?.businessDetails || pageThanks?.businessDetails}
+        />
+      ) : null}
     </>
   );
 }
@@ -515,25 +580,31 @@ export function FormBlockView({ block, mode, context, handlers }: BlockViewProps
   const compact = context.compact;
   const destinationEmail = destinationEmailFromBlock(block);
   const submitLabel = getFormSubmitLabel(block);
+  const endPage = resolveEndPageForSource(block, context);
+  const endThanks = endPage ? thankYouPropsFromEndPage(endPage, context.socialLinks) : null;
   const pageThanks = context.thankYouPage;
   const successTitle =
+    endThanks?.title ||
     pageThanks?.title?.trim() ||
     (typeof block.successTitle === "string" && block.successTitle.trim()) ||
     getFormSuccessTitle(block);
   const successMessage =
+    endThanks?.message ||
     pageThanks?.message?.trim() ||
     (typeof block.successMessage === "string" && block.successMessage.trim()) ||
     getFormSuccessMessage(block);
   const successEmoji =
+    endThanks?.emoji ||
     pageThanks?.emoji?.trim() ||
     (typeof block.successEmoji === "string" && block.successEmoji.trim()) ||
     getFormSuccessEmoji(block);
   const successButtonLabel =
+    endThanks?.buttonLabel ||
     pageThanks?.buttonLabel?.trim() ||
     (typeof block.successButtonLabel === "string" && block.successButtonLabel.trim()) ||
     getFormSuccessButtonLabel(block);
-  const successConnectLabel = getFormSuccessConnectLabel(block);
-  const successConnectUrl = getFormSuccessConnectUrl(block);
+  const successConnectLabel = endThanks?.connectLabel || getFormSuccessConnectLabel(block);
+  const successConnectUrl = endThanks?.connectUrl || getFormSuccessConnectUrl(block);
   const description = typeof block.description === "string" ? block.description.trim() : "";
   const fields = useMemo(() => getFormFields(block), [block]);
 
@@ -552,7 +623,10 @@ export function FormBlockView({ block, mode, context, handlers }: BlockViewProps
     setShowSuccess(false);
   }, [emptyValues]);
 
-  const dismissSuccess = () => setShowSuccess(false);
+  const dismissSuccess = () => {
+    setShowSuccess(false);
+    handlers.onShowEndPage?.(null);
+  };
 
   const handleConnect = (url: string) => {
     if (mode === "preview") {
@@ -627,8 +701,14 @@ export function FormBlockView({ block, mode, context, handlers }: BlockViewProps
     }
 
     setValues(emptyValues);
-    setShowSuccess(true);
+    if (endPage && handlers.onShowEndPage) {
+      handlers.onShowEndPage(endPage.id);
+    } else {
+      setShowSuccess(true);
+    }
   };
+
+  const useParentEndPage = Boolean(endPage && handlers.onShowEndPage && context.activeEndPageId === endPage.id);
 
   return (
     <>
@@ -744,26 +824,53 @@ export function FormBlockView({ block, mode, context, handlers }: BlockViewProps
           </div>
         )}
       </div>
-      <FormSuccessPage
-        open={showSuccess}
-        onClose={dismissSuccess}
-        title={successTitle}
-        message={successMessage}
-        emoji={successEmoji}
-        buttonLabel={successButtonLabel}
-        connectLabel={successConnectLabel}
-        connectUrl={successConnectUrl}
-        onConnect={handleConnect}
-        anchorRef={anchorRef}
-        socialLinks={context.socialLinks}
-        whatsappCommunityUrl={pageThanks?.whatsappCommunityUrl}
-        whatsappCommunityLabel={pageThanks?.whatsappCommunityLabel}
-        promoTitle={pageThanks?.promoTitle}
-        promoMessage={pageThanks?.promoMessage}
-        businessName={pageThanks?.businessName}
-        businessDetails={pageThanks?.businessDetails}
-      />
+      {!useParentEndPage ? (
+        <FormSuccessPage
+          open={showSuccess}
+          onClose={dismissSuccess}
+          title={successTitle}
+          message={successMessage}
+          emoji={successEmoji}
+          buttonLabel={successButtonLabel}
+          connectLabel={successConnectLabel}
+          connectUrl={successConnectUrl}
+          onConnect={handleConnect}
+          anchorRef={anchorRef}
+          socialLinks={endThanks?.socialLinks || context.socialLinks}
+          whatsappCommunityUrl={
+            endThanks?.whatsappCommunityUrl || pageThanks?.whatsappCommunityUrl
+          }
+          whatsappCommunityLabel={
+            endThanks?.whatsappCommunityLabel || pageThanks?.whatsappCommunityLabel
+          }
+          promoTitle={endThanks?.promoTitle || pageThanks?.promoTitle}
+          promoMessage={endThanks?.promoMessage || pageThanks?.promoMessage}
+          businessName={endThanks?.businessName || pageThanks?.businessName}
+          businessDetails={endThanks?.businessDetails || pageThanks?.businessDetails}
+        />
+      ) : null}
     </>
+  );
+}
+
+export function EndTitlePageBlockView({ block, mode }: BlockViewProps) {
+  // Hidden from the live bio scroll — designed only as a next-page thank-you screen.
+  if (mode === "live") return null;
+  const content = getEndTitlePageContent(block);
+  return (
+    <div className="rounded-2xl border border-dashed border-indigo-300 bg-indigo-50/90 p-3.5 text-center space-y-1.5">
+      <p className="text-[9px] font-extrabold text-indigo-600 uppercase tracking-widest">
+        End Title Page
+      </p>
+      <p className="text-lg leading-none" aria-hidden>
+        {content.emoji}
+      </p>
+      <p className="text-xs font-bold text-slate-900">{content.title}</p>
+      <p className="text-[10px] text-slate-500 leading-relaxed">{content.message}</p>
+      <p className="text-[9px] text-indigo-500 font-semibold pt-1">
+        Not shown on main page — opens after Submit / button click
+      </p>
+    </div>
   );
 }
 
@@ -1624,6 +1731,9 @@ export function renderBlockView(props: BlockViewProps): React.ReactNode {
       return <SmartFormBlockView {...props} />;
     case "Form":
       return <FormBlockView {...props} />;
+    case "End Title Page":
+    case "EndTitlePage":
+      return <EndTitlePageBlockView {...props} />;
     case "FAQ":
       return <FaqBlockView {...props} />;
     case "Testimonials":

@@ -57,6 +57,7 @@ import {
 import { buildShortLinkRedirectHtml } from "./server/shortLinks/redirectPage";
 import { buildLeadContact, upsertOwnerContact, mergeContactLists } from "./server/leads";
 import { resolvePublicQrCode, recordQrScan, listQrCodes, upsertQrCode, deleteQrCode } from "./server/qrCodes/repository";
+import { upsertQrCodeToSupabase, deleteQrCodeFromSupabase, fetchQrCodeFromSupabaseByCode } from "./server/qrCodes/supabaseSync";
 import { normalizeQrPublicCode } from "./server/qrCodes/publicUrl";
 import { toAbsoluteHttpUrl as toQrAbsoluteUrl } from "./server/shortLinks/validation";
 
@@ -214,7 +215,7 @@ app.get("/api/qr-codes", requireAuth, (_req, res) => {
 });
 
 /** Upsert Smart QR so /q/:code redirects work immediately after create/edit. */
-app.post("/api/qr-codes", requireAuth, (req, res) => {
+app.post("/api/qr-codes", requireAuth, async (req, res) => {
   try {
     const userId = (req as any).authUser.id as string;
     const body = (req.body || {}) as Record<string, unknown>;
@@ -248,6 +249,11 @@ app.post("/api/qr-codes", requireAuth, (req, res) => {
       designPattern: body.designPattern ? String(body.designPattern) : undefined,
       ownerUserId: userId
     });
+    // Direct single-row Supabase sync — fast and independent of the (slow) root-blob write,
+    // so /q/:code redirects work on other server processes right away.
+    await upsertQrCodeToSupabase(saved).catch((error) => {
+      console.error("QR direct Supabase sync failed:", error);
+    });
     res.json({ item: saved });
   } catch (error) {
     console.error("Upsert QR code failed:", error);
@@ -255,7 +261,7 @@ app.post("/api/qr-codes", requireAuth, (req, res) => {
   }
 });
 
-app.delete("/api/qr-codes/:id", requireAuth, (req, res) => {
+app.delete("/api/qr-codes/:id", requireAuth, async (req, res) => {
   try {
     const id = String(req.params.id || "").trim();
     if (!id) {
@@ -263,6 +269,9 @@ app.delete("/api/qr-codes/:id", requireAuth, (req, res) => {
       return;
     }
     deleteQrCode(id);
+    await deleteQrCodeFromSupabase(id).catch((error) => {
+      console.error("QR direct Supabase delete failed:", error);
+    });
     res.json({ success: true });
   } catch (error) {
     console.error("Delete QR code failed:", error);
@@ -285,9 +294,8 @@ app.get("/api/public/qr/:code", async (req, res) => {
   try {
     let record = resolvePublicQrCode(code);
     if (!record) {
-      const { reloadQrCodesFromSupabase } = await import("./server/db/rootStore");
-      await reloadQrCodesFromSupabase();
-      record = resolvePublicQrCode(code);
+      record = await fetchQrCodeFromSupabaseByCode(code);
+      if (record) upsertQrCode(record);
     }
     if (!record) {
       res.status(404).json({ error: "QR code not found" });
@@ -332,9 +340,8 @@ app.get("/q/:code", async (req, res) => {
   try {
     let record = resolvePublicQrCode(code);
     if (!record) {
-      const { reloadQrCodesFromSupabase } = await import("./server/db/rootStore");
-      await reloadQrCodesFromSupabase();
-      record = resolvePublicQrCode(code);
+      record = await fetchQrCodeFromSupabaseByCode(code);
+      if (record) upsertQrCode(record);
     }
     if (!record) {
       res.status(404).type("html").send("<!doctype html><title>Not found</title><h1>QR code not found</h1>");

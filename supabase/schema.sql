@@ -227,6 +227,14 @@ create table if not exists public.qr_codes (
   updated_at timestamptz not null default now()
 );
 
+-- Fixed public redirect payload — added after initial release, keep nullable.
+alter table public.qr_codes add column if not exists scan_url text;
+alter table public.qr_codes add column if not exists public_code text;
+alter table public.qr_codes add column if not exists design_logo_url text;
+create unique index if not exists qr_codes_public_code_idx
+  on public.qr_codes (public_code)
+  where public_code is not null;
+
 create table if not exists public.catalog_templates (
   id text primary key,
   name text not null default '',

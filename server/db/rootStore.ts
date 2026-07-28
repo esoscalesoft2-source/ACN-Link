@@ -152,25 +152,8 @@ export function setRootStore(data: Record<string, unknown>): void {
   }
 }
 
-export async function reloadQrCodesFromSupabase(): Promise<boolean> {
-  if (!isSupabaseConfigured()) return false;
-  try {
-    const remote = await loadFromSupabase();
-    if (!remote) return false;
-    const remoteQr = remote.qr_codes;
-    if (!Array.isArray(remoteQr)) return false;
-    const localQr = Array.isArray(memory.qr_codes) ? memory.qr_codes : [];
-    // Import merge lazily to avoid circular deps at module load.
-    const { mergeQrCodeLists } = await import("../qrCodes/repository");
-    memory = {
-      ...memory,
-      qr_codes: mergeQrCodeLists(localQr, remoteQr)
-    };
-    return true;
-  } catch (error) {
-    console.error("reloadQrCodesFromSupabase failed:", error);
-    return false;
-  }
+export async function flushRootStore(): Promise<void> {
+  await writeChain;
 }
 
 export function getDataStoreStatus(): {

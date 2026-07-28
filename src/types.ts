@@ -181,9 +181,15 @@ export interface QRCodeItem {
   conversionRate?: string;
   qrUrl: string;
   targetUrl: string;
+  /** Fixed public redirect URL encoded in the QR matrix — never changes after create. */
+  scanUrl?: string;
+  /** Short code for /q/:code — never changes after create. */
+  publicCode?: string;
   customDesign: boolean;
   designColor?: string;
-  designLogo?: "none" | "user" | "link" | "whatsapp" | "star";
+  designLogo?: "none" | "user" | "link" | "whatsapp" | "star" | "custom";
+  /** Custom brand mark image (data URL or hosted URL). */
+  designLogoUrl?: string;
   designPattern?: "rounded" | "square" | "compact";
 }
 

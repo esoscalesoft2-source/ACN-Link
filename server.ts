@@ -56,6 +56,9 @@ import {
 } from "./server/shortLinks/publicUrl";
 import { buildShortLinkRedirectHtml } from "./server/shortLinks/redirectPage";
 import { buildLeadContact, upsertOwnerContact, mergeContactLists } from "./server/leads";
+import { resolvePublicQrCode, recordQrScan, listQrCodes, upsertQrCode, deleteQrCode } from "./server/qrCodes/repository";
+import { normalizeQrPublicCode } from "./server/qrCodes/publicUrl";
+import { toAbsoluteHttpUrl as toQrAbsoluteUrl } from "./server/shortLinks/validation";
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -199,6 +202,170 @@ app.use("/api/domains", createDomainsRouter());
 app.use("/api/platform-subdomains", createPlatformSubdomainsRouter());
 app.use("/api/link-rotators", createLinkRotatorsRouter());
 app.use("/api/short-links", createShortLinksRouter());
+
+/** Authenticated QR list — includes exact server-side scan counts. */
+app.get("/api/qr-codes", requireAuth, (_req, res) => {
+  try {
+    res.json({ items: listQrCodes() });
+  } catch (error) {
+    console.error("List QR codes failed:", error);
+    res.status(500).json({ error: "Failed to load QR codes." });
+  }
+});
+
+/** Upsert Smart QR so /q/:code redirects work immediately after create/edit. */
+app.post("/api/qr-codes", requireAuth, (req, res) => {
+  try {
+    const userId = (req as any).authUser.id as string;
+    const body = (req.body || {}) as Record<string, unknown>;
+    const id = String(body.id || "").trim();
+    if (!id) {
+      res.status(400).json({ error: "QR id is required." });
+      return;
+    }
+    const targetUrl = toQrAbsoluteUrl(String(body.targetUrl || ""));
+    if (!targetUrl) {
+      res.status(400).json({ error: "Valid destination URL is required." });
+      return;
+    }
+    const publicCode = normalizeQrPublicCode(String(body.publicCode || id));
+    const saved = upsertQrCode({
+      id,
+      name: String(body.name || "Smart QR").slice(0, 120),
+      status: body.status === "Paused" ? "Paused" : "Active",
+      scans: String(body.scans ?? "0"),
+      uniqueScanners: String(body.uniqueScanners ?? "0"),
+      topLocation: body.topLocation ? String(body.topLocation) : undefined,
+      conversionRate: body.conversionRate ? String(body.conversionRate) : undefined,
+      qrUrl: String(body.qrUrl || ""),
+      targetUrl,
+      scanUrl: body.scanUrl ? String(body.scanUrl) : undefined,
+      publicCode,
+      customDesign: Boolean(body.customDesign),
+      designColor: body.designColor ? String(body.designColor) : undefined,
+      designLogo: body.designLogo ? String(body.designLogo) : undefined,
+      designLogoUrl: body.designLogoUrl ? String(body.designLogoUrl) : undefined,
+      designPattern: body.designPattern ? String(body.designPattern) : undefined,
+      ownerUserId: userId
+    });
+    res.json({ item: saved });
+  } catch (error) {
+    console.error("Upsert QR code failed:", error);
+    res.status(500).json({ error: "Failed to save QR code." });
+  }
+});
+
+app.delete("/api/qr-codes/:id", requireAuth, (req, res) => {
+  try {
+    const id = String(req.params.id || "").trim();
+    if (!id) {
+      res.status(400).json({ error: "QR id is required." });
+      return;
+    }
+    deleteQrCode(id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Delete QR code failed:", error);
+    res.status(500).json({ error: "Failed to delete QR code." });
+  }
+});
+
+/** Public lookup for SPA fallback redirect (no auth). */
+app.get("/api/public/qr/:code", (req, res) => {
+  const rateKey = `qr-public:${clientIp(req)}`;
+  if (!consumeRateLimit(rateKey, 180, 60_000)) {
+    res.status(429).json({ error: "Too many requests" });
+    return;
+  }
+  const code = normalizeQrPublicCode(req.params.code);
+  if (!code) {
+    res.status(404).json({ error: "QR code not found" });
+    return;
+  }
+  try {
+    const record = resolvePublicQrCode(code);
+    if (!record) {
+      res.status(404).json({ error: "QR code not found" });
+      return;
+    }
+    if (record.status !== "Active") {
+      res.status(404).json({ error: "This QR code is paused", status: "Paused" });
+      return;
+    }
+    const target = toQrAbsoluteUrl(record.targetUrl);
+    if (!target) {
+      res.status(503).json({ error: "Destination unavailable" });
+      return;
+    }
+    const fetchPurpose = String(req.get("Sec-Fetch-Purpose") || req.get("Purpose") || "").toLowerCase();
+    const isPrefetch = fetchPurpose === "prefetch" || fetchPurpose === "prerender";
+    if (!isPrefetch) {
+      recordQrScan(code, clientIp(req));
+    }
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.json({ targetUrl: target, publicCode: record.publicCode || code });
+  } catch (error) {
+    console.error("Public QR lookup failed:", error);
+    res.status(503).json({ error: "Temporarily unavailable" });
+  }
+});
+
+/** Public Smart QR redirect: /q/:code → current destination (matrix stays fixed). */
+app.get("/q/:code", (req, res) => {
+  const rateKey = `qr-scan:${clientIp(req)}`;
+  if (!consumeRateLimit(rateKey, 180, 60_000)) {
+    res.status(429).type("html").send("<!doctype html><title>Too many requests</title><h1>Too many requests</h1>");
+    return;
+  }
+
+  const code = normalizeQrPublicCode(req.params.code);
+  if (!code) {
+    res.status(404).type("html").send("<!doctype html><title>Not found</title><h1>QR code not found</h1>");
+    return;
+  }
+
+  try {
+    const record = resolvePublicQrCode(code);
+    if (!record) {
+      res.status(404).type("html").send("<!doctype html><title>Not found</title><h1>QR code not found</h1>");
+      return;
+    }
+    if (record.status !== "Active") {
+      res
+        .status(404)
+        .type("html")
+        .send("<!doctype html><title>Unavailable</title><h1>This QR code is paused</h1>");
+      return;
+    }
+
+    const target = toQrAbsoluteUrl(record.targetUrl);
+    if (!target) {
+      res
+        .status(503)
+        .type("html")
+        .send("<!doctype html><title>Unavailable</title><h1>Destination unavailable</h1>");
+      return;
+    }
+
+    const wantsHeadersOnly = req.method === "HEAD";
+    const fetchPurpose = String(req.get("Sec-Fetch-Purpose") || req.get("Purpose") || "").toLowerCase();
+    const isPrefetch = fetchPurpose === "prefetch" || fetchPurpose === "prerender";
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    if (wantsHeadersOnly) {
+      res.setHeader("Location", target);
+      res.status(302).end();
+      return;
+    }
+    if (!isPrefetch) {
+      recordQrScan(code, clientIp(req));
+    }
+    res.redirect(302, target);
+  } catch (error) {
+    console.error("QR redirect failed:", error);
+    res.status(503).type("html").send("<!doctype html><title>Unavailable</title><h1>Temporarily unavailable</h1>");
+  }
+});
 
 function pickRequestHostname(req: express.Request) {
   const pick = (value: unknown) =>
@@ -959,6 +1126,7 @@ app.use(async (req, res, next) => {
     req.path.startsWith("/api/") ||
     req.path.startsWith("/r/") ||
     req.path.startsWith("/l/") ||
+    req.path.startsWith("/q/") ||
     req.method !== "GET"
   ) {
     next();

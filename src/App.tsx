@@ -59,6 +59,7 @@ import WhatsAppScreen from "./components/WhatsAppScreen";
 import LinksScreen from "./components/LinksScreen";
 import LinkRotatorScreen from "./components/LinkRotatorScreen";
 import QRCodesScreen from "./components/QRCodesScreen";
+import PublicQrScanRedirect from "./components/PublicQrScanRedirect";
 import TemplatesScreen from "./components/TemplatesScreen";
 import IntegrationsScreen from "./components/IntegrationsScreen";
 import PixelsScreen from "./components/PixelsScreen";
@@ -107,6 +108,12 @@ import { getPublishSettings, persistPublishSettings, PRIMARY_DOMAIN } from "./st
 import { AppTheme, getStoredTheme, saveTheme } from "./lib/themeStorage";
 import { getBlankTemplate, resolveSystemTemplate } from "./lib/systemTemplates";
 import { APP_ROUTE_ENTRIES, pathToScreen, screenToPath } from "./navigation";
+import {
+  buildFixedQrScanUrl,
+  buildQrImageUrl,
+  ensureStableQrPayload,
+  generateQrPublicCode
+} from "./lib/qrCodes";
 
 const USER_PROFILE_STORAGE_KEY = "acnlink_user_profile";
 
@@ -341,6 +348,9 @@ export default function App() {
 
   React.useEffect(() => {
     if (isBrandedHost || previewPageId || authBootstrapping) return;
+
+    const isPublicQrPath = /^\/q\/[^/]+\/?$/i.test(location.pathname);
+    if (isPublicQrPath) return;
 
     if (!isLoggedIn) {
       if (location.pathname !== screenToPath(ScreenId.LOGIN)) {
@@ -637,7 +647,10 @@ export default function App() {
   const [links, setLinks] = useState<SmartLink[]>([]);
   const [linksLoading, setLinksLoading] = useState(false);
   const [linksLoadError, setLinksLoadError] = useState<string | null>(null);
-  const [qrCodes, setQrCodes] = useState<QRCodeItem[]>(() => readLocalStorage("acnlink_qr_codes", initialQRCodes));
+  const [qrCodes, setQrCodes] = useState<QRCodeItem[]>(() => {
+    const raw = readLocalStorage("acnlink_qr_codes", initialQRCodes);
+    return (Array.isArray(raw) ? raw : initialQRCodes).map((item) => ensureStableQrPayload(item));
+  });
   const [templates] = useState<TemplateItem[]>(initialTemplates);
   
   // Custom elevated states for draft and template persistence across pages/screens
@@ -1163,6 +1176,58 @@ export default function App() {
     void refreshContactsFromServer();
   }, [refreshContactsFromServer, workspaceHydrated]);
 
+  const refreshQrCodesFromServer = React.useCallback(async () => {
+    if (!isLoggedIn || isPreviewToken(getAccessToken())) return;
+    try {
+      const response = await fetch(apiUrl("/api/qr-codes"), {
+        cache: "no-store",
+        headers: authenticatedHeaders()
+      });
+      if (!response.ok) return;
+      const payload = await response.json();
+      const remote = Array.isArray(payload?.items) ? (payload.items as QRCodeItem[]) : [];
+      if (!remote.length) return;
+
+      setQrCodes((local) => {
+        const byId = new Map(remote.map((item) => [item.id, item]));
+        const parseCount = (value: string | undefined) =>
+          Math.max(0, Math.floor(Number(String(value ?? "0").replace(/,/g, "")) || 0));
+
+        const mergedLocal = local.map((item) => {
+          const server = byId.get(item.id);
+          if (!server) return item;
+          const scans = Math.max(parseCount(item.scans), parseCount(server.scans));
+          const unique = Math.max(parseCount(item.uniqueScanners), parseCount(server.uniqueScanners));
+          return {
+            ...item,
+            scans: String(scans),
+            uniqueScanners: String(unique),
+            conversionRate: server.conversionRate || item.conversionRate,
+            topLocation: server.topLocation && server.topLocation !== "N/A" ? server.topLocation : item.topLocation,
+            status: server.status || item.status,
+            // Keep frozen payload from local if present.
+            publicCode: item.publicCode || server.publicCode,
+            scanUrl: item.scanUrl || server.scanUrl
+          };
+        });
+
+        // Never re-add deleted local QRs from the server list.
+        return mergedLocal;
+      });
+    } catch (error) {
+      console.warn("Failed to refresh QR codes:", error);
+    }
+  }, [isLoggedIn]);
+
+  React.useEffect(() => {
+    void refreshQrCodesFromServer();
+    if (!isLoggedIn) return;
+    const timer = window.setInterval(() => {
+      void refreshQrCodesFromServer();
+    }, 12_000);
+    return () => window.clearInterval(timer);
+  }, [refreshQrCodesFromServer, workspaceHydrated, isLoggedIn]);
+
   React.useEffect(() => {
     const onContactsUpdated = (event: Event) => {
       const detail = (event as CustomEvent<{ contact?: Contact }>).detail;
@@ -1304,22 +1369,57 @@ export default function App() {
     setWhatsAppCampaigns((current) => current.filter((item) => item.id !== id));
   };
 
+  const syncQrToServer = React.useCallback(async (item: QRCodeItem, method: "POST" | "DELETE" = "POST") => {
+    if (!isLoggedIn || isPreviewToken(getAccessToken())) return;
+    try {
+      const response = await fetch(
+        apiUrl(method === "DELETE" ? `/api/qr-codes/${encodeURIComponent(item.id)}` : "/api/qr-codes"),
+        {
+          method,
+          headers: authenticatedHeaders(method === "POST"),
+          credentials: "include",
+          body: method === "POST" ? JSON.stringify(item) : undefined
+        }
+      );
+      if (!response.ok) {
+        console.warn("QR server sync failed:", response.status);
+      }
+    } catch (error) {
+      console.warn("QR server sync failed:", error);
+    }
+  }, [isLoggedIn]);
+
+  // Register existing Smart QRs on the server so /q/:code redirects to the destination.
+  React.useEffect(() => {
+    if (!isLoggedIn || !workspaceHydrated || isPreviewToken(getAccessToken())) return;
+    qrCodes.forEach((item) => {
+      void syncQrToServer(item, "POST");
+    });
+    // Intentionally once after hydrate — not on every qrCodes change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoggedIn, workspaceHydrated, syncQrToServer]);
+
   const handleGenerateQR = (name: string, targetUrl: string, customColor: string) => {
     const normalizedTargetUrl = normalizeExternalUrl(targetUrl);
-    const newQR: QRCodeItem = {
+    const publicCode = generateQrPublicCode();
+    const scanUrl = buildFixedQrScanUrl(publicCode);
+    const newQR = ensureStableQrPayload({
       id: `qr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       name,
       targetUrl: normalizedTargetUrl,
-      qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&color=${customColor.replace("#", "")}&data=${encodeURIComponent(normalizedTargetUrl)}`,
+      qrUrl: buildQrImageUrl(scanUrl, customColor, 250),
       scans: "0",
       uniqueScanners: "0",
       status: "Active",
       customDesign: true,
       designColor: customColor,
       designLogo: "none",
-      designPattern: "rounded"
-    };
+      designPattern: "rounded",
+      publicCode,
+      scanUrl
+    });
     setQrCodes((current) => [newQR, ...current]);
+    void syncQrToServer(newQR, "POST");
     pushNotification({
       type: "qr_generated",
       title: "QR code created",
@@ -1330,25 +1430,41 @@ export default function App() {
 
   const handleUpdateTargetUrl = (id: string, newUrl: string) => {
     const normalizedTargetUrl = normalizeExternalUrl(newUrl);
-    setQrCodes((current) =>
-      current.map((item) => {
-        if (item.id !== id) return item;
-        const color = item.designColor || "#4F46E5";
-        return {
-          ...item,
-          targetUrl: normalizedTargetUrl,
-          qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&color=${color.replace("#", "")}&data=${encodeURIComponent(normalizedTargetUrl)}`
-        };
-      })
-    );
+    // Destination redirect only — never rewrite the printed scanUrl / QR matrix.
+    setQrCodes((current) => {
+      const next = current.map((item) =>
+        item.id === id ? { ...item, targetUrl: normalizedTargetUrl } : item
+      );
+      const updated = next.find((item) => item.id === id);
+      if (updated) void syncQrToServer(updated, "POST");
+      return next;
+    });
   };
 
   const handleDeleteQR = (id: string) => {
-    setQrCodes((current) => current.filter((qr) => qr.id !== id));
+    setQrCodes((current) => {
+      const removed = current.find((qr) => qr.id === id);
+      if (removed) void syncQrToServer(removed, "DELETE");
+      return current.filter((qr) => qr.id !== id);
+    });
   };
 
   const handleUpdateQR = (updated: QRCodeItem) => {
-    setQrCodes((current) => current.map((qr) => (qr.id === updated.id ? updated : qr)));
+    setQrCodes((current) => {
+      const next = current.map((qr) => {
+        if (qr.id !== updated.id) return qr;
+        return ensureStableQrPayload({
+          ...qr,
+          ...updated,
+          // Frozen forever after create.
+          publicCode: qr.publicCode || updated.publicCode,
+          scanUrl: qr.scanUrl || updated.scanUrl
+        });
+      });
+      const saved = next.find((qr) => qr.id === updated.id);
+      if (saved) void syncQrToServer(saved, "POST");
+      return next;
+    });
   };
 
   const handleVote = (id: string) => {
@@ -1586,7 +1702,13 @@ export default function App() {
       if (backupData.whatsAppCampaigns) setWhatsAppCampaigns(backupData.whatsAppCampaigns);
       if (backupData.whatsAppTemplates) setWhatsAppTemplates(backupData.whatsAppTemplates);
       if (backupData.links) setLinks(backupData.links);
-      if (backupData.qrCodes) setQrCodes(backupData.qrCodes);
+      if (backupData.qrCodes) {
+        setQrCodes(
+          (Array.isArray(backupData.qrCodes) ? backupData.qrCodes : []).map((item: QRCodeItem) =>
+            ensureStableQrPayload(item)
+          )
+        );
+      }
       if (backupData.savedTemplates) {
         const normalized = (backupData.savedTemplates as Record<string, unknown>[]).map((item) =>
           item.data ? (item as unknown as BioPageTemplate) : normalizeTemplate(item)
@@ -1918,6 +2040,7 @@ export default function App() {
           <div className={isLoggedIn ? "acn-main-scroll__content" : "h-full min-h-0"}>
             {!isLoggedIn ? (
               <Routes>
+                <Route path="/q/:code" element={<PublicQrScanRedirect />} />
                 <Route
                   path={screenToPath(ScreenId.LOGIN)}
                   element={
@@ -1932,6 +2055,7 @@ export default function App() {
               </Routes>
             ) : (
               <Routes>
+                <Route path="/q/:code" element={<PublicQrScanRedirect />} />
                 {APP_ROUTE_ENTRIES.map(([screen, path]) => (
                   <React.Fragment key={path}>
                     <Route path={path} element={renderScreenElement(screen)} />

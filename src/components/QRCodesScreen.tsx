@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { QRCodeItem } from "../types";
 import {
   QrCode,
@@ -15,15 +16,27 @@ import {
   Laptop,
   Check,
   Trash2,
-  Sparkles,
   RefreshCw,
   FileImage,
-  ExternalLink,
   Search,
   Pause,
-  Play
+  Play,
+  Upload
 } from "lucide-react";
 import PageShell, { PageHeader } from "./layout/PageShell";
+import { QrBrandMark } from "./qr/QrBrandMark";
+import {
+  buildQrImageUrl,
+  extractQrColor,
+  formatQrScanExact
+} from "../lib/qrCodes";
+import {
+  exportBrandedQrJpegBlob,
+  exportBrandedQrPngBlob,
+  exportBrandedQrPngDataUrl,
+  exportBrandedQrSvgBlob,
+  triggerBrowserDownload
+} from "../lib/qrExport";
 
 interface QRCodesScreenProps {
   items: QRCodeItem[];
@@ -39,14 +52,6 @@ const colorsList = [
   { name: "Rose", value: "#F43F5E" },
   { name: "Amber", value: "#F59E0B" },
   { name: "Slate", value: "#0F172A" }
-];
-
-const LOGO_OPTIONS = [
-  { id: "none" as const, label: "None", icon: "🚫" },
-  { id: "user" as const, label: "Profile", icon: "👤" },
-  { id: "link" as const, label: "Link", icon: "🔗" },
-  { id: "whatsapp" as const, label: "Chat", icon: "💬" },
-  { id: "star" as const, label: "Star", icon: "⭐" }
 ];
 
 function isValidUrl(value: string): boolean {
@@ -67,34 +72,26 @@ function normalizeUrl(value: string): string {
   return `https://${trimmed}`;
 }
 
-function buildQrUrl(targetUrl: string, color: string, size = 250): string {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&color=${color.replace("#", "")}&data=${encodeURIComponent(targetUrl)}`;
-}
-
-function buildSvgQrUrl(targetUrl: string, color: string, size = 500): string {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&color=${color.replace("#", "")}&format=svg&data=${encodeURIComponent(targetUrl)}`;
-}
-
-function logoEmoji(logo?: QRCodeItem["designLogo"]): string {
-  if (logo === "whatsapp") return "💬";
-  if (logo === "link") return "🔗";
-  if (logo === "star") return "⭐";
-  if (logo === "user") return "👤";
-  return "";
-}
-
 function parseNumberValue(val: string) {
   if (!val) return 0;
-  const clean = val.toLowerCase().trim();
+  const clean = val.toLowerCase().trim().replace(/,/g, "");
   if (clean.endsWith("k")) {
     return Math.round(parseFloat(clean.replace("k", "")) * 1000);
   }
   return parseInt(clean, 10) || 0;
 }
 
-function extractColor(qrUrl: string, fallback = "#4F46E5"): string {
-  const match = qrUrl.match(/color=([0-9A-Fa-f]{6})/i);
-  return match?.[1] ? `#${match[1]}` : fallback;
+function resolveScanPayload(item: QRCodeItem): string {
+  return item.scanUrl || item.qrUrl || item.targetUrl;
+}
+
+function readImageAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Could not read image"));
+    reader.readAsDataURL(file);
+  });
 }
 
 export default function QRCodesScreen({
@@ -120,10 +117,12 @@ export default function QRCodesScreen({
   const [designColor, setDesignColor] = useState("#4F46E5");
   const [designPattern, setDesignPattern] = useState<"rounded" | "square" | "compact">("rounded");
   const [designLogo, setDesignLogo] = useState<QRCodeItem["designLogo"]>("none");
+  const [designLogoUrl, setDesignLogoUrl] = useState("");
   const [isSavingDesign, setIsSavingDesign] = useState(false);
+  const logoUploadRef = useRef<HTMLInputElement>(null);
 
   const [downloadingItem, setDownloadingItem] = useState<QRCodeItem | null>(null);
-  const [downloadFormat, setDownloadFormat] = useState<"png" | "svg" | "pdf">("png");
+  const [downloadFormat, setDownloadFormat] = useState<"png" | "jpeg" | "svg" | "pdf">("png");
   const [downloadQuality, setDownloadQuality] = useState("2000px");
   const [isPreparingDownload, setIsPreparingDownload] = useState(false);
 
@@ -131,6 +130,13 @@ export default function QRCodesScreen({
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"All" | "Active" | "Paused">("All");
   const [toast, setToast] = useState<string | null>(null);
+
+  const anyModalOpen = Boolean(isAdding || editingItem || designingItem || downloadingItem);
+
+  useEffect(() => {
+    document.body.classList.toggle("acn-qr-modal-open", anyModalOpen);
+    return () => document.body.classList.remove("acn-qr-modal-open");
+  }, [anyModalOpen]);
 
   const triggerToast = (msg: string) => {
     setToast(msg);
@@ -143,7 +149,8 @@ export default function QRCodesScreen({
       const matchesSearch =
         !query ||
         item.name.toLowerCase().includes(query) ||
-        item.targetUrl.toLowerCase().includes(query);
+        item.targetUrl.toLowerCase().includes(query) ||
+        (item.scanUrl || "").toLowerCase().includes(query);
       const matchesStatus = statusFilter === "All" || item.status === statusFilter;
       return matchesSearch && matchesStatus;
     });
@@ -192,7 +199,7 @@ export default function QRCodesScreen({
       setIsCreating(false);
       setIsAdding(false);
       resetCreateForm();
-      triggerToast("Dynamic QR code generated successfully.");
+      triggerToast("Smart QR created. The printed matrix stays fixed.");
     }, 300);
   };
 
@@ -212,7 +219,7 @@ export default function QRCodesScreen({
       onUpdateTargetUrl(editingItem.id, target);
       setIsSavingUrl(false);
       setEditingItem(null);
-      triggerToast("Destination URL updated. Existing prints still work.");
+      triggerToast("Destination updated. Printed QR matrix unchanged.");
     }, 300);
   };
 
@@ -222,47 +229,27 @@ export default function QRCodesScreen({
       triggerToast("Enter a valid hex color like #4F46E5.");
       return;
     }
+    if (designLogo === "custom" && !designLogoUrl) {
+      triggerToast("Upload a brand logo, or pick another center mark.");
+      return;
+    }
 
+    const scanPayload = resolveScanPayload(designingItem);
     setIsSavingDesign(true);
     window.setTimeout(() => {
       onUpdateQR({
         ...designingItem,
-        qrUrl: buildQrUrl(designingItem.targetUrl, designColor, 250),
+        qrUrl: buildQrImageUrl(scanPayload, designColor, 250),
         customDesign: true,
         designColor,
         designLogo: designLogo || "none",
+        designLogoUrl: designLogo === "custom" ? designLogoUrl : undefined,
         designPattern
       });
       setIsSavingDesign(false);
       setDesigningItem(null);
-      triggerToast("Brand design saved. Color is embedded in the QR image.");
+      triggerToast("Brand design saved. QR payload stays fixed.");
     }, 300);
-  };
-
-  const simulateScan = (item: QRCodeItem) => {
-    if (item.status !== "Active") {
-      triggerToast("Paused QR codes cannot receive scans. Activate it first.");
-      return;
-    }
-
-    const currentScans = parseNumberValue(item.scans);
-    const currentUnique = parseNumberValue(item.uniqueScanners);
-    const nextScans = currentScans + 1;
-    const nextUnique = currentUnique + (Math.random() > 0.3 ? 1 : 0);
-    const possibleLocations = ["London, UK", "New York, US", "Berlin, DE", "Paris, FR", "Mumbai, IN"];
-    const simulatedLoc =
-      item.topLocation && item.topLocation !== "N/A"
-        ? item.topLocation
-        : possibleLocations[Math.floor(Math.random() * possibleLocations.length)];
-
-    onUpdateQR({
-      ...item,
-      scans: String(nextScans),
-      uniqueScanners: String(nextUnique),
-      topLocation: simulatedLoc,
-      conversionRate: `${((nextUnique / (nextScans || 1)) * 100).toFixed(1)}%`
-    });
-    triggerToast(`Simulated scan registered for "${item.name}".`);
   };
 
   const toggleStatus = (item: QRCodeItem) => {
@@ -271,55 +258,61 @@ export default function QRCodesScreen({
     triggerToast(`"${item.name}" is now ${nextStatus}.`);
   };
 
-  const downloadBlob = async (url: string, filename: string) => {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error("Download failed");
-    const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = objectUrl;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(objectUrl);
-  };
-
   const triggerDownload = async () => {
     if (!downloadingItem || isPreparingDownload) return;
 
-    const color = downloadingItem.designColor || extractColor(downloadingItem.qrUrl);
+    const color = downloadingItem.designColor || extractQrColor(downloadingItem.qrUrl);
+    const scanPayload = resolveScanPayload(downloadingItem);
     const safeName = downloadingItem.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "qr-code";
     const size =
       downloadQuality.includes("4000") ? 4000 : downloadQuality.includes("1000") ? 1000 : 2000;
 
+    const brandedOptions = {
+      scanUrl: scanPayload,
+      color,
+      size,
+      designPattern: downloadingItem.designPattern,
+      designLogo: downloadingItem.designLogo,
+      designLogoUrl: downloadingItem.designLogoUrl
+    };
+
     setIsPreparingDownload(true);
     try {
       if (downloadFormat === "svg") {
-        await downloadBlob(buildSvgQrUrl(downloadingItem.targetUrl, color, 500), `${safeName}.svg`);
-        triggerToast("SVG QR downloaded.");
+        const svgBlob = await exportBrandedQrSvgBlob({ ...brandedOptions, size: Math.max(size, 1000) });
+        triggerBrowserDownload(svgBlob, `${safeName}.svg`);
+        triggerToast("SVG QR downloaded with transparent background.");
       } else if (downloadFormat === "pdf") {
         const printWindow = window.open("", "_blank", "noopener,noreferrer,width=720,height=900");
         if (!printWindow) {
           throw new Error("Popup blocked");
         }
-        const pngUrl = buildQrUrl(downloadingItem.targetUrl, color, 2000);
+        const pngDataUrl = await exportBrandedQrPngDataUrl({
+          ...brandedOptions,
+          size: 2000,
+          transparentBackground: false
+        });
         printWindow.document.write(`<!doctype html><html><head><title>${downloadingItem.name} QR</title>
           <style>
-            body{font-family:sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;gap:16px}
+            body{font-family:sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;gap:16px;background:#fff}
             img{width:360px;height:360px;object-fit:contain}
-            p{color:#64748b;font-size:12px}
+            p{color:#64748b;font-size:12px;word-break:break-all;max-width:420px;text-align:center}
           </style></head><body>
           <h1>${downloadingItem.name}</h1>
-          <img src="${pngUrl}" alt="QR Code" />
-          <p>${downloadingItem.targetUrl}</p>
+          <img src="${pngDataUrl}" alt="QR Code" />
+          <p>${scanPayload}</p>
           <script>window.onload=()=>{window.print();}</script>
           </body></html>`);
         printWindow.document.close();
-        triggerToast("Print dialog opened for PDF/print export.");
+        triggerToast("Print dialog opened with branded QR.");
+      } else if (downloadFormat === "jpeg") {
+        const jpegBlob = await exportBrandedQrJpegBlob(brandedOptions);
+        triggerBrowserDownload(jpegBlob, `${safeName}.jpg`);
+        triggerToast(`JPEG QR downloaded at ${size}px.`);
       } else {
-        await downloadBlob(buildQrUrl(downloadingItem.targetUrl, color, size), `${safeName}.png`);
-        triggerToast(`PNG QR downloaded at ${size}px.`);
+        const pngBlob = await exportBrandedQrPngBlob(brandedOptions);
+        triggerBrowserDownload(pngBlob, `${safeName}.png`);
+        triggerToast(`Transparent PNG downloaded at ${size}px.`);
       }
       setDownloadingItem(null);
     } catch {
@@ -331,16 +324,47 @@ export default function QRCodesScreen({
 
   const openDesignModal = (item: QRCodeItem) => {
     setDesigningItem(item);
-    setDesignColor(item.designColor || extractColor(item.qrUrl));
+    setDesignColor(item.designColor || extractQrColor(item.qrUrl));
     setDesignPattern(item.designPattern || "rounded");
-    setDesignLogo(item.designLogo || "none");
+    const isCustom = item.designLogo === "custom" && Boolean(item.designLogoUrl);
+    setDesignLogo(isCustom ? "custom" : "none");
+    setDesignLogoUrl(isCustom ? item.designLogoUrl || "" : "");
   };
+
+  const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      triggerToast("Please upload an image file (PNG, JPG, SVG, WebP).");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      triggerToast("Logo must be under 2 MB.");
+      return;
+    }
+    try {
+      const dataUrl = await readImageAsDataUrl(file);
+      setDesignLogo("custom");
+      setDesignLogoUrl(dataUrl);
+    } catch {
+      triggerToast("Could not read that image. Try another file.");
+    }
+  };
+
+  const designPreviewPayload = designingItem ? resolveScanPayload(designingItem) : "";
+
+  const renderModal = (node: React.ReactNode) =>
+    createPortal(
+      <div className="acn-modal-backdrop acn-workflow-modal-backdrop acn-qr-modal-backdrop">{node}</div>,
+      document.body
+    );
 
   return (
     <PageShell className="font-sans text-slate-800">
       <PageHeader
         title="Smart QR Codes"
-        subtitle="Generate dynamic QR codes, update destinations anytime, and download print-ready assets."
+        subtitle="Print once — destination can change anytime. The QR matrix stays fixed."
         actions={
           <>
             <button
@@ -412,15 +436,15 @@ export default function QRCodesScreen({
         {[
           {
             label: "Total Scans",
-            value: totalScans.toLocaleString(),
-            change: totalScans > 0 ? "Live scan activity" : "No scans yet",
+            value: formatQrScanExact(totalScans),
+            change: totalScans > 0 ? "Exact live scans" : "No scans yet",
             isPositive: totalScans > 0,
             icon: QrCode,
             bgIcon: "bg-indigo-50 text-indigo-600"
           },
           {
             label: "Unique Scanners",
-            value: totalUnique.toLocaleString(),
+            value: formatQrScanExact(totalUnique),
             change: totalUnique > 0 ? "Unique devices tracked" : "No users yet",
             isPositive: totalUnique > 0,
             icon: Eye,
@@ -477,7 +501,7 @@ export default function QRCodesScreen({
           </div>
           <h3 className="font-bold text-slate-800 text-lg">No QR codes found</h3>
           <p className="text-slate-500 text-xs leading-relaxed max-w-sm mx-auto">
-            Generate your first dynamic QR code. Print once, then change the destination anytime.
+            Generate your first Smart QR. Print once, then change the destination anytime — the matrix stays fixed.
           </p>
           <button
             type="button"
@@ -508,18 +532,6 @@ export default function QRCodesScreen({
               key={item.id}
               className="bg-white border border-slate-200/60 rounded-3xl overflow-hidden shadow-sm hover:shadow-lg transition-all duration-300 flex flex-col group relative"
             >
-              <div className="absolute top-3 left-3 z-20 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => simulateScan(item)}
-                  className="bg-slate-900/95 hover:bg-slate-950 text-white text-[10px] font-black px-3 py-1.5 rounded-xl flex items-center gap-1 shadow-md"
-                  title="Simulate scanning this QR code"
-                >
-                  <Sparkles className="h-3 w-3 text-amber-400" />
-                  <span>Simulate Scan</span>
-                </button>
-              </div>
-
               <div className="absolute top-3 right-3 z-20 flex gap-1.5">
                 <button
                   type="button"
@@ -560,13 +572,11 @@ export default function QRCodesScreen({
                           : ""
                     }`}
                   />
-                  {item.designLogo && item.designLogo !== "none" && (
+                  {item.designLogo && item.designLogo !== "none" ? (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="bg-white p-1 rounded-lg shadow-md border border-slate-100">
-                        <span className="text-base">{logoEmoji(item.designLogo)}</span>
-                      </div>
+                      <QrBrandMark logo={item.designLogo} logoUrl={item.designLogoUrl} size="md" />
                     </div>
-                  )}
+                  ) : null}
                 </div>
                 {idx % 2 === 0 ? (
                   <Smartphone className="absolute -right-6 -bottom-6 h-28 w-28 text-slate-200/30 -rotate-12" />
@@ -601,16 +611,23 @@ export default function QRCodesScreen({
                     <Link2 className="h-3 w-3 shrink-0 text-indigo-400" />
                     <span className="truncate">{item.targetUrl}</span>
                   </a>
+                  {item.scanUrl ? (
+                    <p className="text-[10px] text-slate-400 font-mono truncate px-0.5" title={item.scanUrl}>
+                      Scan → {item.scanUrl.replace(/^https?:\/\//, "")}
+                    </p>
+                  ) : null}
 
                   <div className="grid grid-cols-2 gap-2 mt-3 pt-1">
                     <div className="bg-slate-50/60 border border-slate-100 rounded-xl p-2 text-center">
                       <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Scans</p>
-                      <p className="font-display font-black text-slate-800 text-sm mt-0.5">{item.scans}</p>
+                      <p className="font-display font-black text-slate-800 text-sm mt-0.5">
+                        {formatQrScanExact(item.scans)}
+                      </p>
                     </div>
                     <div className="bg-slate-50/60 border border-slate-100 rounded-xl p-2 text-center">
                       <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Unique</p>
                       <p className="font-display font-black text-slate-800 text-sm mt-0.5">
-                        {item.uniqueScanners}
+                        {formatQrScanExact(item.uniqueScanners)}
                       </p>
                     </div>
                   </div>
@@ -662,8 +679,8 @@ export default function QRCodesScreen({
         </div>
       )}
 
-      {isAdding && (
-        <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      {isAdding &&
+        renderModal(
           <div
             role="dialog"
             aria-modal="true"
@@ -717,7 +734,7 @@ export default function QRCodesScreen({
                   className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-xl py-2.5 px-3.5 text-xs focus:outline-none"
                 />
                 <span className="text-[10px] text-slate-400 mt-1 block">
-                  You can change this destination later without reprinting the QR.
+                  Destination can change later. The printed QR matrix stays fixed forever.
                 </span>
               </div>
 
@@ -775,11 +792,10 @@ export default function QRCodesScreen({
               </div>
             </form>
           </div>
-        </div>
-      )}
+        )}
 
-      {editingItem && (
-        <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      {editingItem &&
+        renderModal(
           <div
             role="dialog"
             aria-modal="true"
@@ -810,6 +826,9 @@ export default function QRCodesScreen({
                   onChange={(event) => setEditUrlValue(event.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 focus:border-[#4F46E5] rounded-xl py-2.5 px-3.5 text-xs focus:outline-none"
                 />
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Only the redirect changes. Printed QR codes keep the same matrix.
+                </span>
               </div>
               {editError && (
                 <p className="text-xs font-medium text-rose-600" role="alert">
@@ -825,11 +844,10 @@ export default function QRCodesScreen({
               </button>
             </form>
           </div>
-        </div>
-      )}
+        )}
 
-      {designingItem && (
-        <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      {designingItem &&
+        renderModal(
           <div
             role="dialog"
             aria-modal="true"
@@ -859,7 +877,7 @@ export default function QRCodesScreen({
                 </p>
                 <div className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm relative">
                   <img
-                    src={buildQrUrl(designingItem.targetUrl, designColor, 150)}
+                    src={buildQrImageUrl(designPreviewPayload, designColor, 150)}
                     alt="Styled QR Code"
                     className={`h-28 w-28 ${
                       designPattern === "rounded"
@@ -869,16 +887,14 @@ export default function QRCodesScreen({
                           : ""
                     }`}
                   />
-                  {designLogo !== "none" && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="bg-white p-1 rounded-lg shadow-md border border-slate-100">
-                        <span className="text-base">{logoEmoji(designLogo)}</span>
-                      </div>
+                  {designLogo && designLogo !== "none" ? (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <QrBrandMark logo={designLogo} logoUrl={designLogoUrl} size="lg" />
                     </div>
-                  )}
+                  ) : null}
                 </div>
                 <p className="text-[10px] text-slate-400 mt-2 text-center">
-                  Color is baked into the QR image. Logo and pattern are visual overlays for branding.
+                  Color & logo are branding only. Encoded scan URL never changes.
                 </p>
               </div>
 
@@ -952,22 +968,69 @@ export default function QRCodesScreen({
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
                   Center brand mark
                 </label>
-                <div className="grid grid-cols-5 gap-2">
-                  {LOGO_OPTIONS.map((logo) => (
-                    <button
-                      key={logo.id}
-                      type="button"
-                      onClick={() => setDesignLogo(logo.id)}
-                      className={`p-2 rounded-xl border flex flex-col items-center justify-center transition-all ${
-                        designLogo === logo.id
-                          ? "bg-purple-50 text-purple-700 border-purple-400 ring-2 ring-purple-100"
-                          : "bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100"
-                      }`}
-                    >
-                      <span className="text-base mb-1">{logo.icon}</span>
-                      <span className="text-[8px] font-bold leading-none">{logo.label}</span>
-                    </button>
-                  ))}
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 p-3 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-bold text-slate-700">Upload your brand logo</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Optional · PNG / JPG / SVG / WebP · sits on the QR with no white tile
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDesignLogo("none");
+                          setDesignLogoUrl("");
+                        }}
+                        className={`px-3 py-2 rounded-xl text-[11px] font-bold border transition-colors ${
+                          designLogo === "none" || !designLogo
+                            ? "bg-slate-900 text-white border-slate-900"
+                            : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+                        }`}
+                      >
+                        None
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => logoUploadRef.current?.click()}
+                        className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-bold border transition-colors ${
+                          designLogo === "custom"
+                            ? "bg-indigo-600 text-white border-indigo-600"
+                            : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
+                        }`}
+                      >
+                        <Upload className="h-3.5 w-3.5" />
+                        {designLogoUrl ? "Replace" : "Upload"}
+                      </button>
+                      <input
+                        ref={logoUploadRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
+                        className="hidden"
+                        onChange={handleLogoUpload}
+                      />
+                    </div>
+                  </div>
+                  {designLogoUrl ? (
+                    <div className="flex items-center gap-2">
+                      <img
+                        src={designLogoUrl}
+                        alt="Uploaded brand logo"
+                        className="h-10 w-10 rounded-full object-cover shadow-md border-2 border-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDesignLogo("none");
+                          setDesignLogoUrl("");
+                        }}
+                        className="text-[10px] font-bold text-rose-500 hover:underline"
+                      >
+                        Remove logo
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -991,11 +1054,10 @@ export default function QRCodesScreen({
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {downloadingItem && (
-        <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      {downloadingItem &&
+        renderModal(
           <div
             role="dialog"
             aria-modal="true"
@@ -1020,12 +1082,34 @@ export default function QRCodesScreen({
 
             <div className="space-y-6">
               <div className="bg-slate-50 border border-slate-100 p-3 rounded-2xl flex items-center gap-3">
-                <div className="bg-white p-1.5 rounded-xl shadow-sm border border-slate-100">
-                  <img src={downloadingItem.qrUrl} alt="Download target" className="h-10 w-10" />
+                <div className="bg-white p-1.5 rounded-xl shadow-sm border border-slate-100 relative">
+                  <img
+                    src={downloadingItem.qrUrl}
+                    alt="Download target"
+                    className={`h-10 w-10 object-contain ${
+                      downloadingItem.designPattern === "rounded"
+                        ? "rounded-md"
+                        : downloadingItem.designPattern === "compact"
+                          ? "rounded scale-95"
+                          : ""
+                    }`}
+                  />
+                  {downloadingItem.designLogo === "custom" && downloadingItem.designLogoUrl ? (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <QrBrandMark
+                        logo={downloadingItem.designLogo}
+                        logoUrl={downloadingItem.designLogoUrl}
+                        size="sm"
+                      />
+                    </div>
+                  ) : null}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="font-bold text-xs text-slate-800 truncate">{downloadingItem.name}</p>
                   <p className="text-[10px] text-slate-400 truncate">{downloadingItem.targetUrl}</p>
+                  <p className="text-[9px] text-emerald-600 font-bold mt-0.5">
+                    Includes frame + brand mark · PNG = transparent bg
+                  </p>
                 </div>
               </div>
 
@@ -1033,66 +1117,60 @@ export default function QRCodesScreen({
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
                   Output format
                 </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(["png", "svg", "pdf"] as const).map((fmt) => (
+                <div className="grid grid-cols-4 gap-2">
+                  {(["png", "jpeg", "svg", "pdf"] as const).map((format) => (
                     <button
-                      key={fmt}
+                      key={format}
                       type="button"
-                      onClick={() => setDownloadFormat(fmt)}
-                      className={`py-2 px-3 rounded-xl text-xs font-black border transition-colors uppercase ${
-                        downloadFormat === fmt
-                          ? "bg-indigo-600 text-white border-indigo-600"
-                          : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                      onClick={() => setDownloadFormat(format)}
+                      className={`py-2 rounded-xl text-xs font-bold border uppercase ${
+                        downloadFormat === format
+                          ? "bg-slate-900 text-white border-slate-900"
+                          : "bg-slate-50 text-slate-600 border-slate-200"
                       }`}
                     >
-                      {fmt}
+                      {format}
                     </button>
                   ))}
                 </div>
-                <p className="text-[9px] text-slate-400 mt-1 leading-normal">
-                  {downloadFormat === "svg"
-                    ? "Scalable vector — best for print and large formats."
-                    : downloadFormat === "pdf"
-                      ? "Opens a print dialog so you can save as PDF."
-                      : "Raster PNG for web, social, and email."}
-                </p>
+                {downloadFormat === "png" ? (
+                  <p className="text-[10px] text-emerald-600 font-semibold mt-2">
+                    PNG exports with transparent background (no white fill).
+                  </p>
+                ) : downloadFormat === "jpeg" ? (
+                  <p className="text-[10px] text-slate-400 font-semibold mt-2">
+                    JPEG keeps a white background (best for print).
+                  </p>
+                ) : null}
               </div>
 
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
-                  Image resolution (PNG)
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {["1000px", "2000px", "4000px (HQ)"].map((qty) => (
-                    <button
-                      key={qty}
-                      type="button"
-                      disabled={downloadFormat !== "png"}
-                      onClick={() => setDownloadQuality(qty)}
-                      className={`py-2 px-1 rounded-xl text-[10px] font-bold border transition-colors ${
-                        downloadFormat !== "png"
-                          ? "opacity-40 cursor-not-allowed"
-                          : downloadQuality === qty
-                            ? "bg-slate-900 text-white border-slate-900"
-                            : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
-                      }`}
-                    >
-                      {qty}
-                    </button>
-                  ))}
+              {(downloadFormat === "png" || downloadFormat === "jpeg") && (
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">
+                    {downloadFormat === "jpeg" ? "JPEG quality" : "PNG quality"}
+                  </label>
+                  <select
+                    value={downloadQuality}
+                    onChange={(event) => setDownloadQuality(event.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold"
+                  >
+                    <option value="1000px">1000px</option>
+                    <option value="2000px">2000px</option>
+                    <option value="4000px">4000px</option>
+                  </select>
                 </div>
-              </div>
+              )}
 
               <button
                 type="button"
-                onClick={() => void triggerDownload()}
                 disabled={isPreparingDownload}
-                className="w-full acn-btn-chip py-3 font-black text-xs disabled:opacity-50"
+                onClick={() => void triggerDownload()}
+                className="w-full acn-btn-chip py-3 font-black text-xs disabled:opacity-50 inline-flex items-center justify-center gap-2"
               >
                 {isPreparingDownload ? (
                   <>
                     <RefreshCw className="h-4 w-4 animate-spin text-white" />
-                    <span>Preparing download…</span>
+                    <span>Preparing branded download…</span>
                   </>
                 ) : (
                   <>
@@ -1105,28 +1183,17 @@ export default function QRCodesScreen({
                   </>
                 )}
               </button>
-
-              <div className="flex justify-center">
-                <a
-                  href={downloadingItem.qrUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-[10px] font-bold text-slate-400 hover:text-slate-600 flex items-center gap-1 transition-colors"
-                >
-                  <span>Open direct asset source</span>
-                  <ExternalLink className="h-3 w-3" />
-                </a>
-              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {toast && (
-        <div className="fixed bottom-6 right-6 bg-slate-900 text-white border border-slate-800 text-xs font-black py-3 px-5 rounded-2xl shadow-2xl z-50">
-          {toast}
-        </div>
-      )}
+      {toast &&
+        createPortal(
+          <div className="fixed bottom-6 right-6 bg-slate-900 text-white border border-slate-800 text-xs font-black py-3 px-5 rounded-2xl shadow-2xl z-[130]">
+            {toast}
+          </div>,
+          document.body
+        )}
     </PageShell>
   );
 }

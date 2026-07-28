@@ -1,7 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
-/* Full-screen app â no page-level scrollbar */
+/* Full-screen app Ã¢ÂÂ no page-level scrollbar */
 html,
 body,
 #root {
@@ -148,7 +148,7 @@ body::-webkit-scrollbar,
   50% { transform: scale(1.08); opacity: 0.65; }
 }
 
-/* ââ App shell â theme backgrounds ââ */
+/* Ã¢ÂÂÃ¢ÂÂ App shell Ã¢ÂÂ theme backgrounds Ã¢ÂÂÃ¢ÂÂ */
 .acn-app-shell {
   height: 100%;
   max-height: 100dvh;
@@ -169,7 +169,7 @@ body::-webkit-scrollbar,
   background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
 }
 
-/* Crystal UI â no RGB clouds, grids, or floating orbs */
+/* Crystal UI Ã¢ÂÂ no RGB clouds, grids, or floating orbs */
 .acn-app-shell .acn-bg-clouds,
 .acn-bio-editor-portal .acn-bg-clouds {
   display: none !important;
@@ -205,7 +205,7 @@ body::-webkit-scrollbar,
   50% { opacity: 0.72; }
 }
 
-/* Animated cloudy layers â keeps grid, adds soft motion */
+/* Animated cloudy layers Ã¢ÂÂ keeps grid, adds soft motion */
 .acn-bg-clouds {
   position: fixed;
   inset: 0;
@@ -311,9 +311,9 @@ body::-webkit-scrollbar,
   animation: acn-cloud-drift 24s ease-in-out infinite, acn-cloud-breathe 12s ease-in-out infinite 1.5s;
 }
 
-/* Decorative blur orbs removed â crystal static backgrounds only */
+/* Decorative blur orbs removed Ã¢ÂÂ crystal static backgrounds only */
 
-/* ââ Auth / login canvas â original animated background (login only) ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Auth / login canvas Ã¢ÂÂ original animated background (login only) Ã¢ÂÂÃ¢ÂÂ */
 .acn-auth-canvas {
   width: 100%;
   height: 100%;
@@ -376,7 +376,7 @@ body::-webkit-scrollbar,
   mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, black, transparent);
 }
 
-/* ââ Glass surfaces ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Glass surfaces Ã¢ÂÂÃ¢ÂÂ */
 .acn-glass-panel {
   background: var(--acn-surface-strong);
   backdrop-filter: blur(16px) saturate(1.1);
@@ -409,7 +409,7 @@ body::-webkit-scrollbar,
   border-bottom: 1px solid var(--acn-border);
 }
 
-/* Fixed navbar height â same on every page (header, sidebar brand, editor) */
+/* Fixed navbar height Ã¢ÂÂ same on every page (header, sidebar brand, editor) */
 .acn-app-navbar {
   height: 4rem;
   min-height: 4rem;
@@ -432,7 +432,7 @@ body::-webkit-scrollbar,
   border-bottom: 1px solid var(--acn-border);
 }
 
-/* ââ Sidebar navigation â readable spacing & unified colors ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Sidebar navigation Ã¢ÂÂ readable spacing & unified colors Ã¢ÂÂÃ¢ÂÂ */
 .acn-sidebar-nav__scroll {
   flex: 1;
   overflow-y: auto;
@@ -548,7 +548,7 @@ body::-webkit-scrollbar,
   padding-right: 0.75rem;
 }
 
-/* Work areas only â compact rhythm; page shell / navbar stay normal */
+/* Work areas only Ã¢ÂÂ compact rhythm; page shell / navbar stay normal */
 .acn-workspace {
   padding: 0.75rem;
 }
@@ -655,7 +655,7 @@ body::-webkit-scrollbar,
   opacity: 0.85;
 }
 
-/* ââ Typography accents ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Typography accents Ã¢ÂÂÃ¢ÂÂ */
 .acn-app-shell {
   font-size: var(--acn-text-body);
   line-height: 1.55;
@@ -700,7 +700,7 @@ body::-webkit-scrollbar,
   color: rgba(226, 232, 240, 0.75);
 }
 
-/* ââ Form controls ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Form controls Ã¢ÂÂÃ¢ÂÂ */
 .acn-input {
   width: 100%;
   background: var(--acn-input-bg);
@@ -740,7 +740,7 @@ body::-webkit-scrollbar,
   background: rgba(15, 23, 42, 0.5);
 }
 
-/* Icon + input â consistent gap app-wide (auth, filters) */
+/* Icon + input Ã¢ÂÂ consistent gap app-wide (auth, filters) */
 .acn-icon-field,
 .acn-auth-field {
   position: relative;
@@ -791,7 +791,7 @@ body::-webkit-scrollbar,
   color: #e2e8f0;
 }
 
-/* 3D logo â login page */
+/* 3D logo Ã¢ÂÂ login page */
 @keyframes acn-logo-float {
   0%, 100% { transform: translateY(0) rotateX(12deg) rotateY(-18deg); }
   50% { transform: translateY(-6px) rotateX(10deg) rotateY(-14deg); }
@@ -877,7 +877,7 @@ body::-webkit-scrollbar,
   filter: drop-shadow(0 2px 4px rgba(30, 27, 75, 0.5));
 }
 
-/* Logo size variants â sidebar, header, login */
+/* Logo size variants Ã¢ÂÂ sidebar, header, login */
 .acn-logo-3d--lg {
   width: 4.75rem;
   height: 4.75rem;
@@ -950,7 +950,7 @@ body::-webkit-scrollbar,
   backdrop-filter: blur(8px);
 }
 
-/* ââ App-wide dark only: remap light utility classes ââ */
+/* Ã¢ÂÂÃ¢ÂÂ App-wide dark only: remap light utility classes Ã¢ÂÂÃ¢ÂÂ */
 .acn-theme-dark.acn-app-shell .bg-white,
 .acn-theme-dark.acn-app-shell .bg-white\/90,
 .acn-theme-dark.acn-app-shell .bg-white\/80,
@@ -1013,7 +1013,7 @@ body::-webkit-scrollbar,
   border-color: rgba(148, 163, 184, 0.12) !important;
 }
 
-/* Bio editor phone preview â theme-scoped mobile canvas */
+/* Bio editor phone preview Ã¢ÂÂ theme-scoped mobile canvas */
 .acn-preview-isolate,
 .acn-preview-isolate * {
   backdrop-filter: none !important;
@@ -1215,7 +1215,7 @@ body::-webkit-scrollbar,
   color: rgba(203, 213, 225, 0.85);
 }
 
-/* ââ Segmented controls (date ranges, tabs) ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Segmented controls (date ranges, tabs) Ã¢ÂÂÃ¢ÂÂ */
 .acn-segment-control {
   display: flex;
   background: var(--acn-segment-bg);
@@ -1249,7 +1249,7 @@ body::-webkit-scrollbar,
   font-weight: 600;
 }
 
-/* ââ Modals ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Modals Ã¢ÂÂÃ¢ÂÂ */
 .acn-modal-backdrop {
   position: fixed;
   inset: 0;
@@ -1276,7 +1276,7 @@ body::-webkit-scrollbar,
   box-shadow: var(--acn-shadow), var(--acn-glow);
 }
 
-/* Workflow modals (Create Link Page, Connect Domain) â golden-ratio rhythm, always light */
+/* Workflow modals (Create Link Page, Connect Domain) Ã¢ÂÂ golden-ratio rhythm, always light */
 .acn-create-page-modal-backdrop,
 .acn-workflow-modal-backdrop {
   z-index: 100;
@@ -1291,7 +1291,8 @@ body::-webkit-scrollbar,
 
 body.acn-create-page-modal-open header.acn-glass-header,
 body.acn-connect-domain-modal-open header.acn-glass-header,
-body.acn-contact-modal-open header.acn-glass-header {
+body.acn-contact-modal-open header.acn-glass-header,
+body.acn-qr-modal-open header.acn-glass-header {
   display: none !important;
 }
 
@@ -1911,7 +1912,7 @@ body.acn-contact-modal-open header.acn-glass-header {
   color: #64748b !important;
 }
 
-/* Searchable page picker â connect domain modal */
+/* Searchable page picker Ã¢ÂÂ connect domain modal */
 .acn-page-picker {
   position: relative;
 }
@@ -2082,7 +2083,7 @@ body.acn-contact-modal-open header.acn-glass-header {
   color: #64748b;
 }
 
-/* ââ Banners & alerts (light app pages) ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Banners & alerts (light app pages) Ã¢ÂÂÃ¢ÂÂ */
 .acn-banner-info {
   border-radius: 1.25rem;
   padding: 1rem;
@@ -2663,7 +2664,7 @@ body.acn-contact-modal-open header.acn-glass-header {
   }
 }
 
-/* Fixed logout â always visible on Account page */
+/* Fixed logout Ã¢ÂÂ always visible on Account page */
 .acn-logout-fixed {
   position: fixed;
   top: 5.25rem;
@@ -2702,7 +2703,7 @@ body.acn-contact-modal-open header.acn-glass-header {
   }
 }
 
-/* Dark app text helpers â only when dark theme */
+/* Dark app text helpers Ã¢ÂÂ only when dark theme */
 .acn-theme-dark.acn-app-shell .text-slate-900,
 .acn-theme-dark.acn-app-shell .text-slate-950,
 .acn-theme-dark.acn-app-shell .text-gray-900,
@@ -2774,7 +2775,7 @@ body.acn-contact-modal-open header.acn-glass-header {
   color: var(--acn-nav-hover-text);
 }
 
-/* Theme picker â Account settings */
+/* Theme picker Ã¢ÂÂ Account settings */
 .acn-theme-picker {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2831,7 +2832,7 @@ body.acn-contact-modal-open header.acn-glass-header {
   color: var(--acn-muted);
 }
 
-/* Public bio / preview pages â allow full-page scroll (app shell uses overflow:hidden) */
+/* Public bio / preview pages Ã¢ÂÂ allow full-page scroll (app shell uses overflow:hidden) */
 html.acn-public-scroll,
 html.acn-public-scroll body,
 html.acn-public-scroll #root {
@@ -2972,7 +2973,7 @@ html.acn-public-scroll #root {
   color: #4f46e5 !important;
 }
 
-/* Bio page â 14px links & footer pinned to bottom */
+/* Bio page Ã¢ÂÂ 14px links & footer pinned to bottom */
 .acn-public-bio-page__screen .acn-phone-preview__blocks,
 .acn-phone-preview__screen .acn-phone-preview__blocks {
   flex: 1 0 auto;
@@ -3044,7 +3045,7 @@ html.acn-public-scroll #root {
   border: 1px solid #e2e8f0 !important;
 }
 
-/* Visit page â top-right notice bell with WhatsApp-style red dot */
+/* Visit page Ã¢ÂÂ top-right notice bell with WhatsApp-style red dot */
 .acn-public-notice {
   position: fixed;
   top: max(1rem, env(safe-area-inset-top, 0px));
@@ -3241,7 +3242,7 @@ html.acn-public-scroll #root {
   color: #94a3b8 !important;
 }
 
-/* Bio visit page + editor preview â shared light theme polish */
+/* Bio visit page + editor preview Ã¢ÂÂ shared light theme polish */
 .acn-bio-page-theme-light.acn-public-bio-page__screen,
 .acn-bio-page-theme-light.acn-phone-preview__screen,
 .acn-phone-preview--samsung .acn-bio-page-theme-light.acn-phone-preview__screen.acn-preview-isolate {
@@ -3349,7 +3350,7 @@ html.acn-public-scroll #root {
   overflow: hidden !important;
 }
 
-/* Bio visit page + editor preview â shared dark theme polish */
+/* Bio visit page + editor preview Ã¢ÂÂ shared dark theme polish */
 .acn-bio-page-theme-dark.acn-public-bio-page__screen,
 .acn-bio-page-theme-dark.acn-phone-preview__screen,
 .acn-phone-preview--samsung .acn-bio-page-theme-dark.acn-phone-preview__screen.acn-preview-isolate {
@@ -3365,7 +3366,7 @@ html.acn-public-scroll #root {
   color: #818cf8 !important;
 }
 
-/* Editor shell is app-dark â preview light theme must win inside phone */
+/* Editor shell is app-dark Ã¢ÂÂ preview light theme must win inside phone */
 .acn-theme-dark.acn-app-shell .acn-bio-editor-shell .acn-bio-page-theme-light .bg-white,
 .acn-theme-dark.acn-app-shell .acn-bio-editor-shell .acn-bio-page-theme-light .bg-slate-50,
 .acn-theme-dark.acn-app-shell .acn-bio-editor-shell .acn-bio-page-theme-light .bg-slate-100 {
@@ -3389,7 +3390,7 @@ html.acn-public-scroll #root {
   color: #64748b !important;
 }
 
-/* Clean White Layout — keep readable text/icons inside dark editor app shell */
+/* Clean White Layout â keep readable text/icons inside dark editor app shell */
 .acn-theme-dark.acn-app-shell .acn-preview-isolate.acn-bio-page-theme-light .text-slate-950,
 .acn-theme-dark.acn-app-shell .acn-preview-isolate.acn-bio-page-theme-light .text-slate-900,
 .acn-theme-dark.acn-app-shell .acn-preview-isolate.acn-bio-page-theme-light .text-slate-800,
@@ -3511,7 +3512,7 @@ body.acn-editor-open .acn-footer-bar {
   display: none !important;
 }
 
-/* Hide main app navbar while editor is open â editor has its own header bar */
+/* Hide main app navbar while editor is open Ã¢ÂÂ editor has its own header bar */
 body.acn-editor-open header.acn-glass-header {
   display: none !important;
 }
@@ -3548,7 +3549,7 @@ body.acn-editor-open header.acn-glass-header {
   cursor: pointer;
 }
 
-/* ââ Notification panel â solid, not glass ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Notification panel Ã¢ÂÂ solid, not glass Ã¢ÂÂÃ¢ÂÂ */
 .acn-notification-panel {
   background: #ffffff !important;
   border: 1px solid rgba(148, 163, 184, 0.28) !important;
@@ -3638,7 +3639,7 @@ body.acn-editor-open header.acn-glass-header {
   background: rgba(99, 102, 241, 0.14) !important;
 }
 
-/* ââ Profile menu dropdown ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Profile menu dropdown Ã¢ÂÂÃ¢ÂÂ */
 .acn-profile-menu {
   background: #ffffff !important;
   border: 1px solid rgba(148, 163, 184, 0.28) !important;
@@ -3724,7 +3725,7 @@ body.acn-editor-open header.acn-glass-header {
   color: #f87171 !important;
 }
 
-/* ââ Templates gallery â phone mockup cards ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Templates gallery Ã¢ÂÂ phone mockup cards Ã¢ÂÂÃ¢ÂÂ */
 .acn-template-card {
   transition: box-shadow 0.25s ease, transform 0.25s ease;
 }
@@ -3915,7 +3916,7 @@ body.acn-editor-open header.acn-glass-header {
   border-color: rgba(251, 146, 60, 0.35);
 }
 
-/* ââ Bio page editor â dashboard-style animated canvas ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Bio page editor Ã¢ÂÂ dashboard-style animated canvas Ã¢ÂÂÃ¢ÂÂ */
 .acn-bio-editor-portal {
   position: fixed;
   inset: 0;
@@ -4237,7 +4238,7 @@ body.acn-editor-open header.acn-glass-header {
   box-shadow: none !important;
 }
 
-/* Editor navbar â solid fill, no gradient / smoke */
+/* Editor navbar Ã¢ÂÂ solid fill, no gradient / smoke */
 .acn-bio-editor-shell .acn-editor-nav-btn,
 .acn-bio-editor-shell .acn-editor-nav-btn--template,
 .acn-bio-editor-shell .acn-editor-nav-btn--draft,
@@ -4321,7 +4322,7 @@ body.acn-editor-open header.acn-glass-header {
   color: #ffffff !important;
 }
 
-/* Editor body layout â glass zones over animated canvas */
+/* Editor body layout Ã¢ÂÂ glass zones over animated canvas */
 .acn-editor-body {
   gap: 0.625rem;
   padding: 0.5rem 15px 0.375rem;
@@ -5221,7 +5222,7 @@ body.acn-editor-open header.acn-glass-header {
   overflow-x: visible;
 }
 
-/* Samsung Galaxy â fills preview column height; 20px left/right only */
+/* Samsung Galaxy Ã¢ÂÂ fills preview column height; 20px left/right only */
 .acn-phone-preview--samsung.acn-phone-preview--device-4k {
   position: relative;
   margin: 0;
@@ -5236,7 +5237,7 @@ body.acn-editor-open header.acn-glass-header {
   box-sizing: border-box;
 }
 
-/* Slim flagship frame â narrow bezels, tall profile, edge-to-edge glass */
+/* Slim flagship frame Ã¢ÂÂ narrow bezels, tall profile, edge-to-edge glass */
 .acn-phone-preview--slim.acn-phone-preview--device-4k {
   aspect-ratio: 9 / 21.5;
   max-width: min(100%, 92%);
@@ -5668,7 +5669,7 @@ body.acn-editor-open header.acn-glass-header {
   color: #94a3b8 !important;
 }
 
-/* Legacy iPhone frame â hidden when Samsung variant is used */
+/* Legacy iPhone frame Ã¢ÂÂ hidden when Samsung variant is used */
 .acn-phone-preview__island,
 .acn-phone-preview__island-lens,
 .acn-phone-preview__side-btn {
@@ -5738,7 +5739,7 @@ body.acn-editor-open header.acn-glass-header {
   flex-direction: column;
 }
 
-/* Form / Smart Form — full-screen thank you after submit */
+/* Form / Smart Form â full-screen thank you after submit */
 .acn-form-success-overlay {
   position: absolute;
   inset: 0;
@@ -6029,7 +6030,7 @@ body.acn-editor-open header.acn-glass-header {
   }
 }
 
-/* Palette blocks — glass section cards + frosted tiles */
+/* Palette blocks â glass section cards + frosted tiles */
 .acn-bio-editor-shell .acn-editor-blocks-palette {
   margin-bottom: 0 !important;
   padding: 0.95rem 0.95rem 1rem;
@@ -6230,7 +6231,7 @@ body.acn-editor-open header.acn-glass-header {
   color: #94a3b8;
 }
 
-/* Page Editor — section labels, cover panel, form fields */
+/* Page Editor â section labels, cover panel, form fields */
 .acn-editor-section-label {
   display: flex;
   align-items: center;
@@ -6532,21 +6533,21 @@ body.acn-editor-open header.acn-glass-header {
   color: #f1f5f9 !important;
 }
 
-/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-   RESPONSIVE â all devices (mobile â tablet â laptop â desktop â TV / 4K)
+/* Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+   RESPONSIVE Ã¢ÂÂ all devices (mobile Ã¢ÂÂ tablet Ã¢ÂÂ laptop Ã¢ÂÂ desktop Ã¢ÂÂ TV / 4K)
    Breakpoints:
-   Â· 360px   small phones
-   Â· 480px   phones
-   Â· 640px   large phones
-   Â· 768px   tablets portrait
-   Â· 1024px  tablets landscape / laptops
-   Â· 1280px  desktops
-   Â· 1440px  large desktops
-   Â· 1920px  Full HD / TV
-   Â· 2560px  4K / ultra-wide TV
-   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+   ÃÂ· 360px   small phones
+   ÃÂ· 480px   phones
+   ÃÂ· 640px   large phones
+   ÃÂ· 768px   tablets portrait
+   ÃÂ· 1024px  tablets landscape / laptops
+   ÃÂ· 1280px  desktops
+   ÃÂ· 1440px  large desktops
+   ÃÂ· 1920px  Full HD / TV
+   ÃÂ· 2560px  4K / ultra-wide TV
+   Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ */
 
-/* ââ App pages (dashboard, bio list, etc.) ââ */
+/* Ã¢ÂÂÃ¢ÂÂ App pages (dashboard, bio list, etc.) Ã¢ÂÂÃ¢ÂÂ */
 .acn-page-shell {
   padding: 0.875rem;
 }
@@ -6620,7 +6621,7 @@ body.acn-editor-open header.acn-glass-header {
   }
 }
 
-/* ââ Bio editor â layout per device class ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Bio editor Ã¢ÂÂ layout per device class Ã¢ÂÂÃ¢ÂÂ */
 @media (min-width: 1024px) {
   .acn-editor-body {
     flex-direction: row !important;
@@ -6721,7 +6722,7 @@ body.acn-editor-open header.acn-glass-header {
   }
 }
 
-/* ââ Small phones (320â479px) ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Small phones (320Ã¢ÂÂ479px) Ã¢ÂÂÃ¢ÂÂ */
 @media (max-width: 479px) {
   .acn-editor-header {
     min-height: auto;
@@ -6772,7 +6773,7 @@ body.acn-editor-open header.acn-glass-header {
   }
 }
 
-/* ââ Phones (480â639px) ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Phones (480Ã¢ÂÂ639px) Ã¢ÂÂÃ¢ÂÂ */
 @media (min-width: 480px) and (max-width: 639px) {
   .acn-editor-blocks-palette .grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
@@ -6780,7 +6781,7 @@ body.acn-editor-open header.acn-glass-header {
   }
 }
 
-/* ââ Large phones (640â767px) ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Large phones (640Ã¢ÂÂ767px) Ã¢ÂÂÃ¢ÂÂ */
 @media (min-width: 640px) and (max-width: 767px) {
   .acn-editor-blocks-palette .grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
@@ -6788,7 +6789,7 @@ body.acn-editor-open header.acn-glass-header {
   }
 }
 
-/* ââ Tablets portrait (768â1023px) ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Tablets portrait (768Ã¢ÂÂ1023px) Ã¢ÂÂÃ¢ÂÂ */
 @media (min-width: 768px) and (max-width: 1023px) {
   .acn-bio-editor-shell {
     padding:
@@ -6812,7 +6813,7 @@ body.acn-editor-open header.acn-glass-header {
   }
 }
 
-/* ââ Tablets landscape / small laptops (1024â1279px) ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Tablets landscape / small laptops (1024Ã¢ÂÂ1279px) Ã¢ÂÂÃ¢ÂÂ */
 @media (min-width: 1024px) and (max-width: 1279px) {
   .acn-editor-header__title-input {
     max-width: 10rem;
@@ -6828,7 +6829,7 @@ body.acn-editor-open header.acn-glass-header {
   }
 }
 
-/* ââ Block library grid â desktop ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Block library grid Ã¢ÂÂ desktop Ã¢ÂÂÃ¢ÂÂ */
 @media (min-width: 1280px) {
   .acn-editor-blocks-palette .grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
@@ -6836,7 +6837,7 @@ body.acn-editor-open header.acn-glass-header {
   }
 }
 
-/* ââ Phone landscape â compact editor chrome ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Phone landscape Ã¢ÂÂ compact editor chrome Ã¢ÂÂÃ¢ÂÂ */
 @media (orientation: landscape) and (max-height: 500px) {
   .acn-bio-editor-shell {
     padding: 6px !important;
@@ -6863,7 +6864,7 @@ body.acn-editor-open header.acn-glass-header {
   }
 }
 
-/* ââ Touch targets on coarse pointers (phones / tablets) ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Touch targets on coarse pointers (phones / tablets) Ã¢ÂÂÃ¢ÂÂ */
 @media (pointer: coarse) {
   .acn-bio-editor-shell .acn-editor-nav-btn,
   .acn-bio-editor-shell .acn-editor-back-btn,
@@ -6874,7 +6875,7 @@ body.acn-editor-open header.acn-glass-header {
   }
 }
 
-/* ââ Reduced motion preference ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Reduced motion preference Ã¢ÂÂÃ¢ÂÂ */
 @media (prefers-reduced-motion: reduce) {
   .acn-theme-dark.acn-app-shell,
   .acn-theme-light.acn-app-shell,
@@ -6885,7 +6886,7 @@ body.acn-editor-open header.acn-glass-header {
   }
 }
 
-/* ââ Editor toast â responsive position ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Editor toast Ã¢ÂÂ responsive position Ã¢ÂÂÃ¢ÂÂ */
 .acn-editor-toast {
   left: max(1rem, env(safe-area-inset-left, 0px));
   right: max(1rem, env(safe-area-inset-right, 0px));
@@ -6899,7 +6900,7 @@ body.acn-editor-open header.acn-glass-header {
   }
 }
 
-/* ââ Crystal light mode â readable text on pale surfaces ââ */
+/* Ã¢ÂÂÃ¢ÂÂ Crystal light mode Ã¢ÂÂ readable text on pale surfaces Ã¢ÂÂÃ¢ÂÂ */
 .acn-theme-light.acn-app-shell,
 .acn-theme-light.acn-bio-editor-portal {
   color: var(--acn-text);
@@ -6978,7 +6979,7 @@ body.acn-editor-open header.acn-glass-header {
   box-shadow: var(--acn-card-shadow);
 }
 
-/* Bio page theme presets â CSS variable driven */
+/* Bio page theme presets Ã¢ÂÂ CSS variable driven */
 .acn-public-bio-page__screen,
 .acn-phone-preview__screen {
   background: var(--acn-bio-screen-bg, #161b27) !important;
@@ -7070,7 +7071,7 @@ body.acn-editor-open header.acn-glass-header {
   white-space: nowrap;
 }
 
-/* âââ Custom domains (Lovable-style) âââ */
+/* Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Custom domains (Lovable-style) Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ */
 .acn-domains-lovable {
   display: grid;
   gap: 1.25rem;
@@ -8695,12 +8696,12 @@ body.acn-editor-open header.acn-glass-header {
   color: #fff;
 }
 
-/* Custom domain onboarding  provider cards */
+/* Custom domain onboarding Â provider cards */
 .acn-domain-wizard--onboarding {
   width: min(100%, 40rem);
 }
 
-/* Provider picker — row list with brand logos (screenshot style) */
+/* Provider picker â row list with brand logos (screenshot style) */
 .acn-provider-grid {
   display: flex;
   flex-direction: column;
@@ -9335,4 +9336,66 @@ body.acn-editor-open header.acn-glass-header {
     grid-template-columns: 1fr;
     gap: 0.2rem;
   }
+}
+
+/* Smart QR brand mark  colorful icon badge, no white tile behind it */
+.acn-qr-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.28);
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  background: linear-gradient(145deg, #6366f1, #4f46e5);
+  color: #fff;
+  line-height: 0;
+}
+
+.acn-qr-brand-mark--sm {
+  width: 1.35rem;
+  height: 1.35rem;
+}
+
+.acn-qr-brand-mark--md {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.acn-qr-brand-mark--lg {
+  width: 2.15rem;
+  height: 2.15rem;
+}
+
+.acn-qr-brand-mark__icon {
+  width: 58%;
+  height: 58%;
+  stroke-width: 2.4;
+}
+
+.acn-qr-brand-mark__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+
+.acn-qr-brand-mark--user {
+  background: linear-gradient(145deg, #38bdf8, #2563eb);
+}
+
+.acn-qr-brand-mark--link {
+  background: linear-gradient(145deg, #34d399, #059669);
+}
+
+.acn-qr-brand-mark--whatsapp {
+  background: linear-gradient(145deg, #4ade80, #16a34a);
+}
+
+.acn-qr-brand-mark--star {
+  background: linear-gradient(145deg, #fbbf24, #f59e0b);
+  color: #fff7ed;
+}
+
+.acn-qr-modal-backdrop {
+  z-index: 120 !important;
 }

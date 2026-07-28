@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AuthStoreShape } from "../auth/crypto";
 import { mergeContactLists } from "../leads";
+import { mergeQrCodeLists } from "../qrCodes/repository";
 
 const PAGE_META_KEYS = new Set([
   "auth",
@@ -561,7 +562,14 @@ export function mergeWorkspaceIntoRoot(
   ] as const;
 
   for (const key of keys) {
+    if (key === "qr_codes") continue;
     if (key in workspace) next[key] = workspace[key];
+  }
+
+  if ("qr_codes" in workspace) {
+    next.qr_codes = mergeQrCodeLists(root.qr_codes, workspace.qr_codes, {
+      pruneToIncomingForOwner: ownerUserId
+    });
   }
 
   // Contacts: never replace wholesale — public bio Form/Smart Form leads live on the server

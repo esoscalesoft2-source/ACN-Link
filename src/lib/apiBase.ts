@@ -6,11 +6,17 @@
 export function getApiBaseUrl(): string {
   const raw = (import.meta.env.VITE_API_URL as string | undefined)?.trim() || "";
 
-  // Local dev runs Express + Vite on one port — ignore remote VITE_API_URL so
-  // Save Draft / Publish hit the local data store instead of production Railway.
+  // Local / LAN dev runs Express + Vite on one port — ignore remote VITE_API_URL so
+  // API + /q redirects hit the same machine the browser is on.
   if (import.meta.env.DEV && typeof window !== "undefined") {
     const host = window.location.hostname;
-    if (host === "localhost" || host === "127.0.0.1") {
+    if (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      /^192\.168\.\d{1,3}\.\d{1,3}$/.test(host) ||
+      /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host) ||
+      /^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(host)
+    ) {
       return "";
     }
   }

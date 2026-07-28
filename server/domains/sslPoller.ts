@@ -111,6 +111,8 @@ export async function pollPendingSslDomains(): Promise<{ checked: number; update
         console.warn(`[ssl-poller] Failed for ${domain.domainName}:`, error);
       }
     }
+  } catch (error) {
+    console.warn("[ssl-poller] Poll cycle failed:", error);
   } finally {
     pollRunning = false;
   }
@@ -127,11 +129,15 @@ export function startSslPollingLoop() {
   }
 
   const tick = () => {
-    void pollPendingSslDomains().then(({ checked, updated }) => {
-      if (updated > 0) {
-        console.log(`[ssl-poller] Updated ${updated}/${checked} domain(s)`);
-      }
-    });
+    void pollPendingSslDomains()
+      .then(({ checked, updated }) => {
+        if (updated > 0) {
+          console.log(`[ssl-poller] Updated ${updated}/${checked} domain(s)`);
+        }
+      })
+      .catch((error) => {
+        console.warn("[ssl-poller] Unhandled poll error:", error);
+      });
   };
 
   setTimeout(tick, 15_000);

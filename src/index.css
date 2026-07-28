@@ -5739,7 +5739,116 @@ body.acn-editor-open header.acn-glass-header {
   flex-direction: column;
 }
 
-/* Form / Smart Form â full-screen thank you after submit */
+/* Form / Smart Form — next-page thank you after submit (not a popup) */
+.acn-form-success-page {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  background: linear-gradient(165deg, #f8fafc 0%, #eef2ff 55%, #f5f3ff 100%);
+  animation: acn-form-success-page-in 0.32s ease-out;
+}
+
+.acn-form-success-page--inline {
+  position: relative;
+  inset: auto;
+  min-height: 16rem;
+  border-radius: 1.25rem;
+  overflow: hidden;
+}
+
+.acn-form-success-page__content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem 1.5rem 1.75rem;
+  width: 100%;
+  max-width: 22rem;
+  margin: 0 auto;
+}
+
+.acn-form-success-page__icon {
+  font-size: 3rem;
+  line-height: 1;
+  margin-bottom: 1rem;
+}
+
+.acn-form-success-page__title {
+  font-size: 1.35rem;
+  font-weight: 800;
+  line-height: 1.3;
+  color: #0f172a;
+  margin-bottom: 0.65rem;
+}
+
+.acn-form-success-page__message {
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: #475569;
+  margin-bottom: 1.5rem;
+}
+
+.acn-form-success-page__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  width: 100%;
+}
+
+.acn-form-success-page__btn {
+  width: 100%;
+  border-radius: 0.95rem;
+  padding: 0.8rem 1rem;
+  font-size: 0.8125rem;
+  font-weight: 800;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.acn-form-success-page__btn:active {
+  transform: scale(0.98);
+}
+
+.acn-form-success-page__btn--connect {
+  background: #fff;
+  color: #4f46e5;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+}
+
+.acn-form-success-page__btn--connect:hover {
+  background: #eef2ff;
+}
+
+.acn-form-success-page__btn--ok {
+  background: #0f172a;
+  color: #fff;
+  border: none;
+}
+
+.acn-form-success-page__btn--ok:hover {
+  background: #1e293b;
+}
+
+.acn-bio-page-theme-light .acn-form-success-page {
+  background: linear-gradient(165deg, #ffffff 0%, #f8fafc 100%);
+}
+
+@keyframes acn-form-success-page-in {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Legacy overlay styles kept for safety if any old markup remains */
 .acn-form-success-overlay {
   position: absolute;
   inset: 0;

@@ -1,4 +1,4 @@
-import { getPublicAppHostname, isEphemeralHostname } from "./publicAppUrl";
+import { PRIMARY_DOMAIN } from "../storage/publishStorage";
 import type { QRCodeItem } from "../types";
 
 export function generateQrPublicCode(): string {
@@ -15,9 +15,19 @@ export function buildQrSvgImageUrl(scanUrl: string, color: string, size = 500): 
   return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&color=${hex}&format=svg&data=${encodeURIComponent(scanUrl)}`;
 }
 
-export function buildFixedQrScanUrl(publicCode: string, host = getPublicAppHostname()): string {
+export function buildFixedQrScanUrl(publicCode: string, host = PRIMARY_DOMAIN): string {
   const code = normalizePublicCode(publicCode);
   return `https://${host}/q/${code}`;
+}
+
+/** Local / LAN hosts used while testing — not valid for public mobile scans. */
+function isEphemeralQrHostname(hostname: string): boolean {
+  const host = hostname.trim().toLowerCase();
+  if (!host || host === "localhost" || host === "127.0.0.1" || host === "::1") return true;
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  if (/^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  return false;
 }
 
 function normalizePublicCode(value: string): string {
@@ -29,7 +39,8 @@ function normalizePublicCode(value: string): string {
 
 /**
  * Keep each QR's publicCode forever.
- * Upgrade localhost/LAN scan URLs → production /q/{code}.
+ * Upgrade localhost/LAN scan URLs → https://acnlink.mindflo.today/q/{code}
+ * so mobile cameras hit the platform redirect (per-code destination), not /login.
  */
 export function canonicalizeQrScanUrl(publicCode: string, scanUrl?: string): string {
   const code = normalizePublicCode(publicCode);
@@ -40,9 +51,10 @@ export function canonicalizeQrScanUrl(publicCode: string, scanUrl?: string): str
     const pathMatch = url.pathname.match(/^\/q\/([^/]+)\/?$/i);
     const codeFromPath = pathMatch?.[1] ? normalizePublicCode(pathMatch[1]) : "";
     const resolvedCode = codeFromPath || code;
-    if (isEphemeralHostname(url.hostname)) {
+    if (isEphemeralQrHostname(url.hostname)) {
       return buildFixedQrScanUrl(resolvedCode);
     }
+    // Already on a real host — keep host, force /q/{thisCode} path.
     return `${url.protocol}//${url.host}/q/${resolvedCode}`;
   } catch {
     return fallback;
@@ -59,6 +71,7 @@ export function ensureStableQrPayload(item: QRCodeItem): QRCodeItem {
     publicCode,
     scanUrl,
     designColor: color,
+    // Image may refresh color, but data= always stays this QR's unique scanUrl.
     qrUrl: buildQrImageUrl(scanUrl, color, 250)
   };
 }

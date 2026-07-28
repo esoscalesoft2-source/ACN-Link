@@ -35,7 +35,7 @@ import {
 import { getLinkArrowColor, getLinkButtonStyle, isDefaultBrightLink } from "../../lib/bioLinkColors";
 import type { BlockRendererContext, BlockRendererHandlers, BlockRenderMode } from "./blockTypes";
 import CountdownBlockView from "./CountdownBlockView";
-import FormSuccessOverlay from "./FormSuccessOverlay";
+import FormSuccessPage from "./FormSuccessPage";
 import SocialLinksRow from "./SocialLinksRow";
 
 interface BlockViewProps {
@@ -475,7 +475,7 @@ export function SmartFormBlockView({ block, mode, context, handlers }: BlockView
           </button>
         </div>
       </div>
-      <FormSuccessOverlay
+      <FormSuccessPage
         open={showSuccess}
         onClose={dismissSuccess}
         title={successTitle}
@@ -711,7 +711,7 @@ export function FormBlockView({ block, mode, context, handlers }: BlockViewProps
           </div>
         )}
       </div>
-      <FormSuccessOverlay
+      <FormSuccessPage
         open={showSuccess}
         onClose={dismissSuccess}
         title={successTitle}

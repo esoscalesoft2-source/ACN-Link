@@ -2679,7 +2679,7 @@ export default function BioPagesScreen({
                     >
                                 {platformDuplicatesOnly ? "Show all links" : "Duplicates only"}
                     </button>
-                              <button
+                    <button
                                 type="button"
                                 role="menuitem"
                                 className="acn-platform-bulk-menu__item"
@@ -2687,7 +2687,7 @@ export default function BioPagesScreen({
                                 onClick={handlePlatformMenuClearSelection}
                               >
                                 Clear selection
-                              </button>
+                    </button>
                               <button
                                 type="button"
                                 role="menuitem"
@@ -2707,10 +2707,10 @@ export default function BioPagesScreen({
                                   Done selecting
                                 </button>
                               )}
-                            </div>
+                  </div>
                           )}
-                        </div>
-                      </div>
+                </div>
+              </div>
 
                       <p className="acn-platform-bulk-toolbar__meta">
                         Showing {filteredPlatformPages.length} of {platformPages.length} platform links
@@ -2721,7 +2721,7 @@ export default function BioPagesScreen({
                           <> · Selection mode · {selectedPlatformCount} selected</>
                         )}
                       </p>
-                </div>
+          </div>
 
                     {filteredPlatformPages.length === 0 ? (
                       <div className="acn-platform-bulk-empty">
@@ -2737,8 +2737,8 @@ export default function BioPagesScreen({
                           >
                             Reset filters
                           </button>
-                        )}
-              </div>
+        )}
+      </div>
                     ) : (
                       filteredPlatformPages.map((page) =>
                         renderBioPageListRow(
@@ -3338,7 +3338,7 @@ export default function BioPagesScreen({
                           <div>
                             <span className="text-xs font-bold block text-slate-800">Form</span>
                             <span className="text-[9px] text-slate-400 block">Custom dynamic fields</span>
-                          </div>
+                      </div>
                         </button>
 
                         <button
@@ -3354,7 +3354,7 @@ export default function BioPagesScreen({
                           <div>
                             <span className="text-xs font-bold block text-slate-800">FAQ</span>
                             <span className="text-[9px] text-slate-400 block">Q&A accordion</span>
-                          </div>
+                    </div>
                         </button>
 
                         <button
@@ -3367,7 +3367,7 @@ export default function BioPagesScreen({
                           <span className="h-8 w-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold text-sm group-hover:scale-105 transition-transform">
                             💬
                           </span>
-                          <div>
+                    <div>
                             <span className="text-xs font-bold block text-slate-800">Testimonials</span>
                             <span className="text-[9px] text-slate-400 block">Customer quotes</span>
                           </div>
@@ -4538,8 +4538,8 @@ export default function BioPagesScreen({
                                       <div className="space-y-2">
                                         <div>
                                           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Contact name</label>
-                                          <input
-                                            type="text"
+                                        <input
+                                          type="text"
                                             value={(block as any).contactName || ""}
                                             onChange={(e) => handleUpdateBlockField(block.id, "contactName", e.target.value)}
                                             className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
@@ -4547,8 +4547,8 @@ export default function BioPagesScreen({
                                         </div>
                                         <div>
                                           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Phone</label>
-                                          <input
-                                            type="text"
+                                        <input
+                                          type="text"
                                             value={(block as any).phone || ""}
                                             onChange={(e) => handleUpdateBlockField(block.id, "phone", e.target.value)}
                                             placeholder="+919876543210"
@@ -4637,24 +4637,24 @@ export default function BioPagesScreen({
                                       <div className="space-y-3 pt-1 border-t border-slate-100">
                                         <div>
                                           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Description</label>
-                                          <input
+                                              <input
                                             type="text"
                                             value={(block as any).description || ""}
                                             onChange={(e) => handleUpdateBlockField(block.id, "description", e.target.value)}
                                             className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
                                             placeholder="Optional short helper text"
-                                          />
-                                        </div>
+                                              />
+                                            </div>
                                         <div>
                                           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Submit Button Text</label>
-                                          <input
-                                            type="text"
+                                            <input
+                                              type="text"
                                             value={(block as any).submitLabel || "Submit"}
                                             onChange={(e) => handleUpdateBlockField(block.id, "submitLabel", e.target.value)}
                                             className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
                                             placeholder="Submit"
-                                          />
-                                        </div>
+                                            />
+                                          </div>
                                         <FormSuccessEditorFields
                                           block={block as BlockRecord}
                                           onUpdate={(field, value) => handleUpdateBlockField(block.id, field, value)}
@@ -4663,7 +4663,7 @@ export default function BioPagesScreen({
                                           block={block as BlockRecord}
                                           onChange={(fields) => handleUpdateBlockField(block.id, "formFields", fields)}
                                         />
-                                      </div>
+                                        </div>
                                     )}
 
                                     {block.type === "Smart Form" && (
@@ -4706,7 +4706,7 @@ export default function BioPagesScreen({
                                                 <Trash2 className="h-3.5 w-3.5" />
                                               </button>
                                             </div>
-                                            <input
+                                              <input
                                               type="text"
                                               value={item.question}
                                               onChange={(e) => {
@@ -4729,8 +4729,8 @@ export default function BioPagesScreen({
                                               rows={2}
                                               className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs resize-none"
                                               placeholder="Answer"
-                                            />
-                                          </div>
+                                              />
+                                            </div>
                                         ))}
                                       </div>
                                     )}
@@ -4778,8 +4778,8 @@ export default function BioPagesScreen({
                                               placeholder="Quote"
                                             />
                                             <div className="grid grid-cols-2 gap-2">
-                                              <input
-                                                type="text"
+                                            <input
+                                              type="text"
                                                 value={item.author}
                                                 onChange={(e) => {
                                                   const items = getTestimonials(block as BlockRecord).map((entry, i) =>
@@ -4801,9 +4801,9 @@ export default function BioPagesScreen({
                                                 }}
                                                 className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs"
                                                 placeholder="Role / company"
-                                              />
-                                            </div>
+                                            />
                                           </div>
+                                        </div>
                                         ))}
                                       </div>
                                     )}
@@ -4822,7 +4822,7 @@ export default function BioPagesScreen({
                                         </div>
                                         <div className="flex items-center justify-between">
                                           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tip options</label>
-                                          <button
+                                      <button
                                             type="button"
                                             onClick={() => {
                                               const items = [...getTipOptions(block as BlockRecord), createTipOption()];
@@ -4831,12 +4831,12 @@ export default function BioPagesScreen({
                                             className="text-[10px] font-bold text-[#6366f1] bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-lg"
                                           >
                                             + Add Option
-                                          </button>
+                                      </button>
                                         </div>
                                         {getTipOptions(block as BlockRecord).map((item, index) => (
                                           <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 space-y-2">
                                             <div className="flex justify-end">
-                                              <button
+                                      <button
                                                 type="button"
                                                 onClick={() => {
                                                   const items = getTipOptions(block as BlockRecord).filter((_, i) => i !== index);
@@ -4845,8 +4845,8 @@ export default function BioPagesScreen({
                                                 className="text-rose-500 hover:bg-rose-50 p-1 rounded"
                                               >
                                                 <Trash2 className="h-3.5 w-3.5" />
-                                              </button>
-                                            </div>
+                                      </button>
+                                    </div>
                                             <input
                                               type="text"
                                               value={item.label}
@@ -4887,8 +4887,8 @@ export default function BioPagesScreen({
                                             </div>
                                           </div>
                                         ))}
-                                      </div>
-                                    )}
+                                  </div>
+                                )}
 
                                     {/* Map fields */}
                                     {block.type === "Map" && (
@@ -4906,7 +4906,7 @@ export default function BioPagesScreen({
                                             className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
                                             placeholder="e.g. Marina Beach, Chennai"
                                           />
-                                        </div>
+                              </div>
                                         <div>
                                           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Subtext</label>
                                           <input
@@ -4999,7 +4999,7 @@ export default function BioPagesScreen({
                                             onChange={(e) => handleUpdateBlockField(block.id, "imageUrl", e.target.value)}
                                             className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs font-mono"
                                           />
-                                        </div>
+                      </div>
                                         <div>
                                           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Click Link (optional)</label>
                                           <input
@@ -5008,7 +5008,7 @@ export default function BioPagesScreen({
                                             onChange={(e) => handleUpdateBlockField(block.id, "linkUrl", e.target.value)}
                                             className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs font-mono"
                                           />
-                                        </div>
+                    </div>
                                         <div>
                                           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Caption</label>
                                           <input
@@ -5017,7 +5017,7 @@ export default function BioPagesScreen({
                                             onChange={(e) => handleUpdateBlockField(block.id, "caption", e.target.value)}
                                             className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
                                           />
-                                        </div>
+                  </div>
                                         <div>
                                           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Alt Text</label>
                                           <input
@@ -5026,8 +5026,8 @@ export default function BioPagesScreen({
                                             onChange={(e) => handleUpdateBlockField(block.id, "altText", e.target.value)}
                                             className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
                                           />
-                                        </div>
-                                      </div>
+                </div>
+            </div>
                                     )}
 
                                     {/* Call block */}
@@ -5045,7 +5045,7 @@ export default function BioPagesScreen({
                                             className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs font-mono"
                                             placeholder="+919876543210"
                                           />
-                                        </div>
+                </div>
                                         <div>
                                           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Subtext (optional)</label>
                                           <input
@@ -5055,8 +5055,8 @@ export default function BioPagesScreen({
                                             className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
                                             placeholder="Mon–Sat 10am–6pm"
                                           />
-                                        </div>
-                                      </div>
+                  </div>
+                    </div>
                                     )}
 
                                     {/* Email block */}
@@ -5124,8 +5124,8 @@ export default function BioPagesScreen({
                                               <option value="warning">Warning</option>
                                               <option value="promo">Promo</option>
                                             </select>
-                                          </div>
-                                        </div>
+                                  </div>
+                                </div>
                                         <div>
                                           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Title</label>
                                           <input
@@ -5178,7 +5178,7 @@ export default function BioPagesScreen({
                                           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Stat items</label>
                                           <button
                                             type="button"
-                                            onClick={() => {
+                                  onClick={() => {
                                               const items = [...getStatItems(block as BlockRecord), createStatItem()];
                                               handleUpdateBlockField(block.id, "statItems", items);
                                             }}
@@ -5193,7 +5193,7 @@ export default function BioPagesScreen({
                                               <span className="text-[10px] font-bold text-slate-500">Stat {index + 1}</span>
                                               <button
                                                 type="button"
-                                                onClick={() => {
+                                  onClick={() => {
                                                   const items = getStatItems(block as BlockRecord).filter((_, i) => i !== index);
                                                   handleUpdateBlockField(block.id, "statItems", items);
                                                 }}
@@ -5201,7 +5201,7 @@ export default function BioPagesScreen({
                                               >
                                                 <Trash2 className="h-3.5 w-3.5" />
                                               </button>
-                                            </div>
+                              </div>
                                             <div className="grid grid-cols-2 gap-2">
                                               <input
                                                 type="text"
@@ -5227,10 +5227,10 @@ export default function BioPagesScreen({
                                                 className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs"
                                                 placeholder="Happy customers"
                                               />
-                                            </div>
-                                          </div>
-                                        ))}
                                       </div>
+                                    </div>
+                                  ))}
+                                </div>
                                     )}
 
                                     {/* Pricing block */}
@@ -5245,8 +5245,8 @@ export default function BioPagesScreen({
                                             className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-xs"
                                             placeholder="Pick the plan that fits you best"
                                           />
-                                        </div>
-                                        <div className="flex items-center justify-between">
+                              </div>
+                                <div className="flex items-center justify-between">
                                           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Plans</label>
                                           <button
                                             type="button"
@@ -5258,7 +5258,7 @@ export default function BioPagesScreen({
                                           >
                                             + Add Plan
                                           </button>
-                                        </div>
+                                </div>
                                         {getPricingPlans(block as BlockRecord).map((plan, index) => (
                                           <div key={plan.id} className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 space-y-2">
                                             <div className="flex items-center justify-between gap-2">
@@ -5278,18 +5278,18 @@ export default function BioPagesScreen({
                                                   />
                                                   Highlight
                                                 </label>
-                                                <button
+                                  <button
                                                   type="button"
-                                                  onClick={() => {
+                                    onClick={() => {
                                                     const items = getPricingPlans(block as BlockRecord).filter((_, i) => i !== index);
                                                     handleUpdateBlockField(block.id, "pricingPlans", items);
-                                                  }}
+                                    }}
                                                   className="text-rose-500 hover:bg-rose-50 p-1 rounded"
-                                                >
+                                  >
                                                   <Trash2 className="h-3.5 w-3.5" />
-                                                </button>
-                                              </div>
-                                            </div>
+                                  </button>
+                                </div>
+                              </div>
                                             <input
                                               type="text"
                                               value={plan.name}
@@ -5327,7 +5327,7 @@ export default function BioPagesScreen({
                                                 className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs"
                                                 placeholder="/month"
                                               />
-                                            </div>
+                                  </div>
                                             <input
                                               type="text"
                                               value={plan.description}
@@ -5364,9 +5364,9 @@ export default function BioPagesScreen({
                                               className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs font-mono"
                                               placeholder="Checkout / signup URL"
                                             />
-                                          </div>
+                                  </div>
                                         ))}
-                                      </div>
+                                  </div>
                                     )}
 
                                     {/* Divider fields */}
@@ -5383,7 +5383,7 @@ export default function BioPagesScreen({
                                             <option value="dots">Dots</option>
                                             <option value="space">Space only</option>
                                           </select>
-                                        </div>
+                                  </div>
                                         <div>
                                           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Spacing</label>
                                           <select
@@ -5395,8 +5395,8 @@ export default function BioPagesScreen({
                                             <option value="md">Medium</option>
                                             <option value="lg">Large</option>
                                           </select>
-                                        </div>
-                                      </div>
+                                </div>
+                              </div>
                                     )}
 
                                     {/* Appearance Options (Background & Text Colors) */}
@@ -5432,7 +5432,7 @@ export default function BioPagesScreen({
                                               className="relative w-8 h-8 rounded-full border border-slate-200 overflow-hidden shrink-0 cursor-pointer shadow-sm animate-in zoom-in-75 duration-150"
                                               style={{ backgroundColor: (block as any).textColor || getBlockDefaultTextColor(block.type) }}
                                             >
-                                              <input
+                                  <input
                                                 type="color"
                                                 value={(block as any).textColor || getBlockDefaultTextColor(block.type)}
                                                 onChange={(e) => handleUpdateBlockField(block.id, "textColor", e.target.value)}
@@ -5452,34 +5452,34 @@ export default function BioPagesScreen({
 
                                     {/* Action Footers */}
                                     <div className="flex items-center justify-between pt-3.5 border-t border-slate-100">
-                                      <button
+                                  <button
                                         onClick={() => handleDeleteBlock(block.id)}
                                         className="flex items-center gap-1.5 text-xs font-bold text-rose-500 hover:text-rose-700 transition-colors"
                                       >
                                         <Trash2 className="h-3.5 w-3.5" />
                                         <span>Delete Widget</span>
-                                      </button>
-                                      <button
+                                  </button>
+                              <button
                                         onClick={() => setExpandedBlockId(null)}
                                         className="text-[10px] font-bold text-slate-400 hover:text-slate-600 uppercase"
-                                      >
+                              >
                                         Collapse
-                                      </button>
-                                    </div>
+                              </button>
                                   </div>
+                                </div>
                                 )}
                               </div>
                             );
                           })
                         )}
-                      </div>
-                    </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                                  </div>
+                                </div>
+                                </div>
+                              </div>
+                                </div>
+                              </div>
               )}
-            </div>
+                                  </div>
 
             {/* Live phone preview */}
             <div
@@ -5491,9 +5491,9 @@ export default function BioPagesScreen({
                 <div className="acn-editor-zone__head-main">
                   <Smartphone className="h-3.5 w-3.5" />
                   Live Preview
-                </div>
+                                </div>
                 <BioPageThemePicker value={editorPageTheme} onChange={handlePreviewThemeChange} compact />
-              </div>
+                              </div>
 
               <div className="acn-editor-preview-rail__stage">
                 <div className="acn-phone-preview acn-phone-preview--samsung acn-phone-preview--slim acn-phone-preview--device-4k acn-phone-preview--black-case" aria-label="Mobile live preview">
@@ -5507,15 +5507,15 @@ export default function BioPagesScreen({
                         <div className="acn-phone-preview__status-bar">
                           <span>12:33</span>
                           <span className="acn-phone-preview__status-icons">▮▮▮ 100%</span>
-                        </div>
+                                  </div>
                         <div className="acn-phone-preview__browser-bar">
                           <span className="acn-phone-preview__browser-home" aria-hidden>⌂</span>
                           <span className="acn-phone-preview__browser-url">
                             {selectedEditPageLink?.displayLabel || `${PRIMARY_DOMAIN}/page`}
                           </span>
                           <span className="acn-phone-preview__browser-tabs" aria-hidden>1</span>
-                        </div>
-                </div>
+                                  </div>
+                                </div>
 
                 <div
                   onDragOver={handleDragOverTarget}

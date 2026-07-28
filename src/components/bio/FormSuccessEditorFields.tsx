@@ -12,7 +12,7 @@ export default function FormSuccessEditorFields({ block, onUpdate }: FormSuccess
   return (
     <div className="space-y-3 pt-2 border-t border-slate-100">
       <p className="text-[10px] font-bold text-[#6366f1] uppercase tracking-wider">
-        After Submit — Full Screen Thank You
+        After Submit — Thank You Page
       </p>
       <div>
         <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
@@ -88,7 +88,7 @@ export default function FormSuccessEditorFields({ block, onUpdate }: FormSuccess
           placeholder="https://wa.me/919876543210"
         />
         <p className="mt-1.5 text-[10px] text-slate-400 leading-relaxed">
-          Visitors see a full-screen thank you after submit. OK returns to your page; Connect opens this link.
+          After submit, visitors go to a thank you page (not a popup). OK closes that page.
         </p>
       </div>
     </div>

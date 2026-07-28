@@ -160,32 +160,16 @@ const PERIOD_RING_COLORS = {
   all: { ring: "#4f46e5", text: "text-indigo-700", chip: "bg-indigo-50 text-indigo-800" }
 } as const;
 
-/** Exact count with Indian grouping: 1,000 · 10,000 · 1,00,000 */
+/** Exact count with grouping: 1,000 · 10,000 — always the real integer. */
 function formatCountExact(value: number): string {
   const n = Math.max(0, Math.floor(Number(value) || 0));
   return n.toLocaleString("en-IN");
 }
 
-/** Compact count: 999 · 1.5k · 1.5M · 1.2B */
-function formatCountCompact(value: number): string {
-  const n = Math.max(0, Number(value) || 0);
-  if (!Number.isFinite(n)) return "0";
-  const abs = Math.abs(n);
-  const trim = (raw: string) => raw.replace(/\.0$/, "");
-  if (abs < 1000) return String(Math.floor(n));
-  if (abs < 1_000_000) return `${trim((n / 1000).toFixed(abs < 10_000 ? 1 : 0))}k`;
-  if (abs < 1_000_000_000) return `${trim((n / 1_000_000).toFixed(abs < 10_000_000 ? 1 : 0))}M`;
-  return `${trim((n / 1_000_000_000).toFixed(1))}B`;
-}
-
-/**
- * One readable count for the UI.
- * Small numbers: exact only (5). Large: compact primary + exact in title (1.5k → 1,500).
- */
+/** Exact click count for the UI (no k/M shortcuts). */
 function formatCountDisplay(value: number): { text: string; title: string } {
   const exact = formatCountExact(value);
-  if (value < 1000) return { text: exact, title: exact };
-  return { text: formatCountCompact(value), title: exact };
+  return { text: exact, title: exact };
 }
 
 function StatCircle({
@@ -942,11 +926,8 @@ export default function LinkRotatorScreen({
                   <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
                     Total clicks
                   </p>
-                  <p
-                    className="mt-1.5 text-sm font-bold tabular-nums text-slate-900"
-                    title={formatCountDisplay(rotatorDestinationClicksTotal(viewing)).title}
-                  >
-                    {formatCountDisplay(rotatorDestinationClicksTotal(viewing)).text}
+                  <p className="mt-1.5 text-sm font-bold tabular-nums text-slate-900">
+                    {formatCountExact(rotatorDestinationClicksTotal(viewing))}
                   </p>
                 </div>
                 <div>
@@ -983,7 +964,7 @@ export default function LinkRotatorScreen({
                 <div className="divide-y divide-slate-100">
                   {viewing.destinations.map((destination: LinkRotatorDestination, index) => {
                     const clicks = destinationClickTotal(destination);
-                    const count = formatCountDisplay(clicks);
+                    const exactClicks = formatCountExact(clicks);
                     return (
                       <div
                         key={destination.id || `${destination.url}-${index}`}
@@ -1006,9 +987,9 @@ export default function LinkRotatorScreen({
                           </span>
                           <p
                             className="text-sm font-extrabold tabular-nums text-slate-900"
-                            title={count.title}
+                            title={`${exactClicks} real redirects`}
                           >
-                            {count.text}
+                            {exactClicks}
                           </p>
                         </div>
                         <div className="flex items-center justify-between sm:block sm:text-right">
@@ -1073,14 +1054,15 @@ export default function LinkRotatorScreen({
                 const realTotal = destinationClickTotal(selected);
                 const clicks = {
                   total: realTotal,
-                  today: selectedAnalytics?.clicks.today ?? 0,
-                  week: selectedAnalytics?.clicks.week ?? 0,
-                  month: selectedAnalytics?.clicks.month ?? 0
+                  // Period stats cannot exceed the real lifetime total.
+                  today: Math.min(selectedAnalytics?.clicks.today ?? 0, realTotal),
+                  week: Math.min(selectedAnalytics?.clicks.week ?? 0, realTotal),
+                  month: Math.min(selectedAnalytics?.clicks.month ?? 0, realTotal)
                 };
                 const summaryTotal = rotatorDestinationClicksTotal(viewing);
                 const destTotal = Math.max(clicks.total, 1);
                 const sharePercent = periodPercent(clicks.total, summaryTotal);
-                const totalCount = formatCountDisplay(clicks.total);
+                const totalCount = formatCountExact(clicks.total);
 
                 return (
                   <>
@@ -1103,9 +1085,9 @@ export default function LinkRotatorScreen({
                           </p>
                           <p
                             className="mt-0.5 text-xl font-extrabold tabular-nums text-slate-900"
-                            title={totalCount.title}
+                            title={`${totalCount} real redirects`}
                           >
-                            {totalCount.text}
+                            {totalCount}
                           </p>
                         </div>
                         <div>

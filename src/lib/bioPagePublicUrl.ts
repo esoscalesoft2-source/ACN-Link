@@ -1,10 +1,9 @@
 import type { BioPage, CustomDomain, PlatformSubdomain } from "../types";
 import { PRIMARY_DOMAIN } from "../storage/publishStorage";
 import { findPlatformSubdomainForPage } from "./platformSubdomain";
-import { getPublicAppOrigin, isEphemeralOrigin } from "./publicAppUrl";
 
 export function getShareableOrigin(): string {
-  if (typeof window === "undefined") return getPublicAppOrigin();
+  if (typeof window === "undefined") return `https://${PRIMARY_DOMAIN}`;
   let origin = window.location.origin;
   if (origin.includes("ais-dev-")) {
     origin = origin.replace("ais-dev-", "ais-pre-");
@@ -12,12 +11,12 @@ export function getShareableOrigin(): string {
   return origin;
 }
 
-/** Production platform host for labels and share / QR links (never localhost). */
+/** Production platform host for labels and share links (not localhost). */
 export function getPlatformPublicOrigin(): string {
-  const viteOrigin = getPublicAppOrigin();
-  if (!isEphemeralOrigin(viteOrigin)) return viteOrigin;
   const origin = getShareableOrigin();
-  if (isEphemeralOrigin(origin)) return `https://${PRIMARY_DOMAIN}`;
+  if (origin.includes("localhost") || origin.includes("127.0.0.1")) {
+    return `https://${PRIMARY_DOMAIN}`;
+  }
   return origin;
 }
 

@@ -152,6 +152,10 @@ export function setRootStore(data: Record<string, unknown>): void {
   }
 }
 
+export async function flushRootStore(): Promise<void> {
+  await writeChain;
+}
+
 export async function reloadQrCodesFromSupabase(): Promise<boolean> {
   if (!isSupabaseConfigured()) return false;
   try {

@@ -95,7 +95,22 @@ export default function ThankYouPageView({
   handlers = {},
   displayTitle
 }: ThankYouPageViewProps) {
+  const scrollRef = React.useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = 0;
+  }, [open, blocks, title, message, emoji]);
+
   if (!open) return null;
+
+  const safeHandlers: BlockRendererHandlers = {
+    ...handlers,
+    deferThanksUntilPaid: false,
+    paymentAmountInr: undefined,
+    onSecureCheckout: undefined
+  };
 
   const visible = filterVisibleBioBlocks(blocks?.length ? blocks : DEFAULT_BLOCKS);
   const heroTitle =
@@ -159,7 +174,7 @@ export default function ThankYouPageView({
         <span className="acn-thankyou-page__nav-spacer" aria-hidden />
       </header>
 
-      <div className="acn-thankyou-page__scroll">
+      <div className="acn-thankyou-page__scroll" ref={scrollRef}>
         <div className="acn-thankyou-page__hero">
           <div className="acn-thankyou-page__hero-art" aria-hidden>
             <span className="acn-thankyou-page__spark acn-thankyou-page__spark--1" />
@@ -182,8 +197,14 @@ export default function ThankYouPageView({
                 <BlockRenderer
                   block={block}
                   mode="live"
-                  context={{ compact: true, displayTitle }}
-                  handlers={handlers}
+                  context={{
+                    compact: true,
+                    displayTitle,
+                    // Thank You never inherits page-level Razorpay settings.
+                    paymentEnabled: false,
+                    paymentAmountInr: undefined
+                  }}
+                  handlers={safeHandlers}
                 />
               </div>
             ))}

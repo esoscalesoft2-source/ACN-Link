@@ -739,55 +739,61 @@ export default function PublicBioPageView({
         className={`acn-public-bio-page__card acn-preview-isolate acn-public-bio-page__screen ${getBioPageThemeClass(pageTheme)} w-full max-w-md`}
         style={getBioPageThemeStyle(pageTheme)}
       >
-        <CoverPhotoView
-          src={coverPhoto}
-          alt="Hero Cover"
-          settings={coverSettings}
-          variant="preview"
-          className="acn-phone-preview__cover acn-public-bio-page__cover"
-        />
+        <div
+          className="acn-phone-preview__bio-layer"
+          hidden={showThanksPage}
+          aria-hidden={showThanksPage}
+        >
+          <CoverPhotoView
+            src={coverPhoto}
+            alt="Hero Cover"
+            settings={coverSettings}
+            variant="preview"
+            className="acn-phone-preview__cover acn-public-bio-page__cover"
+          />
 
-        <div className="acn-phone-preview__body acn-public-bio-page__body">
-          <div className="acn-public-bio-page__profile">
-            <h1 className="acn-public-bio-page__title font-display">{displayTitle}</h1>
-            {displayHandle && (
-              <p className="acn-public-bio-page__handle">{displayHandle}</p>
+          <div className="acn-phone-preview__body acn-public-bio-page__body">
+            <div className="acn-public-bio-page__profile">
+              <h1 className="acn-public-bio-page__title font-display">{displayTitle}</h1>
+              {displayHandle && (
+                <p className="acn-public-bio-page__handle">{displayHandle}</p>
+              )}
+            </div>
+
+            {displayBio && <p className="acn-phone-preview__bio-text">{displayBio}</p>}
+
+            <div className="acn-phone-preview__blocks space-y-4">
+            {pageLoadStatus === "loading" && visibleBlocks.length === 0 && <BlockSkeleton />}
+            {loadError && visibleBlocks.length === 0 && (
+              <p className="acn-public-bio-page__loading rounded-2xl border p-4 text-center text-xs">
+                {loadError}
+              </p>
             )}
-          </div>
+            {pageLoadStatus === "not_found" && visibleBlocks.length === 0 && !loadError && (
+              <p className="acn-public-bio-page__loading rounded-2xl border p-4 text-center text-xs">
+                This page content is not published on the server yet. Open ACN Link → Bio Pages → Edit
+                this page → Publish, then refresh.
+              </p>
+            )}
+            {visibleBlocks.map((block) => (
+              <BlockRenderer
+                key={`${block.id}-pay-${paymentRequired ? paymentAmountInr || 0 : 0}`}
+                block={block as BlockRecord}
+                mode="live"
+                context={{
+                  displayTitle,
+                  displayHandle,
+                  paymentEnabled: paymentRequired,
+                  paymentAmountInr
+                }}
+                handlers={liveBlockHandlers}
+              />
+            ))}
+            </div>
 
-          {displayBio && <p className="acn-phone-preview__bio-text">{displayBio}</p>}
-
-          <div className="acn-phone-preview__blocks space-y-4">
-          {pageLoadStatus === "loading" && visibleBlocks.length === 0 && <BlockSkeleton />}
-          {loadError && visibleBlocks.length === 0 && (
-            <p className="acn-public-bio-page__loading rounded-2xl border p-4 text-center text-xs">
-              {loadError}
-            </p>
-          )}
-          {pageLoadStatus === "not_found" && visibleBlocks.length === 0 && !loadError && (
-            <p className="acn-public-bio-page__loading rounded-2xl border p-4 text-center text-xs">
-              This page content is not published on the server yet. Open ACN Link → Bio Pages → Edit
-              this page → Publish, then refresh.
-            </p>
-          )}
-          {visibleBlocks.map((block) => (
-            <BlockRenderer
-              key={`${block.id}-pay-${paymentRequired ? paymentAmountInr || 0 : 0}`}
-              block={block as BlockRecord}
-              mode="live"
-              context={{
-                displayTitle,
-                displayHandle,
-                paymentEnabled: paymentRequired,
-                paymentAmountInr
-              }}
-              handlers={liveBlockHandlers}
-            />
-          ))}
-          </div>
-
-          <div className="acn-bio-page-footer acn-phone-preview__footer">
-            <span>Powered by ACN Link</span>
+            <div className="acn-bio-page-footer acn-phone-preview__footer">
+              <span>Powered by ACN Link</span>
+            </div>
           </div>
         </div>
 
@@ -820,7 +826,12 @@ export default function PublicBioPageView({
           })}
           onBack={() => setShowThanksPage(false)}
           displayTitle={displayTitle}
-          handlers={liveBlockHandlers}
+          handlers={{
+            ...liveBlockHandlers,
+            deferThanksUntilPaid: false,
+            paymentAmountInr: undefined,
+            onSecureCheckout: undefined
+          }}
         />
 
         {/* Interactive Simulator Toast Overlay */}

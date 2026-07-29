@@ -5765,9 +5765,36 @@ body.acn-editor-open header.acn-glass-header {
   overflow: hidden !important;
 }
 
+/* Editor phone preview: lock outer scroll while Thank You is open so bio/Pay
+   blocks cannot scroll out from underneath the overlay. */
+.acn-phone-preview__screen.acn-phone-preview__screen--thanks-open,
+.acn-phone-preview--samsung .acn-phone-preview__screen.acn-phone-preview__screen--thanks-open,
+.acn-phone-preview--samsung .acn-bio-page-theme-light.acn-phone-preview__screen.acn-phone-preview__screen--thanks-open,
+.acn-phone-preview--samsung .acn-bio-page-theme-dark.acn-phone-preview__screen.acn-phone-preview__screen--thanks-open {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+  background: #ffffff !important;
+}
+
+.acn-phone-preview__bio-layer[hidden],
+.acn-phone-preview__bio-layer[aria-hidden="true"] {
+  display: none !important;
+}
+
 .acn-public-bio-page__screen > .acn-thankyou-page {
   position: absolute;
   inset: 0;
+  border-radius: inherit;
+}
+
+.acn-phone-preview__screen > .acn-thankyou-page {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  max-height: 100%;
   border-radius: inherit;
 }
 
@@ -6053,12 +6080,51 @@ body.acn-editor-open header.acn-glass-header {
   background: transparent;
   border: none;
   padding: 0.15rem 0.25rem;
+  overflow: visible;
 }
 
 .acn-thankyou-page__block[data-block-type="Text"] .acn-phone-preview__block-text {
   color: #6b7280 !important;
+  background: transparent !important;
   font-size: 0.875rem !important;
   line-height: 1.5;
+  padding: 0.25rem 0.35rem !important;
+  border-radius: 0 !important;
+}
+
+/* Theme tokens on the phone screen must not recolor Thank You body copy. */
+.acn-phone-preview__screen .acn-thankyou-page .acn-phone-preview__block-text,
+.acn-phone-preview__screen.acn-bio-page-theme-light .acn-thankyou-page .acn-phone-preview__block-text,
+.acn-phone-preview__screen.acn-bio-page-theme-dark .acn-thankyou-page .acn-phone-preview__block-text,
+.acn-preview-isolate .acn-thankyou-page .acn-phone-preview__block-text,
+.acn-preview-isolate .acn-thankyou-page .acn-phone-preview__block-heading {
+  background: transparent !important;
+  color: #6b7280 !important;
+  box-shadow: none !important;
+}
+
+.acn-thankyou-page__block {
+  overflow: visible;
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.acn-thankyou-page__block[data-block-type="Form"],
+.acn-thankyou-page__block[data-block-type="Smart Form"],
+.acn-thankyou-page__block[data-block-type="Coupon"],
+.acn-thankyou-page__block[data-block-type="Shop"],
+.acn-thankyou-page__block[data-block-type="Socials"] {
+  overflow: visible;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+/* Inner Thank You scroll must remain interactive while outer phone scroll is locked. */
+.acn-phone-preview__screen--thanks-open .acn-thankyou-page__scroll {
+  touch-action: pan-y;
+  overscroll-behavior: contain;
 }
 
 .acn-thankyou-page__footer {

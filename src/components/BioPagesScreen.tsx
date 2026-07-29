@@ -1410,6 +1410,12 @@ export default function BioPagesScreen({
     if (editorTab === "Thank You") setShowThanksPage(true);
   }, [editorTab]);
 
+  React.useEffect(() => {
+    if (!showThanksPage) return;
+    const screen = phonePreviewScreenRef.current;
+    if (screen) screen.scrollTop = 0;
+  }, [showThanksPage, thankYouBlocks, thankYouTitle, thankYouMessage, thankYouEmoji]);
+
   const handlePreviewThemeChange = (theme: BioPagePreviewTheme) => {
     setEditorPageTheme(theme);
     syncPreviewStorage(theme);
@@ -5895,15 +5901,24 @@ export default function BioPagesScreen({
 
                 <div
                   ref={phonePreviewScreenRef}
-                  onDragOver={handleDragOverTarget}
-                  onDragEnter={handleDragEnterPreview}
-                  onDragLeave={handleDragLeavePreview}
-                  onDrop={handleDropOnPreview}
+                  onDragOver={showThanksPage ? undefined : handleDragOverTarget}
+                  onDragEnter={showThanksPage ? undefined : handleDragEnterPreview}
+                  onDragLeave={showThanksPage ? undefined : handleDragLeavePreview}
+                  onDrop={showThanksPage ? undefined : handleDropOnPreview}
                         className={`acn-preview-isolate acn-phone-preview__screen ${getBioPageThemeClass(editorPageTheme)} no-scrollbar transition-all duration-200 ${
-                          isDraggingOverPreview ? "acn-phone-preview__screen--drop-target" : ""
-                        }`}
+                          isDraggingOverPreview && !showThanksPage
+                            ? "acn-phone-preview__screen--drop-target"
+                            : ""
+                        } ${showThanksPage ? "acn-phone-preview__screen--thanks-open" : ""}`}
                         style={getBioPageThemeStyle(editorPageTheme)}
                       >
+                        {/* Bio page stays mounted but hidden while Thank You is open —
+                            otherwise scrolling the phone reveals Pay/Form blocks under the overlay. */}
+                        <div
+                          className="acn-phone-preview__bio-layer"
+                          hidden={showThanksPage}
+                          aria-hidden={showThanksPage}
+                        >
                         <CoverPhotoView
                           src={
                             editorCoverPhoto ||
@@ -5987,6 +6002,7 @@ export default function BioPagesScreen({
                     <span>Powered by ACN Link</span>
                   </div>
                   </div>
+                        </div>
 
                   <ThankYouPageView
                     open={showThanksPage}
@@ -6000,7 +6016,13 @@ export default function BioPagesScreen({
                     }}
                     compact
                     displayTitle={editorTitle}
-                    handlers={previewBlockHandlers}
+                    handlers={{
+                      ...previewBlockHandlers,
+                      // Thank You is a post-submit screen — never show/run page Pay checkout here.
+                      deferThanksUntilPaid: false,
+                      paymentAmountInr: undefined,
+                      onSecureCheckout: undefined
+                    }}
                   />
 
                   {/* Interactive Simulator Toast Overlay */}

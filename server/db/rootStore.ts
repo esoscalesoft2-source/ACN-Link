@@ -213,6 +213,14 @@ export async function initRootStore(): Promise<void> {
 
   // Never block startup on full normalized migration.
   scheduleNormalizedSync();
+
+  // Login reads root.auth.users — recover accounts from auth_users if that bucket is empty.
+  try {
+    const { hydrateAuthUsersFromSupabase } = await import("../auth/store");
+    await hydrateAuthUsersFromSupabase();
+  } catch (error) {
+    console.error("Auth user hydrate on startup failed:", error);
+  }
 }
 
 export function getRootStore(): Record<string, unknown> {

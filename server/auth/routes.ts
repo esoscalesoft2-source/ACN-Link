@@ -15,6 +15,9 @@ import {
   audit,
   checkRateLimit,
   createId,
+  DEMO_EMAIL,
+  DEMO_PASSWORD,
+  fetchAuthUserByEmailFromSupabase,
   findUserByEmail,
   findUserById,
   readAuthStore,
@@ -275,8 +278,8 @@ export function createAuthRouter() {
       emailVerificationRequired: requireEmailVerification(),
       allowDevOAuth: allowDevOAuth(),
       demoHint:
-        process.env.NODE_ENV !== "production" && process.env.AUTH_SEED_DEMO !== "false"
-          ? { email: "acnlink@gmail.com", password: "acnlink1234" }
+        process.env.AUTH_SEED_DEMO !== "false"
+          ? { email: DEMO_EMAIL, password: DEMO_PASSWORD }
           : null,
       idleTimeoutMs: IDLE_TTL_MS
     });
@@ -413,7 +416,7 @@ export function createAuthRouter() {
     }
   });
 
-  router.post("/login", (req, res) => {
+  router.post("/login", async (req, res) => {
     try {
       const store = readAuthStore();
       const email = normalizeEmail(String(req.body?.email || ""));
@@ -452,7 +455,19 @@ export function createAuthRouter() {
         return;
       }
 
-      const user = findUserByEmail(store, email);
+      let user = findUserByEmail(store, email);
+      if (!user || !user.passwordHash || !user.passwordSalt) {
+        // Production hosts often have empty root.auth.users after redeploy —
+        // recover the account from Supabase auth_users, then continue.
+        const recovered = await fetchAuthUserByEmailFromSupabase(email);
+        if (recovered) {
+          user = recovered;
+          // Refresh store reference after recovery write.
+          Object.assign(store, readAuthStore());
+          user = findUserByEmail(store, email) || recovered;
+        }
+      }
+
       if (!user || !user.passwordHash || !user.passwordSalt) {
         recordLogin(store, { userId: null, email, success: false, reason: "not_found", ip, userAgent: ua });
         writeAuthStore(store);

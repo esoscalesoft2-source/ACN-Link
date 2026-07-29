@@ -37,7 +37,7 @@ async function domainFetch<T>(path: string, init: RequestInit = {}, retry = true
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
   const controller = new AbortController();
-  const timeoutMs = 12_000;
+  const timeoutMs = 20_000;
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
   if (init.signal) {
     if (init.signal.aborted) controller.abort();
@@ -54,7 +54,11 @@ async function domainFetch<T>(path: string, init: RequestInit = {}, retry = true
     });
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") {
-      throw new DomainApiError("Domain service timed out. Try again in a moment.", 0, "TIMEOUT");
+      throw new DomainApiError(
+        "Domain service timed out (database busy). Tap Retry — if it keeps failing, Supabase is slow.",
+        0,
+        "TIMEOUT"
+      );
     }
     throw new DomainApiError("Could not reach the domain service.", 0, "NETWORK_ERROR");
   } finally {

@@ -125,8 +125,10 @@ function proxySuffix(providerId: string): string {
 
 async function buildSetupHint(
   record: CustomDomainRecord,
-  saasConfigured: boolean
+  saasConfigured: boolean,
+  options?: { detectProvider?: boolean }
 ): Promise<{ hint: string | null; dnsProviderName: string | null; dnsProviderId: string | null }> {
+  const detectProvider = options?.detectProvider !== false;
   if (record.status === "Verified") {
     return {
       hint: "Your domain is live with HTTPS. Share this address with visitors.",
@@ -163,19 +165,37 @@ async function buildSetupHint(
     };
   }
   if (record.status === "Pending DNS") {
-    const detected = await getDnsProviderForDomain(record.domainName);
-    const label = providerDnsLabel(detected);
     const kind = getCustomDomainKind(record.domainName);
     const aTarget = resolveCustomDomainATarget();
     const cnameTarget = resolveCnameTarget();
+
+    let detected: DnsProviderDetection = {
+      domainName: record.domainName,
+      providerId: "unknown",
+      providerName: "DNS Provider",
+      nameservers: []
+    };
+    if (record.dnsProviderId) {
+      const capability = getDnsProvider(record.dnsProviderId).capability;
+      detected = {
+        domainName: record.domainName,
+        providerId: capability.id,
+        providerName: capability.name,
+        nameservers: []
+      };
+    } else if (detectProvider) {
+      detected = await getDnsProviderForDomain(record.domainName);
+    }
+
+    const label = providerDnsLabel(detected);
 
     if (kind === "root") {
       return {
         hint:
           `At ${label}: add A record · Name @ → ${aTarget}${proxySuffix(detected.providerId)}. ` +
           "Root domains use A records only. Then click Test Connection.",
-        dnsProviderName: detected.providerName,
-        dnsProviderId: detected.providerId
+        dnsProviderName: detected.providerName !== "DNS Provider" ? detected.providerName : null,
+        dnsProviderId: detected.providerId !== "unknown" ? detected.providerId : null
       };
     }
 
@@ -184,8 +204,8 @@ async function buildSetupHint(
       hint:
         `At ${label}: add CNAME · Name ${hostLabel} → ${cnameTarget}${proxySuffix(detected.providerId)}. ` +
         "Subdomains use CNAME only — do not add an A record. Then click Test Connection.",
-      dnsProviderName: detected.providerName,
-      dnsProviderId: detected.providerId
+      dnsProviderName: detected.providerName !== "DNS Provider" ? detected.providerName : null,
+      dnsProviderId: detected.providerId !== "unknown" ? detected.providerId : null
     };
   }
   return { hint: record.errorMessage, dnsProviderName: null, dnsProviderId: null };
@@ -222,11 +242,16 @@ function sanitizeStoredErrorMessage(domainName: string, message: string | null):
   return message;
 }
 
-async function publicDomain(record: CustomDomainRecord) {
+async function publicDomain(
+  record: CustomDomainRecord,
+  options?: { detectProvider?: boolean }
+) {
   const saasConfigured = isCloudflareForSaasConfigured();
   const kind = getCustomDomainKind(record.domainName);
   const isSubdomain = kind === "subdomain";
-  const { hint, dnsProviderName, dnsProviderId } = await buildSetupHint(record, saasConfigured);
+  const { hint, dnsProviderName, dnsProviderId } = await buildSetupHint(record, saasConfigured, {
+    detectProvider: options?.detectProvider
+  });
 
   return {
     id: record.id,
@@ -700,10 +725,18 @@ export function createDomainsRouter() {
 
   router.get("/", async (req: AuthedRequest, res: Response) => {
     try {
-      const rows = await listDomains(req.authUser!.id);
-      res.json({ domains: await Promise.all(rows.map(publicDomain)) });
+      const rows = await Promise.race([
+        listDomains(req.authUser!.id),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Domain database timed out. Retry in a moment.")), 8_000)
+        )
+      ]);
+      // Skip live DNS provider detection on list — it was blocking Custom Domains for 12s+.
+      res.json({
+        domains: await Promise.all(rows.map((row) => publicDomain(row, { detectProvider: false })))
+      });
     } catch (error) {
-      res.status(500).json({ error: errorMessage(error), code: "DOMAIN_LIST_FAILED" });
+      res.status(504).json({ error: errorMessage(error), code: "DOMAIN_LIST_FAILED" });
     }
   });
 

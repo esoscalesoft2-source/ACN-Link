@@ -11,6 +11,7 @@ import {
   filterVisibleBioBlocks
 } from "../lib/bioBlocks";
 import { apiUrl } from "../lib/apiBase";
+import { openRazorpayCheckoutAndVerify, pageRequiresPayment } from "../lib/razorpayCheckout";
 import BlockRenderer, { type BlockRendererHandlers } from "./bio/BlockRenderer";
 import CoverPhotoView from "./bio/CoverPhotoView";
 import ThankYouPageView, {
@@ -89,12 +90,7 @@ function readLocalPageData(pageId: string, pageSlug: string) {
   let loadedBlocks: Block[] | null = null;
   let loadedDetails: BioPagePreviewDetails | null = null;
 
-  const cached = readCachedPage(pageId);
-  if (cached?.blocks?.length) {
-    loadedBlocks = cached.blocks;
-    loadedDetails = cached.details ?? null;
-  }
-
+  // Prefer durable localStorage (written on Publish) over session cache.
   const savedBlocks =
     localStorage.getItem(`biolink_blocks_${pageId}`) ||
     localStorage.getItem(`biolink_blocks_${pageSlug}`);
@@ -120,7 +116,35 @@ function readLocalPageData(pageId: string, pageSlug: string) {
     }
   }
 
+  if (!loadedBlocks?.length || !loadedDetails) {
+    const cached = readCachedPage(pageId);
+    if (!loadedBlocks?.length && cached?.blocks?.length) {
+      loadedBlocks = cached.blocks;
+    }
+    if (!loadedDetails && cached?.details) {
+      loadedDetails = cached.details;
+    }
+  }
+
   return { loadedBlocks, loadedDetails };
+}
+
+function mergePaymentDetails(
+  primary: BioPagePreviewDetails | null | undefined,
+  fallback: BioPagePreviewDetails | null | undefined
+): BioPagePreviewDetails | null {
+  if (!primary && !fallback) return null;
+  if (!primary) return fallback ?? null;
+  if (!fallback) return primary;
+  const primaryPay = pageRequiresPayment(primary);
+  const fallbackPay = pageRequiresPayment(fallback);
+  if (primaryPay || !fallbackPay) return primary;
+  return {
+    ...primary,
+    paymentEnabled: true,
+    paymentAmountInr: fallback.paymentAmountInr,
+    paymentDescription: fallback.paymentDescription
+  };
 }
 
 function getInitialPageState(pageId: string, pageSlug: string, mode: "preview" | "live") {
@@ -210,6 +234,11 @@ export default function PublicBioPageView({
 
   useEffect(() => {
     setDisplayPageId(pageId);
+    try {
+      sessionStorage.removeItem(`acn_public_page_${pageId}`);
+    } catch {
+      /* ignore */
+    }
   }, [pageId]);
 
   useEffect(() => {
@@ -324,17 +353,22 @@ export default function PublicBioPageView({
 
   const applyServerDocument = (
     data: { blocks?: Block[]; details?: BioPagePreviewDetails; updatedAt?: string },
-    localUpdatedAt: string | null
+    localUpdatedAt: string | null,
+    localDetails?: BioPagePreviewDetails | null
   ) => {
     const serverBlocks = Array.isArray(data.blocks) ? data.blocks : null;
-    const serverDetails = data.details ?? null;
+    const serverDetails = mergePaymentDetails(data.details ?? null, localDetails ?? null);
     const serverUpdatedAt = typeof data.updatedAt === "string" ? data.updatedAt : null;
     const localIsNewer =
       localUpdatedAt &&
       serverUpdatedAt &&
       new Date(localUpdatedAt).getTime() > new Date(serverUpdatedAt).getTime();
 
-    if (mode !== "live" && localIsNewer) {
+    const serverHasPayment = pageRequiresPayment(data.details ?? null);
+    const localHasPayment = pageRequiresPayment(localDetails ?? null);
+
+    // Never keep a stale local doc that hides Pay UI when the server already has payment on.
+    if (mode !== "live" && localIsNewer && !(serverHasPayment && !localHasPayment)) {
       return false;
     }
     if (serverBlocks) {
@@ -363,7 +397,8 @@ export default function PublicBioPageView({
 
     const res = await fetch(apiUrl(`/api/page/${displayPageId}`), {
       signal,
-      headers
+      headers,
+      cache: "no-store"
     });
     if (res.status === 304) return { notModified: true as const };
     if (!res.ok) return null;
@@ -408,11 +443,28 @@ export default function PublicBioPageView({
         }
 
         if (data.notModified) {
+          // 304 has no body — if Pay flags are missing locally, force a fresh fetch once.
+          if (!pageRequiresPayment(loadedDetails)) {
+            pageEtagRef.current = null;
+            const fresh = await fetch(apiUrl(`/api/page/${displayPageId}`), {
+              cache: "no-store",
+              headers: { Accept: "application/json" }
+            });
+            if (fresh.ok) {
+              const body = (await fresh.json()) as {
+                blocks?: Block[];
+                details?: BioPagePreviewDetails;
+                updatedAt?: string;
+              };
+              const appliedFresh = applyServerDocument(body, localUpdatedAt, loadedDetails);
+              if (appliedFresh) return;
+            }
+          }
           if (loadedBlocks?.length) setPageLoadStatus("ready");
           return;
         }
 
-        const applied = applyServerDocument(data, localUpdatedAt);
+        const applied = applyServerDocument(data, localUpdatedAt, loadedDetails);
         if (applied) return;
 
         if (mode !== "live" && loadedBlocks?.length) {
@@ -463,7 +515,8 @@ export default function PublicBioPageView({
       try {
         const data = await fetchServerPageDocument();
         if (!data || data.notModified) return;
-        applyServerDocument(data, null);
+        const local = readLocalPageDataForPage();
+        applyServerDocument(data, null, local.loadedDetails);
       } catch {
         /* ignore transient poll errors */
       }
@@ -511,6 +564,17 @@ export default function PublicBioPageView({
     "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&q=80&w=800";
   const coverSettings = normalizeCoverSettings(customDetails?.coverSettings);
   const visibleBlocks = filterVisibleBioBlocks(blocks);
+  const paymentRequired = pageRequiresPayment(customDetails);
+  const paymentAmountInr = paymentRequired
+    ? Math.round(Number(customDetails?.paymentAmountInr) || 0)
+    : undefined;
+
+  const openThanksAfterSubmit = () => {
+    // Non-payment forms only — never a dedicated URL route.
+    setShowThanksPage(true);
+    publicScreenRef.current?.scrollTo?.({ top: 0, behavior: "smooth" });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   const liveBlockHandlers: BlockRendererHandlers = {
     onToast: triggerToast,
@@ -525,10 +589,38 @@ export default function PublicBioPageView({
       setIsSpinning(false);
       setShowSpinWheel(true);
     },
+    deferThanksUntilPaid: paymentRequired,
+    paymentAmountInr,
+    paymentSuccessTitle: customDetails?.thankYouTitle || "Payment successful",
+    paymentSuccessMessage:
+      customDetails?.thankYouMessage ||
+      "Your payment was verified securely. Thank you!",
+    onSecureCheckout: async ({ blockId, fields, source }) => {
+      const blockLabel = blocks.find((entry) => entry.id === blockId)?.label || blockId;
+      trackAction("register", `${source} checkout: ${blockLabel}`);
+      const result = await openRazorpayCheckoutAndVerify({
+        pageId,
+        pageTitle: displayTitle,
+        pageSlug,
+        blockId,
+        blockLabel,
+        source,
+        fields,
+        sourceDomain: typeof window !== "undefined" ? window.location.hostname : "",
+        displayName: displayTitle || "ACN Link"
+      });
+      if (result.state === "success" && result.contactId) {
+        window.dispatchEvent(new CustomEvent("acn-contacts-updated"));
+      }
+      // Success stays inside the Form/Smart Form checkout UI — no Thank You route/overlay.
+      return result;
+    },
     onLeadSubmit: (blockId, email, destinationEmail) => {
+      if (paymentRequired) return;
       const blockLabel = blocks.find((entry) => entry.id === blockId)?.label || blockId;
       const fields = { Email: email };
       trackAction("register", `Smart Form Lead: ${blockLabel}`, { email });
+
       void fetch(apiUrl("/api/leads"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -565,6 +657,7 @@ export default function PublicBioPageView({
         });
     },
     onFormSubmit: (blockId, data, destinationEmail) => {
+      if (paymentRequired) return;
       const blockLabel = blocks.find((entry) => entry.id === blockId)?.label || blockId;
       const emailValue = Object.entries(data).find(
         ([key, value]) => key.toLowerCase().includes("email") || String(value).includes("@")
@@ -573,6 +666,7 @@ export default function PublicBioPageView({
         email: emailValue || undefined,
         name: data.Name || data.name || undefined
       });
+
       void fetch(apiUrl("/api/leads"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -628,9 +722,8 @@ export default function PublicBioPageView({
     leadEmails,
     onLeadEmailChange: (blockId, email) => setLeadEmails((prev) => ({ ...prev, [blockId]: email })),
     onShowThanks: () => {
-      setShowThanksPage(true);
-      publicScreenRef.current?.scrollTo?.({ top: 0, behavior: "smooth" });
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      if (paymentRequired) return;
+      openThanksAfterSubmit();
     }
   };
 
@@ -679,12 +772,14 @@ export default function PublicBioPageView({
           )}
           {visibleBlocks.map((block) => (
             <BlockRenderer
-              key={block.id}
+              key={`${block.id}-pay-${paymentRequired ? paymentAmountInr || 0 : 0}`}
               block={block as BlockRecord}
               mode="live"
               context={{
                 displayTitle,
-                displayHandle
+                displayHandle,
+                paymentEnabled: paymentRequired,
+                paymentAmountInr
               }}
               handlers={liveBlockHandlers}
             />

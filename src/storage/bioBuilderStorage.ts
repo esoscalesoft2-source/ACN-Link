@@ -290,6 +290,11 @@ export function buildEditorState(
     message?: string;
     emoji?: string;
     blocks?: BioEditorBlock[];
+  },
+  payment?: {
+    enabled?: boolean;
+    amountInr?: number;
+    description?: string;
   }
 ): BioEditorState {
   return {
@@ -303,7 +308,12 @@ export function buildEditorState(
       ...(coverSettings ? { coverSettings } : {}),
       ...(thankYou?.title ? { thankYouTitle: thankYou.title } : {}),
       ...(thankYou?.message ? { thankYouMessage: thankYou.message } : {}),
-      ...(thankYou?.emoji ? { thankYouEmoji: thankYou.emoji } : {})
+      ...(thankYou?.emoji ? { thankYouEmoji: thankYou.emoji } : {}),
+      ...(payment?.enabled ? { paymentEnabled: true } : {}),
+      ...(typeof payment?.amountInr === "number" && payment.amountInr > 0
+        ? { paymentAmountInr: payment.amountInr }
+        : {}),
+      ...(payment?.description ? { paymentDescription: payment.description } : {})
     },
     blocks: cloneBlocks(blocks),
     ...(thankYou?.blocks?.length ? { thankYouBlocks: cloneBlocks(thankYou.blocks) } : {})
@@ -557,6 +567,12 @@ export function persistPagePreviewLocalCache(
     localStorage.setItem(`biolink_details_${pageId}`, detailsJson);
     localStorage.setItem(`biolink_${timestampKey}_${pageId}`, updatedAt);
     persistPageSessionCache(pageId, blocks, details);
+    try {
+      // Force public Open view to reload details (Pay ₹ UI) instead of stale session cache.
+      sessionStorage.removeItem(`acn_public_page_${pageId}`);
+    } catch {
+      /* ignore */
+    }
     window.dispatchEvent(
       new CustomEvent("acn-page-preview-updated", {
         detail: { pageId, pageSlug, details, updatedAt, blocks: options?.skipBlocks ? undefined : blocks }

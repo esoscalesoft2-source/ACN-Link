@@ -107,7 +107,11 @@ export default function ThankYouPageView({
   const ctaIndex = [...afterHero]
     .map((b, i) => ({ b, i }))
     .reverse()
-    .find(({ b }) => b.type === "Button")?.i;
+    .find(({ b }) => {
+      if (b.type !== "Button") return false;
+      const raw = String(b.value || "").trim();
+      return !raw || raw === "https://";
+    })?.i;
   const ctaBlock = ctaIndex != null ? afterHero[ctaIndex] : null;
 
   const bodyBlocks = afterHero.filter((_, i) => (ctaIndex != null ? i !== ctaIndex : true));

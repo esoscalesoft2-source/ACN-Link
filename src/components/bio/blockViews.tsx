@@ -30,6 +30,38 @@ import { getLinkArrowColor, getLinkButtonStyle, isDefaultBrightLink } from "../.
 import type { BlockRendererContext, BlockRendererHandlers, BlockRenderMode } from "./blockTypes";
 import CountdownBlockView from "./CountdownBlockView";
 import SocialLinksRow from "./SocialLinksRow";
+import FormPaymentCheckout, { type FormPaymentUiState } from "./FormPaymentCheckout";
+
+function resolvePagePayment(
+  handlers: BlockRendererHandlers,
+  context: BlockRendererContext
+): { enabled: boolean; amountInr?: number } {
+  const amountFromHandlers =
+    typeof handlers.paymentAmountInr === "number" && handlers.paymentAmountInr > 0
+      ? handlers.paymentAmountInr
+      : undefined;
+  const amountFromContext =
+    typeof context.paymentAmountInr === "number" && context.paymentAmountInr > 0
+      ? context.paymentAmountInr
+      : undefined;
+  const amountInr = amountFromHandlers ?? amountFromContext;
+  const enabled =
+    handlers.deferThanksUntilPaid === true ||
+    (context.paymentEnabled === true && Boolean(amountInr));
+  return { enabled, amountInr };
+}
+
+function PaymentRequiredBadge({ amountInr, compact }: { amountInr?: number; compact?: boolean }) {
+  return (
+    <div
+      className={`rounded-xl border border-pink-200 bg-pink-50 text-pink-800 font-bold text-center ${
+        compact ? "text-[9px] px-2 py-1" : "text-[10px] px-2.5 py-1.5"
+      }`}
+    >
+      {amountInr ? `Razorpay · Pay ₹${amountInr} on submit` : "Razorpay payment required on submit"}
+    </div>
+  );
+}
 
 interface BlockViewProps {
   block: BlockRecord;
@@ -404,6 +436,32 @@ export function SmartFormBlockView({ block, mode, context, handlers }: BlockView
   const compact = context.compact;
   const leadEmail = handlers.leadEmails?.[block.id] || "";
   const destinationEmail = destinationEmailFromBlock(block);
+  const pagePayment = resolvePagePayment(handlers, context);
+  const [payState, setPayState] = useState<FormPaymentUiState>("idle");
+  const [payError, setPayError] = useState<string | undefined>();
+  const [paidAmount, setPaidAmount] = useState<number | undefined>();
+  const [pendingEmail, setPendingEmail] = useState("");
+
+  const resetCheckout = () => {
+    setPayState("idle");
+    setPayError(undefined);
+    setPaidAmount(undefined);
+  };
+
+  const runSecure = async (email: string) => {
+    if (!handlers.onSecureCheckout) return;
+    setPayState("processing");
+    setPayError(undefined);
+    const result = await handlers.onSecureCheckout({
+      blockId: block.id,
+      fields: { Email: email },
+      source: "SMART FORM",
+      destinationEmail
+    });
+    setPayState(result.state);
+    setPaidAmount(result.amountInr);
+    setPayError(result.errorMessage);
+  };
 
   const handleSubmit = () => {
     if (!leadEmail || !leadEmail.includes("@")) {
@@ -412,6 +470,41 @@ export function SmartFormBlockView({ block, mode, context, handlers }: BlockView
       );
       return;
     }
+
+    if (pagePayment.enabled && handlers.onSecureCheckout && mode === "live") {
+      const email = leadEmail;
+      setPendingEmail(email);
+      handlers.onLeadEmailChange?.(block.id, "");
+      void runSecure(email);
+      return;
+    }
+
+    if (pagePayment.enabled && mode === "preview") {
+      handlers.onLeadSubmit?.(block.id, leadEmail, destinationEmail);
+      handlers.onLeadEmailChange?.(block.id, "");
+      if (handlers.onSecureCheckout) {
+        void handlers
+          .onSecureCheckout({
+            blockId: block.id,
+            fields: { Email: leadEmail },
+            source: "SMART FORM",
+            destinationEmail
+          })
+          .then((result) => {
+            setPayState(result.state);
+            setPaidAmount(result.amountInr ?? pagePayment.amountInr);
+            setPayError(result.errorMessage);
+          });
+        return;
+      }
+      handlers.onToast?.(
+        `Payment skipped in preview${pagePayment.amountInr ? ` (₹${pagePayment.amountInr})` : ""}`
+      );
+      setPayState("success");
+      setPaidAmount(pagePayment.amountInr);
+      return;
+    }
+
     handlers.onLeadSubmit?.(block.id, leadEmail, destinationEmail);
     handlers.onLeadEmailChange?.(block.id, "");
     if (handlers.onShowThanks) {
@@ -423,12 +516,33 @@ export function SmartFormBlockView({ block, mode, context, handlers }: BlockView
     }
   };
 
+  if (payState !== "idle") {
+    return (
+      <FormPaymentCheckout
+        state={payState}
+        amountInr={paidAmount ?? pagePayment.amountInr}
+        title={handlers.paymentSuccessTitle || "Payment successful"}
+        message={handlers.paymentSuccessMessage || "Your payment was verified. Thank you!"}
+        errorMessage={payError}
+        compact={compact}
+        onRetry={() => {
+          resetCheckout();
+          if (pendingEmail) handlers.onLeadEmailChange?.(block.id, pendingEmail);
+        }}
+        onDone={resetCheckout}
+      />
+    );
+  }
+
   return (
     <div
       className={`bg-white border border-slate-200 text-left shadow-sm ${
         compact ? "p-4 rounded-2xl space-y-2" : "p-4.5 rounded-2xl space-y-2.5"
       }`}
     >
+      {pagePayment.enabled ? (
+        <PaymentRequiredBadge amountInr={pagePayment.amountInr} compact={compact} />
+      ) : null}
       <span
         className={`font-bold block text-center text-slate-700 uppercase tracking-widest font-mono ${
           compact ? "text-[9px]" : "text-[10px]"
@@ -450,11 +564,19 @@ export function SmartFormBlockView({ block, mode, context, handlers }: BlockView
         <button
           type="button"
           onClick={handleSubmit}
-          className={`w-full bg-[#7c3aed] hover:bg-[#6d28d9] text-white font-bold transition-colors shadow-md shadow-violet-500/25 ${
-            compact ? "py-1.5 rounded-lg text-xs" : "py-2 rounded-xl text-xs"
-          }`}
+          className={`w-full font-bold transition-colors shadow-md ${
+            pagePayment.enabled
+              ? "bg-[#ec4899] hover:bg-[#db2777] text-white shadow-pink-500/25"
+              : "bg-[#7c3aed] hover:bg-[#6d28d9] text-white shadow-violet-500/25"
+          } ${compact ? "py-1.5 rounded-lg text-xs" : "py-2 rounded-xl text-xs"}`}
         >
-          {mode === "preview" ? "Submit" : "Subscribe"}
+          {pagePayment.enabled
+            ? pagePayment.amountInr
+              ? `Pay ₹${pagePayment.amountInr}`
+              : "Pay & submit"
+            : mode === "preview"
+              ? "Submit"
+              : "Subscribe"}
         </button>
       </div>
     </div>
@@ -467,6 +589,7 @@ export function FormBlockView({ block, mode, context, handlers }: BlockViewProps
   const submitLabel = getFormSubmitLabel(block);
   const description = typeof block.description === "string" ? block.description.trim() : "";
   const fields = useMemo(() => getFormFields(block), [block]);
+  const pagePayment = resolvePagePayment(handlers, context);
 
   const emptyValues = useMemo(() => {
     const next: FormSubmitPayload = {};
@@ -475,6 +598,9 @@ export function FormBlockView({ block, mode, context, handlers }: BlockViewProps
   }, [fields]);
 
   const [values, setValues] = useState<FormSubmitPayload>(emptyValues);
+  const [payState, setPayState] = useState<FormPaymentUiState>("idle");
+  const [payError, setPayError] = useState<string | undefined>();
+  const [paidAmount, setPaidAmount] = useState<number | undefined>();
 
   useEffect(() => {
     setValues(emptyValues);
@@ -488,7 +614,13 @@ export function FormBlockView({ block, mode, context, handlers }: BlockViewProps
     setValues((prev) => ({ ...prev, [fieldId]: value }));
   };
 
-  const handleSubmit = () => {
+  const resetCheckout = () => {
+    setPayState("idle");
+    setPayError(undefined);
+    setPaidAmount(undefined);
+  };
+
+  const handleSubmit = async () => {
     for (const field of fields) {
       const raw = (values[field.id] || "").trim();
       if (field.required) {
@@ -528,6 +660,47 @@ export function FormBlockView({ block, mode, context, handlers }: BlockViewProps
       labeled[field.label] = value;
     }
 
+    if (pagePayment.enabled && handlers.onSecureCheckout && mode === "live") {
+      setValues(emptyValues);
+      setPayState("processing");
+      setPayError(undefined);
+      const result = await handlers.onSecureCheckout({
+        blockId: block.id,
+        fields: labeled,
+        source: "BIO FORM",
+        destinationEmail
+      });
+      setPayState(result.state);
+      setPaidAmount(result.amountInr);
+      setPayError(result.errorMessage);
+      return;
+    }
+
+    if (pagePayment.enabled && mode === "preview") {
+      if (handlers.onFormSubmit) {
+        handlers.onFormSubmit(block.id, labeled, destinationEmail);
+      }
+      setValues(emptyValues);
+      if (handlers.onSecureCheckout) {
+        const result = await handlers.onSecureCheckout({
+          blockId: block.id,
+          fields: labeled,
+          source: "BIO FORM",
+          destinationEmail
+        });
+        setPayState(result.state);
+        setPaidAmount(result.amountInr ?? pagePayment.amountInr);
+        setPayError(result.errorMessage);
+        return;
+      }
+      handlers.onToast?.(
+        `Payment skipped in preview${pagePayment.amountInr ? ` (₹${pagePayment.amountInr})` : ""}`
+      );
+      setPayState("success");
+      setPaidAmount(pagePayment.amountInr);
+      return;
+    }
+
     if (handlers.onFormSubmit) {
       handlers.onFormSubmit(block.id, labeled, destinationEmail);
     } else {
@@ -549,12 +722,30 @@ export function FormBlockView({ block, mode, context, handlers }: BlockViewProps
     }
   };
 
+  if (payState !== "idle") {
+    return (
+      <FormPaymentCheckout
+        state={payState}
+        amountInr={paidAmount ?? pagePayment.amountInr}
+        title={handlers.paymentSuccessTitle || "Payment successful"}
+        message={handlers.paymentSuccessMessage || "Your payment was verified. Thank you!"}
+        errorMessage={payError}
+        compact={compact}
+        onRetry={resetCheckout}
+        onDone={resetCheckout}
+      />
+    );
+  }
+
   return (
     <div
       className={`bg-white border border-slate-200 text-left shadow-sm ${
         compact ? "p-4 rounded-2xl space-y-2" : "p-4.5 rounded-2xl space-y-2.5"
       }`}
     >
+        {pagePayment.enabled ? (
+          <PaymentRequiredBadge amountInr={pagePayment.amountInr} compact={compact} />
+        ) : null}
         <span className={`font-bold block text-center text-slate-800 ${compact ? "text-xs" : "text-sm"}`}>
           {block.label}
         </span>
@@ -651,12 +842,18 @@ export function FormBlockView({ block, mode, context, handlers }: BlockViewProps
             })}
             <button
               type="button"
-              onClick={handleSubmit}
-              className={`w-full bg-[#7c3aed] hover:bg-[#6d28d9] text-white font-bold transition-colors shadow-md shadow-violet-500/25 ${
-                compact ? "py-1.5 rounded-lg text-xs" : "py-2 rounded-xl text-xs"
-              }`}
+              onClick={() => void handleSubmit()}
+              className={`w-full font-bold transition-colors shadow-md ${
+                pagePayment.enabled
+                  ? "bg-[#ec4899] hover:bg-[#db2777] text-white shadow-pink-500/25"
+                  : "bg-[#7c3aed] hover:bg-[#6d28d9] text-white shadow-violet-500/25"
+              } ${compact ? "py-1.5 rounded-lg text-xs" : "py-2 rounded-xl text-xs"}`}
             >
-              {submitLabel}
+              {pagePayment.enabled
+                ? pagePayment.amountInr
+                  ? `Pay ₹${pagePayment.amountInr}`
+                  : "Pay & submit"
+                : submitLabel}
             </button>
           </div>
         )}

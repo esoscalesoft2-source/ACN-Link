@@ -912,9 +912,10 @@ export default function App() {
     );
   }
 
-  // Platform preview (?previewPageId=) — content comes from /api/page (Live enforced server-side).
+  // Platform public open (?previewPageId=) — Live pages use live mode so Pay UI matches production.
   if (previewPageId) {
     const pageToPreview = pages.find((p) => p.id === previewPageId);
+    const isLive = pageToPreview?.status === "Live";
     return (
       <PublicBioPageView
         pageId={previewPageId}
@@ -923,7 +924,7 @@ export default function App() {
         pageBio={pageToPreview?.bio}
         pageCoverPhoto={pageToPreview?.coverPhoto}
         allPages={pages}
-        mode="preview"
+        mode={isLive ? "live" : "preview"}
       />
     );
   }

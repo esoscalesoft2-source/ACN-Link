@@ -30,6 +30,7 @@ import {
   parsePlatformSubdomainSlug
 } from "./server/platformSubdomains/slug";
 import { createLinkRotatorsRouter } from "./server/linkRotators/routes";
+import { createPaymentsRouter } from "./server/payments/routes";
 import {
   recordLinkRotatorClick,
   resolvePublicLinkRotator
@@ -222,6 +223,7 @@ app.use("/api/domains", createDomainsRouter());
 app.use("/api/platform-subdomains", createPlatformSubdomainsRouter());
 app.use("/api/link-rotators", createLinkRotatorsRouter());
 app.use("/api/short-links", createShortLinksRouter());
+app.use("/api/payments", createPaymentsRouter());
 
 /** Authenticated QR list — includes exact server-side scan counts. */
 app.get("/api/qr-codes", requireAuth, (_req, res) => {
@@ -695,9 +697,10 @@ app.get("/api/page/:id", async (req, res) => {
         };
 
   const updatedAt = typeof pageData.updatedAt === "string" ? pageData.updatedAt : "";
-  const etag = `"${id}-${updatedAt}"`;
+  const etag = `"${id}-${updatedAt}-pay-${String((pageData.details as any)?.paymentEnabled)}-${String((pageData.details as any)?.paymentAmountInr)}"`;
   res.set("ETag", etag);
-  res.set("Cache-Control", status === "Live" ? "public, max-age=30, stale-while-revalidate=120" : "no-store");
+  // Bio pages change often in the editor — avoid sticky browser caches hiding Pay UI.
+  res.set("Cache-Control", "no-store");
   if (req.headers["if-none-match"] === etag) {
     res.status(304).end();
     return;

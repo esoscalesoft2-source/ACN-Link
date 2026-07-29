@@ -13,24 +13,31 @@ function isPageDocument(value: unknown): value is PageDocument {
   return "blocks" in doc || "details" in doc;
 }
 
-/** Read page UI document from in-memory root, then bio_page_documents (durable). */
-export async function getPageDocument(pageId: string): Promise<PageDocument | null> {
-  const id = String(pageId || "").trim();
-  if (!id) return null;
+function asPageDocument(value: unknown): PageDocument | null {
+  if (!isPageDocument(value)) return null;
+  return {
+    blocks: Array.isArray(value.blocks) ? value.blocks : [],
+    details:
+      value.details && typeof value.details === "object" && !Array.isArray(value.details)
+        ? (value.details as Record<string, unknown>)
+        : {},
+    updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : undefined
+  };
+}
 
-  const store = getRootStore();
-  const local = store[id];
-  if (isPageDocument(local)) {
-    return {
-      blocks: Array.isArray(local.blocks) ? local.blocks : [],
-      details:
-        local.details && typeof local.details === "object" && !Array.isArray(local.details)
-          ? (local.details as Record<string, unknown>)
-          : {},
-      updatedAt: typeof local.updatedAt === "string" ? local.updatedAt : undefined
-    };
-  }
+function updatedAtMs(value?: string): number {
+  if (!value) return 0;
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
 
+function pickNewerDocument(a: PageDocument | null, b: PageDocument | null): PageDocument | null {
+  if (!a) return b;
+  if (!b) return a;
+  return updatedAtMs(b.updatedAt) > updatedAtMs(a.updatedAt) ? b : a;
+}
+
+async function fetchSupabasePageDocument(pageId: string): Promise<PageDocument | null> {
   if (!isSupabaseConfigured()) return null;
   const supabase = getSupabase();
   if (!supabase) return null;
@@ -39,11 +46,11 @@ export async function getPageDocument(pageId: string): Promise<PageDocument | nu
     const { data, error } = await supabase
       .from("bio_page_documents")
       .select("blocks, details, updated_at")
-      .eq("page_id", id)
+      .eq("page_id", pageId)
       .maybeSingle();
     if (error || !data) return null;
 
-    const doc: PageDocument = {
+    return {
       blocks: Array.isArray(data.blocks) ? data.blocks : [],
       details:
         data.details && typeof data.details === "object" && !Array.isArray(data.details)
@@ -51,14 +58,38 @@ export async function getPageDocument(pageId: string): Promise<PageDocument | nu
           : {},
       updatedAt: typeof data.updated_at === "string" ? data.updated_at : undefined
     };
-
-    // Hydrate memory only — avoid rewriting the giant root blob on every public visit.
-    store[id] = doc;
-    return doc;
   } catch (error) {
-    console.error("getPageDocument failed:", error);
+    console.error("fetchSupabasePageDocument failed:", error);
     return null;
   }
+}
+
+/**
+ * Read page UI document.
+ * Prefer the newest copy between in-memory root and Supabase so custom domains
+ * (production) pick up publishes done from localhost / another instance.
+ */
+export async function getPageDocument(pageId: string): Promise<PageDocument | null> {
+  const id = String(pageId || "").trim();
+  if (!id) return null;
+
+  const store = getRootStore();
+  const memoryDoc = asPageDocument(store[id]);
+  const remoteDoc = await fetchSupabasePageDocument(id);
+  const winner = pickNewerDocument(memoryDoc, remoteDoc);
+
+  if (!winner) return null;
+
+  // Keep memory hot with the newest document for subsequent requests on this instance.
+  if (
+    !memoryDoc ||
+    updatedAtMs(winner.updatedAt) > updatedAtMs(memoryDoc.updatedAt) ||
+    winner === remoteDoc
+  ) {
+    store[id] = winner;
+  }
+
+  return winner;
 }
 
 /** Persist page document to root + typed table (fast path for public domains). */
@@ -81,20 +112,16 @@ export async function savePageDocument(
   if (isSupabaseConfigured()) {
     const supabase = getSupabase();
     if (supabase) {
-      void supabase
-        .from("bio_page_documents")
-        .upsert(
-          {
-            page_id: id,
-            blocks: doc.blocks,
-            details: doc.details,
-            updated_at: doc.updatedAt
-          },
-          { onConflict: "page_id" }
-        )
-        .then(({ error }) => {
-          if (error) console.error("bio_page_documents upsert failed:", error.message);
-        });
+      const { error } = await supabase.from("bio_page_documents").upsert(
+        {
+          page_id: id,
+          blocks: doc.blocks,
+          details: doc.details,
+          updated_at: doc.updatedAt
+        },
+        { onConflict: "page_id" }
+      );
+      if (error) console.error("bio_page_documents upsert failed:", error.message);
     }
   }
 

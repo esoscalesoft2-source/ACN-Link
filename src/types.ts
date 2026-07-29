@@ -402,6 +402,11 @@ export interface BioPagePreviewDetails {
   thankYouMessage?: string;
   thankYouEmoji?: string;
   thankYouBlocks?: BioEditorBlock[];
+  /** Platform Razorpay: charge fixed page amount after Form / Smart Form submit. */
+  paymentEnabled?: boolean;
+  /** Amount in INR rupees (e.g. 499). Server converts to paise. */
+  paymentAmountInr?: number;
+  paymentDescription?: string;
 }
 
 /** Full restorable editor state for drafts and templates */
@@ -417,6 +422,9 @@ export interface BioEditorState {
     thankYouTitle?: string;
     thankYouMessage?: string;
     thankYouEmoji?: string;
+    paymentEnabled?: boolean;
+    paymentAmountInr?: number;
+    paymentDescription?: string;
   };
   blocks: BioEditorBlock[];
   thankYouBlocks?: BioEditorBlock[];

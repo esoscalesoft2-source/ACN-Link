@@ -689,6 +689,9 @@ export default function BioPagesScreen({
   const [thankYouMessage, setThankYouMessage] = useState(DEFAULT_THANK_YOU_MESSAGE);
   const [thankYouEmoji, setThankYouEmoji] = useState("✓");
   const [thankYouBlocks, setThankYouBlocks] = useState(() => createDefaultThankYouBlocks());
+  const [paymentEnabled, setPaymentEnabled] = useState(false);
+  const [paymentAmountInr, setPaymentAmountInr] = useState(499);
+  const [paymentDescription, setPaymentDescription] = useState("Bio page form payment");
   const [showSpinWheel, setShowSpinWheel] = useState(false);
   const [activeSpinBlockId, setActiveSpinBlockId] = useState<string | null>(null);
   const [isSpinning, setIsSpinning] = useState(false);
@@ -704,6 +707,22 @@ export default function BioPagesScreen({
 
   // Dynamic blocks state for the editor
   const [editorBlocks, setEditorBlocks] = useState<Array<{ id: string; type: string; label: string; value: string }>>([]);
+
+  /** Thank You tab reuses the same Block Library / accordion editor as Edit. */
+  const editingThankYouPage = editorTab === "Thank You";
+  type EditorBlockRow = { id: string; type: string; label: string; value: string; [key: string]: unknown };
+  const canvasBlocks = (editingThankYouPage ? thankYouBlocks : editorBlocks) as EditorBlockRow[];
+  const setCanvasBlocks = (action: React.SetStateAction<EditorBlockRow[]>) => {
+    if (editingThankYouPage) {
+      setThankYouBlocks((prev) => {
+        const base = prev as EditorBlockRow[];
+        const next = typeof action === "function" ? action(base) : action;
+        return next as BlockRecord[];
+      });
+      return;
+    }
+    setEditorBlocks(action as React.SetStateAction<typeof editorBlocks>);
+  };
 
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
   const [editingBlockLabel, setEditingBlockLabel] = useState<string>("");
@@ -745,7 +764,7 @@ export default function BioPagesScreen({
     targetIndex: number,
     position: "before" | "after"
   ) => {
-    setEditorBlocks((prev) => {
+    setCanvasBlocks((prev) => {
       if (sourceIndex < 0 || sourceIndex >= prev.length) return prev;
       const copy = [...prev];
       const [removed] = copy.splice(sourceIndex, 1);
@@ -801,7 +820,7 @@ export default function BioPagesScreen({
     e.preventDefault();
     if (!isAccordionReorderDrag && draggedBlockIndex === null) return;
     e.dataTransfer.dropEffect = "move";
-    if (editorBlocks.length === 0) return;
+    if (canvasBlocks.length === 0) return;
 
     const listEl = accordionListRef.current;
     if (!listEl) return;
@@ -812,7 +831,7 @@ export default function BioPagesScreen({
 
     const lastRect = lastBlock.getBoundingClientRect();
     if (e.clientY > lastRect.bottom - 8) {
-      setDropTarget({ index: editorBlocks.length - 1, position: "after" });
+      setDropTarget({ index: canvasBlocks.length - 1, position: "after" });
     }
   };
 
@@ -868,7 +887,7 @@ export default function BioPagesScreen({
         resetAccordionDragState();
         return;
       }
-      const insertIndex = getInsertIndex(targetIndex, position, editorBlocks.length);
+      const insertIndex = getInsertIndex(targetIndex, position, canvasBlocks.length);
       handleAddBlock(blockType, insertIndex);
       triggerToast(`✨ Added ${blockType} at position ${insertIndex + 1}`);
       setActiveDraggedBlockType(null);
@@ -881,11 +900,11 @@ export default function BioPagesScreen({
       const wouldStay =
         (position === "before" && sourceIndex === targetIndex) ||
         (position === "after" && sourceIndex === targetIndex + 1) ||
-        (position === "after" && sourceIndex === targetIndex && targetIndex === editorBlocks.length - 1);
+        (position === "after" && sourceIndex === targetIndex && targetIndex === canvasBlocks.length - 1);
 
       if (!wouldStay) {
         reorderEditorBlocks(sourceIndex, targetIndex, position);
-        triggerToast(`🔄 Moved to position ${getDropDisplayPosition({ index: targetIndex, position }, editorBlocks.length)}`);
+        triggerToast(`🔄 Moved to position ${getDropDisplayPosition({ index: targetIndex, position }, canvasBlocks.length)}`);
       }
     }
     resetAccordionDragState();
@@ -935,7 +954,7 @@ export default function BioPagesScreen({
   };
 
   const handleUpdateBlockField = (blockId: string, field: string, value: any) => {
-    setEditorBlocks(prev => prev.map(b => b.id === blockId ? { ...b, [field]: value } : b));
+    setCanvasBlocks((prev) => prev.map((b) => (b.id === blockId ? { ...b, [field]: value } : b)));
   };
 
   const handleCoverPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1021,9 +1040,9 @@ export default function BioPagesScreen({
       const sourceIndex = parseInt(sourceIndexStr, 10);
       if (!isNaN(sourceIndex) && dropTarget) {
         reorderEditorBlocks(sourceIndex, dropTarget.index, dropTarget.position);
-        triggerToast(`🔄 Moved to position ${getDropDisplayPosition(dropTarget, editorBlocks.length)}`);
-      } else if (!isNaN(sourceIndex) && sourceIndex !== editorBlocks.length - 1) {
-        setEditorBlocks((prev) => {
+        triggerToast(`🔄 Moved to position ${getDropDisplayPosition(dropTarget, canvasBlocks.length)}`);
+      } else if (!isNaN(sourceIndex) && sourceIndex !== canvasBlocks.length - 1) {
+        setCanvasBlocks((prev) => {
           const copy = [...prev];
           const [removed] = copy.splice(sourceIndex, 1);
           copy.push(removed);
@@ -1168,6 +1187,11 @@ export default function BioPagesScreen({
         message: thankYouMessage,
         emoji: thankYouEmoji,
         blocks: thankYouBlocks as BioEditorBlock[]
+      },
+      {
+        enabled: paymentEnabled,
+        amountInr: paymentAmountInr,
+        description: paymentDescription
       }
     );
 
@@ -1175,6 +1199,10 @@ export default function BioPagesScreen({
     const linkedTpl = linkedTemplateId
       ? savedTemplates.find((tpl) => tpl.id === linkedTemplateId)
       : null;
+    const amount =
+      typeof paymentAmountInr === "number" && Number.isFinite(paymentAmountInr) && paymentAmountInr > 0
+        ? Math.round(paymentAmountInr)
+        : 0;
     return {
       title: editorTitle,
       bio: editorBio,
@@ -1187,7 +1215,18 @@ export default function BioPagesScreen({
       thankYouTitle,
       thankYouMessage,
       thankYouEmoji,
-      thankYouBlocks: thankYouBlocks as BioEditorBlock[]
+      thankYouBlocks: thankYouBlocks as BioEditorBlock[],
+      // Always persist explicit flags so public pages don't keep stale payment OFF/ON.
+      paymentEnabled: Boolean(paymentEnabled && amount > 0),
+      ...(paymentEnabled && amount > 0
+        ? {
+            paymentAmountInr: amount,
+            paymentDescription: (paymentDescription || "Bio page form payment").trim()
+          }
+        : {
+            paymentAmountInr: 0,
+            paymentDescription: ""
+          })
     };
   };
 
@@ -1205,8 +1244,8 @@ export default function BioPagesScreen({
   const handlePlaceholder = suggestedHandlePlaceholder(editorTitle);
   const phonePreviewScreenRef = useRef<HTMLDivElement | null>(null);
   const activeSpinBlock = activeSpinBlockId
-    ? editorBlocks.find((block) => block.id === activeSpinBlockId)
-    : editorBlocks.find((block) => block.type === "Link Spin");
+    ? canvasBlocks.find((block) => block.id === activeSpinBlockId)
+    : canvasBlocks.find((block) => block.type === "Link Spin");
   const spinCouponCode = activeSpinBlock
     ? getLinkSpinCouponCode(activeSpinBlock as BlockRecord)
     : "LUCKYSPIN20";
@@ -1224,12 +1263,12 @@ export default function BioPagesScreen({
       setShowSpinWheel(true);
     },
     leadEmails: Object.fromEntries(
-      editorBlocks.filter((block) => block.type === "Smart Form").map((block) => [block.id, simulatorLeadEmail])
+      canvasBlocks.filter((block) => block.type === "Smart Form").map((block) => [block.id, simulatorLeadEmail])
     ),
     onLeadEmailChange: (_blockId, email) => setSimulatorLeadEmail(email),
     onLeadSubmit: (blockId, email) => {
       if (!selectedEditPage) return;
-      const blockLabel = editorBlocks.find((entry) => entry.id === blockId)?.label || blockId;
+      const blockLabel = canvasBlocks.find((entry) => entry.id === blockId)?.label || blockId;
       const meta = leadCaptureMeta();
       void fetch(apiUrl("/api/leads"), {
         method: "POST",
@@ -1266,7 +1305,7 @@ export default function BioPagesScreen({
     },
     onFormSubmit: (blockId, data) => {
       if (!selectedEditPage) return;
-      const blockLabel = editorBlocks.find((entry) => entry.id === blockId)?.label || blockId;
+      const blockLabel = canvasBlocks.find((entry) => entry.id === blockId)?.label || blockId;
       const meta = leadCaptureMeta();
       void fetch(apiUrl("/api/leads"), {
         method: "POST",
@@ -1301,7 +1340,19 @@ export default function BioPagesScreen({
           triggerSimulatorToast("Could not save form lead to Contacts yet.");
         });
     },
+    deferThanksUntilPaid: paymentEnabled && paymentAmountInr > 0,
+    paymentAmountInr: paymentEnabled ? paymentAmountInr : undefined,
+    paymentSuccessTitle: thankYouTitle || "Payment successful",
+    paymentSuccessMessage: thankYouMessage || "Your payment was verified. Thank you!",
+    onSecureCheckout: async () => {
+      // Editor preview never charges — success UI stays on the form block (no route).
+      triggerSimulatorToast(
+        `Payment skipped in preview${paymentAmountInr ? ` (₹${paymentAmountInr})` : ""}`
+      );
+      return { state: "success" as const, amountInr: paymentAmountInr };
+    },
     onShowThanks: () => {
+      if (paymentEnabled && paymentAmountInr > 0) return;
       triggerSimulatorToast("✨ Opening Thank You page");
       setShowThanksPage(true);
     }
@@ -1348,6 +1399,9 @@ export default function BioPagesScreen({
     thankYouMessage,
     thankYouEmoji,
     thankYouBlocks,
+    paymentEnabled,
+    paymentAmountInr,
+    paymentDescription,
     selectedEditPage?.id,
     showPublishSuccess
   ]);
@@ -1404,6 +1458,22 @@ export default function BioPagesScreen({
     setThankYouMessage(message);
     setThankYouEmoji(emoji);
     setThankYouBlocks(cloneBlocks(blocks as BioEditorBlock[]) as BlockRecord[]);
+
+    const payEnabled =
+      state?.pageMeta.paymentEnabled === true || details?.paymentEnabled === true;
+    const amountRaw =
+      state?.pageMeta.paymentAmountInr ?? details?.paymentAmountInr ?? 499;
+    const amount =
+      typeof amountRaw === "number" && Number.isFinite(amountRaw) && amountRaw > 0
+        ? Math.round(amountRaw)
+        : 499;
+    const payDesc =
+      state?.pageMeta.paymentDescription ||
+      details?.paymentDescription ||
+      "Bio page form payment";
+    setPaymentEnabled(payEnabled);
+    setPaymentAmountInr(amount);
+    setPaymentDescription(payDesc);
   };
 
   const hydrateEditorFromState = (state: BioEditorState) => {
@@ -1623,14 +1693,14 @@ export default function BioPagesScreen({
   };
 
   const saveEditingBlock = (id: string) => {
-    setEditorBlocks(prev =>
-      prev.map(b => (b.id === id ? { ...b, label: editingBlockLabel, value: editingBlockValue } : b))
+    setCanvasBlocks((prev) =>
+      prev.map((b) => (b.id === id ? { ...b, label: editingBlockLabel, value: editingBlockValue } : b))
     );
     setEditingBlockId(null);
   };
 
   const handleDeleteBlock = (id: string) => {
-    setEditorBlocks(prev => prev.filter(b => b.id !== id));
+    setCanvasBlocks((prev) => prev.filter((b) => b.id !== id));
   };
 
   const handleAddBlock = (type: string, atIndex?: number) => {
@@ -1806,7 +1876,7 @@ export default function BioPagesScreen({
         value = `Value of ${type}`;
     }
     const newBlock = { id, type, label, value, ...extraFields };
-    setEditorBlocks((prev) => {
+    setCanvasBlocks((prev) => {
       if (atIndex === undefined || atIndex < 0 || atIndex > prev.length) {
         return [...prev, newBlock];
       }
@@ -2326,33 +2396,48 @@ export default function BioPagesScreen({
         [pageId]: blocksSnapshot
       }));
 
-      // Local publish finishes immediately — success UI must not wait on the network.
       persistPagePreviewLocalOnly(pageId, pageSlug, blocksSnapshot, details);
+      try {
+        sessionStorage.removeItem(`acn_public_page_${pageId}`);
+      } catch {
+        /* ignore */
+      }
 
       const nextDrafts = deleteDraftByPageId(pageId, savedDrafts);
       setSavedDrafts(nextDrafts);
       persistDrafts(nextDrafts);
 
+      // Public Pay button needs server details — wait for sync before success UI.
+      await syncPagesListToServer(pagesForSync);
+      const synced = await persistAndSyncPagePreview(pageId, pageSlug, blocksSnapshot, details, {
+        pages: pagesForSync
+      });
+      void syncAllDraftsToServer(nextDrafts);
+
+      if (!synced.serverOk) {
+        triggerToast(
+          "Published locally, but cloud sync failed — public Pay button may not update until you publish again while online."
+        );
+      } else if (
+        import.meta.env.DEV &&
+        selectedEditPageLink?.kind === "custom"
+      ) {
+        triggerToast(
+          `Cloud content synced. If ${selectedEditPageLink.displayLabel} still looks old, hard-refresh — and deploy latest app build so Pay/theme UI code is live.`
+        );
+      }
+
       onNotify({
         type: "page_published",
         title: "Page published",
-        message: `"${editorTitle}" is now live.`,
+        message:
+          details.paymentEnabled && details.paymentAmountInr
+            ? `"${editorTitle}" is live · Form Pay ₹${details.paymentAmountInr} enabled.`
+            : `"${editorTitle}" is now live.`,
         targetScreen: ScreenId.BIO_PAGES,
         meta: { pageId }
       });
       setShowPublishSuccess(true);
-
-      void (async () => {
-        try {
-          await syncPagesListToServer(pagesForSync);
-          await persistAndSyncPagePreview(pageId, pageSlug, blocksSnapshot, details, {
-            pages: pagesForSync
-          });
-          void syncAllDraftsToServer(nextDrafts);
-        } catch (error) {
-          console.warn("[bio] background publish sync failed:", error);
-        }
-      })();
     } catch (err) {
       console.error("Failed to publish page:", err);
       triggerToast("Could not publish. Please try again.");
@@ -3024,6 +3109,7 @@ export default function BioPagesScreen({
                 onClick={() => {
                   setEditorTab("Edit");
                   setShowThanksPage(false);
+                  setExpandedBlockId(null);
                 }}
                   className={editorTab === "Edit" ? "is-active" : ""}
               >
@@ -3033,7 +3119,10 @@ export default function BioPagesScreen({
                   type="button"
                   role="tab"
                   aria-selected={editorTab === "Thank You"}
-                onClick={() => setEditorTab("Thank You")}
+                onClick={() => {
+                  setEditorTab("Thank You");
+                  setExpandedBlockId(null);
+                }}
                   className={editorTab === "Thank You" ? "is-active" : ""}
               >
                 Thank You
@@ -3091,7 +3180,7 @@ export default function BioPagesScreen({
             </div>
           </header>
 
-          {editorTab === "Edit" && !showPublishSuccess && (
+          {(editorTab === "Edit" || editorTab === "Thank You") && !showPublishSuccess && (
             <div className="lg:hidden acn-editor-subnav px-2 sm:px-3 py-2 shrink-0">
               <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 gap-1">
                 {(
@@ -3148,6 +3237,13 @@ export default function BioPagesScreen({
                       </a>
                     )}
                   </p>
+                  {import.meta.env.DEV && selectedEditPageLink?.kind === "custom" ? (
+                    <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3 text-left">
+                      Localhost publish synced to cloud. If the custom domain still shows an old
+                      theme/blocks, the live server needs the latest deploy — then hard-refresh the
+                      public page (Ctrl+Shift+R).
+                    </p>
+                  ) : null}
                   <div className="mt-4 flex flex-col items-center justify-center gap-2">
                     <button
                       onClick={() => {
@@ -3164,163 +3260,6 @@ export default function BioPagesScreen({
                       className="text-xs font-bold text-emerald-700 hover:underline"
                     >
                       Done
-                    </button>
-                  </div>
-                </div>
-              ) : editorTab === "Thank You" ? (
-                <div className="max-w-xl mx-auto acn-workspace acn-workspace--stack w-full p-4 sm:p-6 overflow-y-auto">
-                  <h3 className="font-display font-bold text-xl text-slate-900">Thank You page</h3>
-                  <p className="text-xs text-slate-500 mt-1 mb-4 leading-relaxed">
-                    Shown as a 2nd full page after Form / Smart Form submit — with a Back button (not a popup).
-                  </p>
-                  <div className="acn-editor-panel space-y-4 shadow-sm border border-slate-200 rounded-2xl p-4 bg-white">
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                        Nav title
-                      </label>
-                      <input
-                        type="text"
-                        value={thankYouTitle}
-                        onChange={(e) => setThankYouTitle(e.target.value)}
-                        className="w-full bg-white border border-slate-200 focus:border-[#ec4899] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
-                        placeholder="Thank You"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                        Hero emoji / mark
-                      </label>
-                      <input
-                        type="text"
-                        value={thankYouEmoji}
-                        onChange={(e) => setThankYouEmoji(e.target.value)}
-                        className="w-full bg-white border border-slate-200 focus:border-[#ec4899] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
-                        placeholder="✓"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-                        Supporting message
-                      </label>
-                      <textarea
-                        value={thankYouMessage}
-                        onChange={(e) => setThankYouMessage(e.target.value)}
-                        rows={3}
-                        className="w-full bg-white border border-slate-200 focus:border-[#ec4899] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
-                        placeholder="Thanks for connecting with us on ACN Link..."
-                      />
-                    </div>
-                    <div className="pt-2 border-t border-slate-100 space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                          Content blocks
-                        </span>
-                        <div className="flex flex-wrap gap-1">
-                          {(["Header", "Text", "Button", "WhatsApp", "Socials", "Image"] as const).map((type) => (
-                            <button
-                              key={type}
-                              type="button"
-                              onClick={() => {
-                                const id = `ty_${type}_${Date.now()}`;
-                                const next: BlockRecord = {
-                                  id,
-                                  type,
-                                  label:
-                                    type === "Header"
-                                      ? "Thank you!"
-                                      : type === "Text"
-                                        ? "Add your message here"
-                                        : type === "Button"
-                                          ? "Back to page"
-                                          : type === "WhatsApp"
-                                            ? "Chat on WhatsApp"
-                                            : type === "Socials"
-                                              ? "Follow us"
-                                              : "Image",
-                                  value:
-                                    type === "Button"
-                                      ? "https://"
-                                      : type === "WhatsApp"
-                                        ? "https://wa.me/"
-                                        : type === "Image"
-                                          ? DEFAULT_COVER
-                                          : type === "Header"
-                                            ? "Thank you!"
-                                            : "Add your message here",
-                                  ...(type === "Button"
-                                    ? { bgColor: "#ec4899", textColor: "#FFFFFF" }
-                                    : type === "Socials"
-                                      ? createDefaultSocialFields()
-                                      : {})
-                                };
-                                setThankYouBlocks((prev) => [...prev, next]);
-                              }}
-                              className="text-[10px] font-bold text-[#ec4899] bg-pink-50 hover:bg-pink-100 px-2 py-1 rounded-lg"
-                            >
-                              + {type}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      {thankYouBlocks.map((block, index) => (
-                        <div
-                          key={block.id}
-                          className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 space-y-2"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-[10px] font-bold text-slate-500">
-                              {block.type} · #{index + 1}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setThankYouBlocks((prev) => prev.filter((b) => b.id !== block.id))
-                              }
-                              className="text-[10px] font-bold text-rose-500 hover:text-rose-700"
-                            >
-                              Remove
-                            </button>
-                          </div>
-                          <input
-                            type="text"
-                            value={block.label}
-                            onChange={(e) =>
-                              setThankYouBlocks((prev) =>
-                                prev.map((b) =>
-                                  b.id === block.id ? { ...b, label: e.target.value, value: e.target.value } : b
-                                )
-                              )
-                            }
-                            className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2 text-xs text-slate-800"
-                            placeholder="Label / text"
-                          />
-                          {(block.type === "Button" ||
-                            block.type === "WhatsApp" ||
-                            block.type === "Image" ||
-                            block.type === "Deep Link") && (
-                            <input
-                              type="text"
-                              value={String(block.value || "")}
-                              onChange={(e) =>
-                                setThankYouBlocks((prev) =>
-                                  prev.map((b) =>
-                                    b.id === block.id ? { ...b, value: e.target.value } : b
-                                  )
-                                )
-                              }
-                              className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2 text-xs text-slate-800"
-                              placeholder="URL"
-                            />
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setShowThanksPage(true)}
-                      className="w-full mt-2 rounded-xl bg-[#ec4899] text-white text-xs font-bold py-2.5 hover:bg-[#db2777]"
-                    >
-                      Preview Thank You page
                     </button>
                   </div>
                 </div>
@@ -3350,6 +3289,77 @@ export default function BioPagesScreen({
                         <span className="text-[10px] text-slate-500 block">Allow search engines to find this page</span>
                       </div>
                       <input type="checkbox" defaultChecked className="rounded border-slate-200 bg-slate-50 accent-[#6366f1] h-4.5 w-4.5" />
+                    </div>
+
+                    <div className="pt-4 border-t border-slate-100 space-y-3.5">
+                      <span className="text-[10px] font-bold text-[#ec4899] uppercase tracking-widest block">
+                        Form payment (Razorpay)
+                      </span>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        When enabled, public Form / Smart Form submit opens Razorpay Checkout for this fixed page amount. Success / failed / cancelled states stay on the same form (no separate thank-you URL). Contact is saved only after the server verifies payment.
+                      </p>
+                      <div className="flex items-center justify-between py-1">
+                        <div>
+                          <span className="text-xs font-bold block text-slate-800">Require payment on submit</span>
+                          <span className="text-[10px] text-slate-500 block">Fixed amount for this whole page</span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={paymentEnabled}
+                          onChange={(e) => setPaymentEnabled(e.target.checked)}
+                          className="rounded border-slate-200 bg-slate-50 accent-[#ec4899] h-4.5 w-4.5"
+                        />
+                      </div>
+                      {paymentEnabled ? (
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-xs text-slate-500 font-semibold mb-2">
+                              Amount (INR)
+                            </label>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-bold text-slate-500">₹</span>
+                              <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                value={paymentAmountInr}
+                                onChange={(e) => {
+                                  const n = Number(e.target.value);
+                                  setPaymentAmountInr(
+                                    Number.isFinite(n) && n > 0 ? Math.round(n) : 1
+                                  );
+                                }}
+                                className="w-full bg-slate-50 border border-slate-200 focus:border-[#ec4899] focus:outline-none rounded-xl py-2 px-3 text-sm text-slate-900"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-xs text-slate-500 font-semibold mb-2">
+                              Checkout description
+                            </label>
+                            <input
+                              type="text"
+                              value={paymentDescription}
+                              onChange={(e) => setPaymentDescription(e.target.value)}
+                              className="w-full bg-slate-50 border border-slate-200 focus:border-[#ec4899] focus:outline-none rounded-xl py-2 px-3 text-sm text-slate-900"
+                              placeholder="Bio page form payment"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditorTab("Edit");
+                              setEditorViewPanel("preview");
+                              triggerToast(
+                                `Payment ON — Form / Smart Form now show Pay ₹${paymentAmountInr} in Live Preview`
+                              );
+                            }}
+                            className="w-full rounded-xl bg-[#ec4899] hover:bg-[#db2777] text-white text-xs font-bold py-2.5"
+                          >
+                            View Form with Pay ₹{paymentAmountInr} in Live Preview
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
 
                     {/* Drafts & Recovery List */}
@@ -3394,7 +3404,7 @@ export default function BioPagesScreen({
                     >
                     <div className="acn-editor-zone__head">
                       <LayoutGrid className="h-3.5 w-3.5" />
-                      Block Library
+                      {editingThankYouPage ? "Thank You Block Library" : "Block Library"}
                     </div>
                     <div className="acn-editor-zone__body acn-workspace--stack no-scrollbar">
                     <div className="acn-editor-blocks-palette">
@@ -3969,8 +3979,9 @@ export default function BioPagesScreen({
                     <div className="acn-editor-zone__head acn-editor-zone__head--with-actions">
                       <div className="acn-editor-zone__head-main">
                         <Edit3 className="h-3.5 w-3.5" />
-                        Page Editor
+                        {editingThankYouPage ? "Thank You Editor" : "Page Editor"}
                       </div>
+                      {!editingThankYouPage ? (
                       <button
                         type="button"
                         className="acn-editor-blocks-lock-btn"
@@ -3996,6 +4007,11 @@ export default function BioPagesScreen({
                         )}
                         <span>{coverSectionLocked ? "Show header" : "Hide header"}</span>
                       </button>
+                      ) : (
+                        <span className="text-[10px] font-bold text-[#ec4899] uppercase tracking-wider">
+                          After form submit
+                        </span>
+                      )}
                     </div>
                     <div
                       ref={composeScrollRef}
@@ -4008,8 +4024,49 @@ export default function BioPagesScreen({
                         coverSectionLocked ? "acn-editor-compose-stack--blocks-focus" : ""
                       }`}
                     >
-                    {/* COVER IMAGE & BIO CARD — hidden when locked */}
-                    {!coverSectionLocked && (
+                    {/* COVER IMAGE & BIO CARD — hidden when locked; Thank You uses hero meta instead */}
+                    {editingThankYouPage ? (
+                    <div className="acn-editor-panel acn-editor-cover-panel p-5 shadow-sm space-y-4 border border-pink-100">
+                      <div>
+                        <span className="acn-editor-section-label text-[#ec4899]">Thank You page</span>
+                        <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                          Shown as a 2nd full page after Form / Smart Form submit. Use the Block Library — same blocks as Edit.
+                        </p>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <label className="acn-editor-form-label">Nav title</label>
+                          <input
+                            type="text"
+                            value={thankYouTitle}
+                            onChange={(e) => setThankYouTitle(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 focus:border-[#ec4899] focus:outline-none rounded-xl py-2.5 px-3.5 text-sm font-bold text-slate-800"
+                            placeholder="Thank You"
+                          />
+                        </div>
+                        <div>
+                          <label className="acn-editor-form-label">Hero emoji / mark</label>
+                          <input
+                            type="text"
+                            value={thankYouEmoji}
+                            onChange={(e) => setThankYouEmoji(e.target.value)}
+                            className="w-full bg-slate-50 border border-slate-200 focus:border-[#ec4899] focus:outline-none rounded-xl py-2.5 px-3.5 text-sm font-bold text-slate-800"
+                            placeholder="✓"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="acn-editor-form-label">Supporting message</label>
+                        <textarea
+                          value={thankYouMessage}
+                          onChange={(e) => setThankYouMessage(e.target.value)}
+                          rows={3}
+                          className="w-full bg-slate-50 border border-slate-200 focus:border-[#ec4899] focus:outline-none rounded-xl py-2.5 px-3.5 text-xs text-slate-600 resize-none"
+                          placeholder="Thanks for connecting with us on ACN Link..."
+                        />
+                      </div>
+                    </div>
+                    ) : !coverSectionLocked && (
                     <div className="acn-editor-panel acn-editor-cover-panel p-5 shadow-sm space-y-6">
                       <div className="flex items-center justify-between gap-3">
                         <span className="acn-editor-section-label">
@@ -4128,13 +4185,13 @@ export default function BioPagesScreen({
                     <div className="space-y-3.5 acn-editor-blocks-section">
                       <div className="acn-editor-blocks-section__head flex items-center justify-between gap-3">
                         <span className="acn-editor-section-label">
-                          Page Blocks
+                          {editingThankYouPage ? "Thank You Blocks" : "Page Blocks"}
                         </span>
                         <div className="flex items-center gap-2 shrink-0">
                           {isAccordionReorderDrag && draggedBlockIndex !== null && (
                             <span className="acn-editor-section-badge animate-pulse">
                               {dropTarget
-                                ? `Drop at #${getDropDisplayPosition(dropTarget, editorBlocks.length)}`
+                                ? `Drop at #${getDropDisplayPosition(dropTarget, canvasBlocks.length)}`
                                 : "Drag to reorder"}
                             </span>
                           )}
@@ -4144,7 +4201,7 @@ export default function BioPagesScreen({
                             </span>
                           )}
                           <span className="acn-editor-blocks-section__meta">
-                          {editorBlocks.length} widget{editorBlocks.length !== 1 ? "s" : ""}
+                          {canvasBlocks.length} widget{canvasBlocks.length !== 1 ? "s" : ""}
                         </span>
                         </div>
                       </div>
@@ -4163,14 +4220,14 @@ export default function BioPagesScreen({
                               : ""
                         } ${expandedBlockId ? "acn-editor-accordions--has-active" : ""}`}
                       >
-                        {editorBlocks.length === 0 ? (
+                        {canvasBlocks.length === 0 ? (
                           <div className="acn-editor-empty text-center py-14 space-y-2.5">
                             <div className="acn-editor-empty__icon" aria-hidden>📥</div>
                             <p className="acn-editor-empty__title">No blocks yet</p>
                             <p className="acn-editor-empty__hint">Drag from Block Library or click a tile to start building.</p>
                           </div>
                         ) : (
-                          editorBlocks.map((block, idx) => {
+                          canvasBlocks.map((block, idx) => {
                             const isExpanded = expandedBlockId === block.id;
                             const isCurrentlyDragged = draggedBlockIndex === idx;
                             const showDropBefore =
@@ -4895,6 +4952,23 @@ export default function BioPagesScreen({
                                     {/* Form Specific Fields — fully dynamic */}
                                     {block.type === "Form" && (
                                       <div className="space-y-3 pt-1 border-t border-slate-100">
+                                        {paymentEnabled && paymentAmountInr > 0 ? (
+                                          <div className="rounded-xl border border-pink-200 bg-pink-50 px-3 py-2 space-y-1">
+                                            <p className="text-[10px] font-bold text-pink-800 uppercase tracking-wider">
+                                              Page payment ON · ₹{paymentAmountInr}
+                                            </p>
+                                            <p className="text-[10px] text-pink-700 leading-relaxed">
+                                              Live Preview Form button shows <strong>Pay ₹{paymentAmountInr}</strong>.
+                                              Public submit opens Razorpay; success stays on this form (no thank-you URL).
+                                              Change amount in <strong>Settings</strong>.
+                                            </p>
+                                          </div>
+                                        ) : (
+                                          <p className="text-[10px] text-slate-500 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 leading-relaxed">
+                                            Tip: turn on <strong>Settings → Form payment (Razorpay)</strong> to show{" "}
+                                            <strong>Pay ₹…</strong> on this Form in Live Preview.
+                                          </p>
+                                        )}
                                         <div>
                                           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Description</label>
                                               <input
@@ -4906,19 +4980,25 @@ export default function BioPagesScreen({
                                               />
                                             </div>
                                         <div>
-                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Submit Button Text</label>
+                                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                                            Submit Button Text
+                                            {paymentEnabled && paymentAmountInr > 0 ? " (overridden by Pay ₹)" : ""}
+                                          </label>
                                             <input
                                               type="text"
                                             value={(block as any).submitLabel || "Submit"}
                                             onChange={(e) => handleUpdateBlockField(block.id, "submitLabel", e.target.value)}
                                             className="w-full bg-white border border-slate-200 focus:border-[#6366f1] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
                                             placeholder="Submit"
+                                            disabled={paymentEnabled && paymentAmountInr > 0}
                                             />
                                           </div>
-                                        <p className="text-[10px] text-slate-500 bg-pink-50 border border-pink-100 rounded-xl px-3 py-2 leading-relaxed">
-                                          After submit → opens this page&apos;s <strong>Thank You</strong> tab (2nd
-                                          page with Back). Customize it from the Thank You editor tab.
-                                        </p>
+                                        {!paymentEnabled || paymentAmountInr <= 0 ? (
+                                          <p className="text-[10px] text-slate-500 bg-pink-50 border border-pink-100 rounded-xl px-3 py-2 leading-relaxed">
+                                            After submit → opens this page&apos;s <strong>Thank You</strong> tab (2nd
+                                            page with Back). Customize it from the Thank You editor tab.
+                                          </p>
+                                        ) : null}
                                         <FormFieldsEditor
                                           block={block as BlockRecord}
                                           onChange={(fields) => handleUpdateBlockField(block.id, "formFields", fields)}
@@ -4928,10 +5008,21 @@ export default function BioPagesScreen({
 
                                     {block.type === "Smart Form" && (
                                       <div className="space-y-3 pt-1 border-t border-slate-100">
-                                        <p className="text-[10px] text-slate-500 bg-pink-50 border border-pink-100 rounded-xl px-3 py-2 leading-relaxed">
-                                          After submit → opens the <strong>Thank You</strong> 2nd page (edit in Thank
-                                          You tab).
-                                        </p>
+                                        {paymentEnabled && paymentAmountInr > 0 ? (
+                                          <div className="rounded-xl border border-pink-200 bg-pink-50 px-3 py-2 space-y-1">
+                                            <p className="text-[10px] font-bold text-pink-800 uppercase tracking-wider">
+                                              Page payment ON · ₹{paymentAmountInr}
+                                            </p>
+                                            <p className="text-[10px] text-pink-700 leading-relaxed">
+                                              Live Preview shows <strong>Pay ₹{paymentAmountInr}</strong>. Public flow uses Razorpay.
+                                            </p>
+                                          </div>
+                                        ) : (
+                                          <p className="text-[10px] text-slate-500 bg-pink-50 border border-pink-100 rounded-xl px-3 py-2 leading-relaxed">
+                                            After submit → opens the <strong>Thank You</strong> 2nd page (edit in Thank
+                                            You tab). Enable <strong>Settings → Form payment</strong> for Razorpay.
+                                          </p>
+                                        )}
                                       </div>
                                     )}
 
@@ -5880,7 +5971,9 @@ export default function BioPagesScreen({
                               context={{
                                 compact: true,
                                 displayTitle: editorTitle,
-                                displayHandle: previewHandle
+                                displayHandle: previewHandle,
+                                paymentEnabled: paymentEnabled && paymentAmountInr > 0,
+                                paymentAmountInr: paymentEnabled ? paymentAmountInr : undefined
                               }}
                               handlers={previewBlockHandlers}
                             />

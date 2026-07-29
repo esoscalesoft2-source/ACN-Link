@@ -13,12 +13,13 @@ export function buildLinkRotatorRedirectHtml(targetUrl: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
+  // Single client-side redirect only (no meta-refresh) — avoids extra navigations
+  // that some browsers/previews treat as additional hits on the rotator URL.
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta http-equiv="refresh" content="0;url=${safeAttr}" />
   <title>Redirecting…</title>
   <style>
     body{font-family:Segoe UI,system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;background:#f8fafc;color:#0f172a}
@@ -28,7 +29,8 @@ export function buildLinkRotatorRedirectHtml(targetUrl: string): string {
   <script>location.replace(${safeJson});</script>
 </head>
 <body>
-  <p>Redirecting to <a href="${safeAttr}">your destination</a>…</p>
+  <p>Redirecting to <a href="${safeAttr}" rel="noreferrer">your destination</a>…</p>
+  <noscript><meta http-equiv="refresh" content="0;url=${safeAttr}" /></noscript>
 </body>
 </html>`;
 }

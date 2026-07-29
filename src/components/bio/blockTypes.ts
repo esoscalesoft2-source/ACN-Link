@@ -7,8 +7,6 @@ export interface BlockRendererContext {
   displayTitle?: string;
   displayHandle?: string;
   socialLinks?: import("../../lib/bioBlocks").SocialLinkItem[];
-  /** Published Thanks pages for post-submit / button navigation. */
-  thanksPages?: import("../../types").BioPage[];
 }
 
 export interface BlockRendererHandlers {
@@ -23,8 +21,8 @@ export interface BlockRendererHandlers {
   onTrack?: (action: string, label: string, meta?: Record<string, unknown>) => void;
   leadEmails?: Record<string, string>;
   onLeadEmailChange?: (blockId: string, email: string) => void;
-  /** Navigate to a Thanks page after submit / button click. */
-  onShowThanksPage?: (pageId: string | null) => void;
+  /** Open this page's Thank You 2nd screen after form submit / join. */
+  onShowThanks?: () => void;
 }
 
 export interface BlockRendererProps {

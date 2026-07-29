@@ -85,7 +85,10 @@ import {
 } from "../lib/bioBlocks";
 import BlockRenderer, { type BlockRendererHandlers } from "./bio/BlockRenderer";
 import FormFieldsEditor from "./bio/FormFieldsEditor";
-import ThanksPageTargetSelect from "./bio/ThanksPageTargetSelect";
+import ThankYouPageView, {
+  createDefaultThankYouBlocks,
+  DEFAULT_THANK_YOU_MESSAGE
+} from "./bio/ThankYouPageView";
 import BioPageThemePicker from "./bio/BioPageThemePicker";
 import CoverPhotoView from "./bio/CoverPhotoView";
 import CoverPhotoControls from "./bio/CoverPhotoControls";
@@ -414,7 +417,10 @@ export default function BioPagesScreen({
   const editFromDomain = searchParams.get("source") === "domain";
   // History list only — template sessions stay out until Save Draft / Publish
   const historyPages = React.useMemo(
-    () => pages.filter((page) => !page.isUncommitted),
+    () =>
+      pages.filter(
+        (page) => !page.isUncommitted && (page.pageKind || "bio") !== "thanks"
+      ),
     [pages]
   );
   const sortedPages = React.useMemo(
@@ -663,7 +669,7 @@ export default function BioPagesScreen({
     ...DEFAULT_COVER_SETTINGS
   });
   const [editorPageTheme, setEditorPageTheme] = useState<BioPagePreviewTheme>("dark");
-  const [editorTab, setEditorTab] = useState<"Edit" | "Settings">("Edit");
+  const [editorTab, setEditorTab] = useState<"Edit" | "Thank You" | "Settings">("Edit");
   const [editorViewPanel, setEditorViewPanel] = useState<"blocks" | "edit" | "preview">("edit");
   const [linkedTemplateId, setLinkedTemplateId] = useState<string | null>(null);
   const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
@@ -678,7 +684,11 @@ export default function BioPagesScreen({
   // Interactive Simulator States
   const [simulatorToast, setSimulatorToast] = useState<string | null>(null);
   const [simulatorLeadEmail, setSimulatorLeadEmail] = useState("");
-  const [activeThanksPageId, setActiveThanksPageId] = useState<string | null>(null);
+  const [showThanksPage, setShowThanksPage] = useState(false);
+  const [thankYouTitle, setThankYouTitle] = useState("Thank You");
+  const [thankYouMessage, setThankYouMessage] = useState(DEFAULT_THANK_YOU_MESSAGE);
+  const [thankYouEmoji, setThankYouEmoji] = useState("✓");
+  const [thankYouBlocks, setThankYouBlocks] = useState(() => createDefaultThankYouBlocks());
   const [showSpinWheel, setShowSpinWheel] = useState(false);
   const [activeSpinBlockId, setActiveSpinBlockId] = useState<string | null>(null);
   const [isSpinning, setIsSpinning] = useState(false);
@@ -1152,7 +1162,13 @@ export default function BioPagesScreen({
       selectedEditPage?.slug,
       editorHandle,
       editorPageTheme,
-      editorCoverSettings
+      editorCoverSettings,
+      {
+        title: thankYouTitle,
+        message: thankYouMessage,
+        emoji: thankYouEmoji,
+        blocks: thankYouBlocks as BioEditorBlock[]
+      }
     );
 
   const buildCurrentPreviewDetails = (theme: BioPagePreviewTheme = editorPageTheme) => {
@@ -1167,7 +1183,11 @@ export default function BioPagesScreen({
       pageTheme: theme,
       coverSettings: editorCoverSettings,
       templateId: linkedTpl?.id || linkedTemplateId || undefined,
-      templateName: linkedTpl?.name || undefined
+      templateName: linkedTpl?.name || undefined,
+      thankYouTitle,
+      thankYouMessage,
+      thankYouEmoji,
+      thankYouBlocks: thankYouBlocks as BioEditorBlock[]
     };
   };
 
@@ -1281,13 +1301,9 @@ export default function BioPagesScreen({
           triggerSimulatorToast("Could not save form lead to Contacts yet.");
         });
     },
-    onShowThanksPage: (id) => {
-      if (id) {
-        triggerSimulatorToast("✨ Opening Thanks page preview");
-        setActiveThanksPageId(id);
-      } else {
-        setActiveThanksPageId(null);
-      }
+    onShowThanks: () => {
+      triggerSimulatorToast("✨ Opening Thank You page");
+      setShowThanksPage(true);
     }
   };
 
@@ -1305,7 +1321,7 @@ export default function BioPagesScreen({
 
   React.useEffect(() => {
     skipEditorAutoSyncRef.current = true;
-    setActiveThanksPageId(null);
+    setShowThanksPage(false);
   }, [selectedEditPage?.id]);
 
   React.useEffect(() => {
@@ -1328,13 +1344,66 @@ export default function BioPagesScreen({
     editorCoverSettings,
     editorHandle,
     editorPageTheme,
+    thankYouTitle,
+    thankYouMessage,
+    thankYouEmoji,
+    thankYouBlocks,
     selectedEditPage?.id,
     showPublishSuccess
   ]);
 
+  React.useEffect(() => {
+    if (editorTab === "Thank You") setShowThanksPage(true);
+  }, [editorTab]);
+
   const handlePreviewThemeChange = (theme: BioPagePreviewTheme) => {
     setEditorPageTheme(theme);
     syncPreviewStorage(theme);
+  };
+
+  const hydrateThankYouFromDetails = (details?: BioPagePreviewDetails | null, state?: BioEditorState) => {
+    const title =
+      state?.pageMeta.thankYouTitle || details?.thankYouTitle || "Thank You";
+    let message =
+      state?.pageMeta.thankYouMessage ||
+      details?.thankYouMessage ||
+      DEFAULT_THANK_YOU_MESSAGE;
+    // Migrate old ecommerce-style defaults to ACN Link branding
+    if (
+      message === "Your details were received. We will connect with you soon." ||
+      !message.trim()
+    ) {
+      message = DEFAULT_THANK_YOU_MESSAGE;
+    }
+    const emoji = state?.pageMeta.thankYouEmoji || details?.thankYouEmoji || "✓";
+    let blocks =
+      (state?.thankYouBlocks?.length
+        ? state.thankYouBlocks
+        : details?.thankYouBlocks?.length
+          ? details.thankYouBlocks
+          : createDefaultThankYouBlocks()) || createDefaultThankYouBlocks();
+    blocks = (blocks as BioEditorBlock[]).map((block) => {
+      if (block.type === "Button" && block.label === "View order status") {
+        return { ...block, label: "Back to page", value: "" };
+      }
+      if (
+        block.type === "Text" &&
+        block.label === "Your details were received. We will connect with you soon."
+      ) {
+        return {
+          ...block,
+          label:
+            "ACN Link helps you share your bio, capture leads, and grow your brand from one page.",
+          value:
+            "ACN Link helps you share your bio, capture leads, and grow your brand from one page."
+        };
+      }
+      return block;
+    });
+    setThankYouTitle(title);
+    setThankYouMessage(message);
+    setThankYouEmoji(emoji);
+    setThankYouBlocks(cloneBlocks(blocks as BioEditorBlock[]) as BlockRecord[]);
   };
 
   const hydrateEditorFromState = (state: BioEditorState) => {
@@ -1345,6 +1414,7 @@ export default function BioPagesScreen({
     setEditorCoverSettings(normalizeCoverSettings(state.pageMeta.coverSettings));
     setEditorPageTheme(normalizePageTheme(state.pageMeta.pageTheme));
     setEditorBlocks(cloneBlocks(state.blocks));
+    hydrateThankYouFromDetails(null, state);
   };
 
   const getTemplateDisplayName = (tpl: BioPageTemplate) => tpl.name;
@@ -1364,17 +1434,6 @@ export default function BioPagesScreen({
     if (stored) return stored;
     return getTemplateFallbackBlocks(page);
   };
-
-  const resolveThanksPreviewBlocks = (thanksPageId: string | null): BlockRecord[] => {
-    if (!thanksPageId) return [];
-    const thanksPage = pages.find((page) => page.id === thanksPageId);
-    if (!thanksPage) return [];
-    return resolvePageBlocks(thanksPage) as BlockRecord[];
-  };
-  const activeThanksPage = activeThanksPageId
-    ? pages.find((page) => page.id === activeThanksPageId) || null
-    : null;
-  const activeThanksBlocks = resolveThanksPreviewBlocks(activeThanksPageId);
 
   const shouldRestoreDraftForPage = (
     page: BioPage,
@@ -1402,6 +1461,7 @@ export default function BioPagesScreen({
     setEditorCoverPhoto(details?.coverPhoto || page.coverPhoto || DEFAULT_COVER);
     setEditorPageTheme(normalizePageTheme(details?.pageTheme ?? readStoredPageTheme(page.id, page.slug)));
     setEditorCoverSettings(normalizeCoverSettings(details?.coverSettings ?? readStoredPageDetails(page.id, page.slug)?.coverSettings));
+    hydrateThankYouFromDetails(details);
   };
 
   const loadEditorContentForPage = async (
@@ -1643,7 +1703,7 @@ export default function BioPagesScreen({
       case "Smart Form":
         label = "Get in Touch Leads Form";
         value = "leads@example.com";
-        extraFields = { thanksPageId: "" };
+        extraFields = {};
         break;
       case "Form":
         label = "Contact Form";
@@ -1919,11 +1979,6 @@ export default function BioPagesScreen({
             ) : (
               <div className="flex items-center gap-2 min-w-0 flex-wrap">
                 <h4 className="font-display font-semibold text-gray-950 text-base truncate">{page.title}</h4>
-                {(page.pageKind || "bio") === "thanks" ? (
-                  <span className="shrink-0 text-[9px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-100">
-                    Thanks
-                  </span>
-                ) : null}
                 {rowOptions?.showDuplicateBadge && (
                   <span className="acn-bio-page-duplicate-badge shrink-0">Duplicate</span>
                 )}
@@ -2113,38 +2168,13 @@ export default function BioPagesScreen({
     return `acn.link/page-${cleanSuffix}-${pageId.replace(/^p_/, "")}`;
   };
 
-  const openCreatePageModal = (kind: "bio" | "thanks" = "bio") => {
+  const openCreatePageModal = () => {
     setNewPageId(createUniquePageId());
-    setNewPageKind(kind);
-    setNewTitle(kind === "thanks" ? "Thanks Page" : "");
-    setNewSlug(kind === "thanks" ? "thanks" : "");
+    setNewPageKind("bio");
+    setNewTitle("");
+    setNewSlug("");
     setSelectedTemplateId("generic");
-    setNextInitialBlocks(
-      kind === "thanks"
-        ? ([
-            { id: "thanks_h1", type: "Header", label: "Thank you!", value: "Thank you!" },
-            {
-              id: "thanks_t1",
-              type: "Text",
-              label: "Your details were received. We will connect with you soon.",
-              value: "Your details were received. We will connect with you soon."
-            },
-            {
-              id: "thanks_btn1",
-              type: "WhatsApp",
-              label: "Join WhatsApp Community",
-              value: "https://wa.me/"
-            },
-            {
-              id: "thanks_socials",
-              type: "Socials",
-              label: "Follow us",
-              value: "Socials",
-              ...createDefaultSocialFields()
-            }
-          ] as BioEditorBlock[])
-        : genericInitialBlocks
-    );
+    setNextInitialBlocks(genericInitialBlocks);
     setIsAdding(true);
   };
 
@@ -2170,7 +2200,7 @@ export default function BioPagesScreen({
     }
     const fullSlug = resolveCreateSlug(cleanSuffix, newPageId);
     setIsCreating(true);
-    const newlyCreatedPage = onAddPage(newTitle.trim(), fullSlug, newPageId, newPageKind);
+    const newlyCreatedPage = onAddPage(newTitle.trim(), fullSlug, newPageId, "bio");
 
     const selectedBlocks = nextInitialBlocks || genericInitialBlocks;
     setPageBlocksMap((prev) => ({
@@ -2184,9 +2214,7 @@ export default function BioPagesScreen({
       selectedBlocks as BioEditorBlock[],
       {
         title: newlyCreatedPage.title,
-        bio:
-          newlyCreatedPage.bio ||
-          (newPageKind === "thanks" ? "Thanks for connecting with us." : "Write a short bio..."),
+        bio: newlyCreatedPage.bio || "Write a short bio...",
         coverPhoto: newlyCreatedPage.coverPhoto || DEFAULT_COVER,
         handle: getStoredHandle(newlyCreatedPage.handle),
         pageTheme: "dark"
@@ -2198,11 +2226,7 @@ export default function BioPagesScreen({
     setSelectedTemplateId("generic");
     closeCreatePageModal();
     setIsCreating(false);
-    triggerToast(
-      newPageKind === "thanks"
-        ? `✨ Thanks Page "${newlyCreatedPage.title}" created — customize blocks, then link it from your Form.`
-        : `✨ "${newlyCreatedPage.title}" created · Page ID: ${newlyCreatedPage.id}`
-    );
+    triggerToast(`✨ "${newlyCreatedPage.title}" created · Page ID: ${newlyCreatedPage.id}`);
 
     setTimeout(() => {
       openEditor(newlyCreatedPage);
@@ -2384,14 +2408,7 @@ export default function BioPagesScreen({
             <span>Refresh</span>
           </button>
           <button
-              onClick={() => openCreatePageModal("thanks")}
-              className="acn-btn-secondary px-5 py-2.5"
-          >
-            <Plus className="h-4 w-4" />
-            <span>New Thanks Page</span>
-          </button>
-          <button
-              onClick={() => openCreatePageModal("bio")}
+              onClick={() => openCreatePageModal()}
               className="acn-btn-accent px-5 py-2.5"
           >
             <Plus className="h-4 w-4" />
@@ -2413,13 +2430,9 @@ export default function BioPagesScreen({
                   <Smartphone />
         </div>
                 <div className="acn-workflow-modal__titles">
-                  <h3 className="acn-workflow-modal__title">
-                    {newPageKind === "thanks" ? "Create Thanks Page" : "Create Your Link Page"}
-                  </h3>
+                  <h3 className="acn-workflow-modal__title">Create Your Link Page</h3>
                   <p className="acn-workflow-modal__subtitle">
-                    {newPageKind === "thanks"
-                      ? "Full customizable page with all blocks — shown after Form submit or Join Now."
-                      : "One page for all your social links, contact info, and business details."}
+                    One page for all your social links, contact info, and business details.
                   </p>
       </div>
               </div>
@@ -2434,33 +2447,6 @@ export default function BioPagesScreen({
             </header>
 
             <form onSubmit={handleCreate} className="acn-workflow-modal__form">
-              <div className="acn-workflow-modal__field">
-                <label className="acn-workflow-modal__label">Page type</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => openCreatePageModal("bio")}
-                    className={`rounded-xl border px-3 py-2.5 text-left text-xs font-bold transition-colors ${
-                      newPageKind === "bio"
-                        ? "border-indigo-400 bg-indigo-50 text-indigo-700"
-                        : "border-slate-200 bg-white text-slate-600"
-                    }`}
-                  >
-                    Bio / Link Page
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openCreatePageModal("thanks")}
-                    className={`rounded-xl border px-3 py-2.5 text-left text-xs font-bold transition-colors ${
-                      newPageKind === "thanks"
-                        ? "border-indigo-400 bg-indigo-50 text-indigo-700"
-                        : "border-slate-200 bg-white text-slate-600"
-                    }`}
-                  >
-                    Thanks Page
-                  </button>
-                </div>
-              </div>
               <div className="acn-workflow-modal__field">
                 <label className="acn-workflow-modal__label" htmlFor="create-page-title">
                   What should we call this page?
@@ -3035,7 +3021,10 @@ export default function BioPagesScreen({
                   type="button"
                   role="tab"
                   aria-selected={editorTab === "Edit"}
-                onClick={() => setEditorTab("Edit")}
+                onClick={() => {
+                  setEditorTab("Edit");
+                  setShowThanksPage(false);
+                }}
                   className={editorTab === "Edit" ? "is-active" : ""}
               >
                 Edit
@@ -3043,8 +3032,20 @@ export default function BioPagesScreen({
               <button
                   type="button"
                   role="tab"
+                  aria-selected={editorTab === "Thank You"}
+                onClick={() => setEditorTab("Thank You")}
+                  className={editorTab === "Thank You" ? "is-active" : ""}
+              >
+                Thank You
+              </button>
+              <button
+                  type="button"
+                  role="tab"
                   aria-selected={editorTab === "Settings"}
-                onClick={() => setEditorTab("Settings")}
+                onClick={() => {
+                  setEditorTab("Settings");
+                  setShowThanksPage(false);
+                }}
                   className={editorTab === "Settings" ? "is-active" : ""}
               >
                 Settings
@@ -3163,6 +3164,163 @@ export default function BioPagesScreen({
                       className="text-xs font-bold text-emerald-700 hover:underline"
                     >
                       Done
+                    </button>
+                  </div>
+                </div>
+              ) : editorTab === "Thank You" ? (
+                <div className="max-w-xl mx-auto acn-workspace acn-workspace--stack w-full p-4 sm:p-6 overflow-y-auto">
+                  <h3 className="font-display font-bold text-xl text-slate-900">Thank You page</h3>
+                  <p className="text-xs text-slate-500 mt-1 mb-4 leading-relaxed">
+                    Shown as a 2nd full page after Form / Smart Form submit — with a Back button (not a popup).
+                  </p>
+                  <div className="acn-editor-panel space-y-4 shadow-sm border border-slate-200 rounded-2xl p-4 bg-white">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                        Nav title
+                      </label>
+                      <input
+                        type="text"
+                        value={thankYouTitle}
+                        onChange={(e) => setThankYouTitle(e.target.value)}
+                        className="w-full bg-white border border-slate-200 focus:border-[#ec4899] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                        placeholder="Thank You"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                        Hero emoji / mark
+                      </label>
+                      <input
+                        type="text"
+                        value={thankYouEmoji}
+                        onChange={(e) => setThankYouEmoji(e.target.value)}
+                        className="w-full bg-white border border-slate-200 focus:border-[#ec4899] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                        placeholder="✓"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                        Supporting message
+                      </label>
+                      <textarea
+                        value={thankYouMessage}
+                        onChange={(e) => setThankYouMessage(e.target.value)}
+                        rows={3}
+                        className="w-full bg-white border border-slate-200 focus:border-[#ec4899] focus:outline-none rounded-xl py-2 px-3 text-xs text-slate-800"
+                        placeholder="Thanks for connecting with us on ACN Link..."
+                      />
+                    </div>
+                    <div className="pt-2 border-t border-slate-100 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                          Content blocks
+                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {(["Header", "Text", "Button", "WhatsApp", "Socials", "Image"] as const).map((type) => (
+                            <button
+                              key={type}
+                              type="button"
+                              onClick={() => {
+                                const id = `ty_${type}_${Date.now()}`;
+                                const next: BlockRecord = {
+                                  id,
+                                  type,
+                                  label:
+                                    type === "Header"
+                                      ? "Thank you!"
+                                      : type === "Text"
+                                        ? "Add your message here"
+                                        : type === "Button"
+                                          ? "Back to page"
+                                          : type === "WhatsApp"
+                                            ? "Chat on WhatsApp"
+                                            : type === "Socials"
+                                              ? "Follow us"
+                                              : "Image",
+                                  value:
+                                    type === "Button"
+                                      ? "https://"
+                                      : type === "WhatsApp"
+                                        ? "https://wa.me/"
+                                        : type === "Image"
+                                          ? DEFAULT_COVER
+                                          : type === "Header"
+                                            ? "Thank you!"
+                                            : "Add your message here",
+                                  ...(type === "Button"
+                                    ? { bgColor: "#ec4899", textColor: "#FFFFFF" }
+                                    : type === "Socials"
+                                      ? createDefaultSocialFields()
+                                      : {})
+                                };
+                                setThankYouBlocks((prev) => [...prev, next]);
+                              }}
+                              className="text-[10px] font-bold text-[#ec4899] bg-pink-50 hover:bg-pink-100 px-2 py-1 rounded-lg"
+                            >
+                              + {type}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      {thankYouBlocks.map((block, index) => (
+                        <div
+                          key={block.id}
+                          className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 space-y-2"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-bold text-slate-500">
+                              {block.type} · #{index + 1}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setThankYouBlocks((prev) => prev.filter((b) => b.id !== block.id))
+                              }
+                              className="text-[10px] font-bold text-rose-500 hover:text-rose-700"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                          <input
+                            type="text"
+                            value={block.label}
+                            onChange={(e) =>
+                              setThankYouBlocks((prev) =>
+                                prev.map((b) =>
+                                  b.id === block.id ? { ...b, label: e.target.value, value: e.target.value } : b
+                                )
+                              )
+                            }
+                            className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2 text-xs text-slate-800"
+                            placeholder="Label / text"
+                          />
+                          {(block.type === "Button" ||
+                            block.type === "WhatsApp" ||
+                            block.type === "Image" ||
+                            block.type === "Deep Link") && (
+                            <input
+                              type="text"
+                              value={String(block.value || "")}
+                              onChange={(e) =>
+                                setThankYouBlocks((prev) =>
+                                  prev.map((b) =>
+                                    b.id === block.id ? { ...b, value: e.target.value } : b
+                                  )
+                                )
+                              }
+                              className="w-full bg-white border border-slate-200 rounded-lg py-1.5 px-2 text-xs text-slate-800"
+                              placeholder="URL"
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowThanksPage(true)}
+                      className="w-full mt-2 rounded-xl bg-[#ec4899] text-white text-xs font-bold py-2.5 hover:bg-[#db2777]"
+                    >
+                      Preview Thank You page
                     </button>
                   </div>
                 </div>
@@ -4757,12 +4915,10 @@ export default function BioPagesScreen({
                                             placeholder="Submit"
                                             />
                                           </div>
-                                        <ThanksPageTargetSelect
-                                          block={block as BlockRecord}
-                                          pages={pages}
-                                          onUpdate={(field, value) => handleUpdateBlockField(block.id, field, value)}
-                                          label="After Submit → Thanks Page"
-                                        />
+                                        <p className="text-[10px] text-slate-500 bg-pink-50 border border-pink-100 rounded-xl px-3 py-2 leading-relaxed">
+                                          After submit → opens this page&apos;s <strong>Thank You</strong> tab (2nd
+                                          page with Back). Customize it from the Thank You editor tab.
+                                        </p>
                                         <FormFieldsEditor
                                           block={block as BlockRecord}
                                           onChange={(fields) => handleUpdateBlockField(block.id, "formFields", fields)}
@@ -4772,23 +4928,33 @@ export default function BioPagesScreen({
 
                                     {block.type === "Smart Form" && (
                                       <div className="space-y-3 pt-1 border-t border-slate-100">
-                                        <ThanksPageTargetSelect
-                                          block={block as BlockRecord}
-                                          pages={pages}
-                                          onUpdate={(field, value) => handleUpdateBlockField(block.id, field, value)}
-                                          label="After Submit → Thanks Page"
-                                        />
+                                        <p className="text-[10px] text-slate-500 bg-pink-50 border border-pink-100 rounded-xl px-3 py-2 leading-relaxed">
+                                          After submit → opens the <strong>Thank You</strong> 2nd page (edit in Thank
+                                          You tab).
+                                        </p>
                                       </div>
                                     )}
 
                                     {(block.type === "Button" || block.type === "Deep Link") && (
-                                      <ThanksPageTargetSelect
-                                        block={block as BlockRecord}
-                                        pages={pages}
-                                        onUpdate={(field, value) => handleUpdateBlockField(block.id, field, value)}
-                                        label="On click → Thanks Page (optional)"
-                                        requireExplicit
-                                      />
+                                      <label className="flex items-center gap-2 pt-2 border-t border-slate-100 text-xs text-slate-700 font-semibold cursor-pointer">
+                                        <input
+                                          type="checkbox"
+                                          checked={
+                                            (block as any).openThanksPage === true ||
+                                            (block as any).openThanksPage === "Yes" ||
+                                            (block as any).openThanksPage === "true"
+                                          }
+                                          onChange={(e) =>
+                                            handleUpdateBlockField(
+                                              block.id,
+                                              "openThanksPage",
+                                              e.target.checked ? "Yes" : "No"
+                                            )
+                                          }
+                                          className="rounded border-slate-300 accent-[#ec4899]"
+                                        />
+                                        On click → open Thank You page (instead of URL)
+                                      </label>
                                     )}
 
                                     {/* FAQ dynamic items */}
@@ -5619,7 +5785,10 @@ export default function BioPagesScreen({
                     <div className="acn-phone-preview__hole-punch" aria-hidden />
 
                     <div className="acn-phone-preview__display">
-                      <div className="acn-phone-preview__chrome">
+                        <div
+                          className="acn-phone-preview__chrome"
+                          style={showThanksPage ? { display: "none" } : undefined}
+                        >
                         <div className="acn-phone-preview__status-bar">
                           <span>12:33</span>
                           <span className="acn-phone-preview__status-icons">▮▮▮ 100%</span>
@@ -5711,8 +5880,7 @@ export default function BioPagesScreen({
                               context={{
                                 compact: true,
                                 displayTitle: editorTitle,
-                                displayHandle: previewHandle,
-                                thanksPages: pages
+                                displayHandle: previewHandle
                               }}
                               handlers={previewBlockHandlers}
                             />
@@ -5727,41 +5895,20 @@ export default function BioPagesScreen({
                   </div>
                   </div>
 
-                  {activeThanksPageId && activeThanksPage ? (
-                    <div className="absolute inset-0 z-40 bg-white overflow-y-auto animate-in fade-in duration-200">
-                      <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-slate-200 bg-white/95 backdrop-blur px-3 py-2.5">
-                        <button
-                          type="button"
-                          onClick={() => setActiveThanksPageId(null)}
-                          className="text-xs font-bold text-slate-600 hover:text-slate-900"
-                        >
-                          ← Back
-                        </button>
-                        <span className="text-[10px] font-extrabold text-indigo-600 uppercase tracking-widest">
-                          Thanks page preview
-                        </span>
-                        <span className="text-[10px] text-slate-400 truncate ml-auto">{activeThanksPage.title}</span>
-                      </div>
-                      <div className="p-4 space-y-3">
-                        {filterVisibleBioBlocks(activeThanksBlocks).map((block) => (
-                          <BlockRenderer
-                            key={block.id}
-                            block={block as BlockRecord}
-                            mode="preview"
-                            context={{
-                              compact: true,
-                              displayTitle: activeThanksPage.title,
-                              displayHandle: formatDisplayHandle(activeThanksPage.handle, activeThanksPage.title, {
-                                fallbackToTitle: false
-                              }),
-                              thanksPages: pages
-                            }}
-                            handlers={previewBlockHandlers}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
+                  <ThankYouPageView
+                    open={showThanksPage}
+                    title={thankYouTitle}
+                    message={thankYouMessage}
+                    emoji={thankYouEmoji}
+                    blocks={thankYouBlocks as BlockRecord[]}
+                    onBack={() => {
+                      setShowThanksPage(false);
+                      if (editorTab === "Thank You") setEditorTab("Edit");
+                    }}
+                    compact
+                    displayTitle={editorTitle}
+                    handlers={previewBlockHandlers}
+                  />
 
                   {/* Interactive Simulator Toast Overlay */}
                   {simulatorToast && (

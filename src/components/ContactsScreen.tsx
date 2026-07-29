@@ -21,6 +21,7 @@ interface ContactsScreenProps {
   onAddContact: (contact: ContactInput) => void;
   onUpdateContact: (id: string, contact: ContactInput) => void;
   onDeleteContact: (id: string) => void;
+  onDeleteContacts?: (ids: string[]) => void;
 }
 
 interface SubmissionSheetRow {
@@ -150,7 +151,8 @@ export default function ContactsScreen({
   contacts,
   onAddContact,
   onUpdateContact,
-  onDeleteContact
+  onDeleteContact,
+  onDeleteContacts
 }: ContactsScreenProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState("All sources");
@@ -163,6 +165,10 @@ export default function ContactsScreen({
   const [formError, setFormError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
+  /** Row checkboxes / Select all only appear after user opens Delete. */
+  const [selectionMode, setSelectionMode] = useState(false);
 
   useEffect(() => {
     if (!isModalOpen && !detailContact) return;
@@ -226,6 +232,120 @@ export default function ContactsScreen({
       return matchesSearch && matchesSource && matchesTag;
     });
   }, [contacts, searchQuery, sourceFilter, tagFilter]);
+
+  const hasActiveFilters =
+    searchQuery.trim().length > 0 || sourceFilter !== "All sources" || tagFilter !== "All tags";
+
+  const filteredIds = useMemo(() => filteredContacts.map((contact) => contact.id), [filteredContacts]);
+  const selectedCount = selectedIds.length;
+  const allFilteredSelected =
+    filteredIds.length > 0 && filteredIds.every((id) => selectedIds.includes(id));
+  const someFilteredSelected =
+    filteredIds.some((id) => selectedIds.includes(id)) && !allFilteredSelected;
+
+  useEffect(() => {
+    const alive = new Set(contacts.map((contact) => contact.id));
+    setSelectedIds((prev) => prev.filter((id) => alive.has(id)));
+  }, [contacts]);
+
+  useEffect(() => {
+    if (!bulkMenuOpen) return;
+    const onDocClick = () => setBulkMenuOpen(false);
+    window.addEventListener("click", onDocClick);
+    return () => window.removeEventListener("click", onDocClick);
+  }, [bulkMenuOpen]);
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((row) => row !== id) : [...prev, id]));
+  };
+
+  const toggleSelectAllFiltered = () => {
+    if (allFilteredSelected) {
+      setSelectedIds((prev) => prev.filter((id) => !filteredIds.includes(id)));
+      return;
+    }
+    setSelectedIds((prev) => Array.from(new Set([...prev, ...filteredIds])));
+  };
+
+  const exitSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedIds([]);
+    setBulkMenuOpen(false);
+  };
+
+  const openDeleteMenu = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    setSelectionMode(true);
+    setBulkMenuOpen((open) => !open);
+  };
+
+  const deleteContactIds = (ids: string[], label: string) => {
+    if (ids.length === 0) return;
+    if (onDeleteContacts) {
+      onDeleteContacts(ids);
+    } else {
+      ids.forEach((id) => onDeleteContact(id));
+    }
+    setSelectedIds((prev) => prev.filter((id) => !ids.includes(id)));
+    setBulkMenuOpen(false);
+    setSelectionMode(false);
+    triggerToast(label);
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedCount === 0) {
+      triggerToast("Select at least one contact first.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Delete ${selectedCount} selected contact${selectedCount === 1 ? "" : "s"}? This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    deleteContactIds(
+      selectedIds,
+      `Deleted ${selectedCount} contact${selectedCount === 1 ? "" : "s"}.`
+    );
+  };
+
+  const handleDeleteAllFiltered = () => {
+    if (filteredIds.length === 0) {
+      triggerToast("No contacts to delete.");
+      return;
+    }
+    const scope = hasActiveFilters ? "matching" : "all";
+    if (
+      !window.confirm(
+        `Delete ${filteredIds.length} ${scope} contact${filteredIds.length === 1 ? "" : "s"}? This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    deleteContactIds(
+      filteredIds,
+      `Deleted ${filteredIds.length} contact${filteredIds.length === 1 ? "" : "s"}.`
+    );
+  };
+
+  const handleDeleteAllContacts = () => {
+    if (contacts.length === 0) {
+      triggerToast("No contacts to delete.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Delete ALL ${contacts.length} contacts? This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    deleteContactIds(
+      contacts.map((contact) => contact.id),
+      `Deleted all ${contacts.length} contacts.`
+    );
+  };
 
   const openCreateModal = () => {
     setEditingContact(null);
@@ -343,6 +463,7 @@ export default function ContactsScreen({
   const handleDelete = (contact: Contact) => {
     if (!window.confirm(`Delete "${contact.name}"? This cannot be undone.`)) return;
     onDeleteContact(contact.id);
+    setSelectedIds((prev) => prev.filter((id) => id !== contact.id));
     triggerToast(`Deleted ${contact.name}.`);
   };
 
@@ -394,9 +515,6 @@ export default function ContactsScreen({
     setSourceFilter("All sources");
     setTagFilter("All tags");
   };
-
-  const hasActiveFilters =
-    searchQuery.trim().length > 0 || sourceFilter !== "All sources" || tagFilter !== "All tags";
 
   const detailSheetRows = detailContact ? buildSubmissionSheetRows(detailContact) : [];
 
@@ -574,8 +692,8 @@ export default function ContactsScreen({
             />
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-3 w-full">
-            <div className="relative flex-1">
+          <div className="flex flex-col sm:flex-row gap-3 w-full sm:items-center">
+            <div className="relative flex-1 min-w-0">
               <select
                 value={sourceFilter}
                 onChange={(e) => setSourceFilter(e.target.value)}
@@ -591,7 +709,7 @@ export default function ContactsScreen({
               <ChevronDown className="absolute right-3 top-3.5 h-4 w-4 text-gray-400 pointer-events-none" />
             </div>
 
-            <div className="relative flex-1">
+            <div className="relative flex-1 min-w-0">
               <select
                 value={tagFilter}
                 onChange={(e) => setTagFilter(e.target.value)}
@@ -607,11 +725,75 @@ export default function ContactsScreen({
               <ChevronDown className="absolute right-3 top-3.5 h-4 w-4 text-gray-400 pointer-events-none" />
             </div>
 
+            {contacts.length > 0 ? (
+              <div className="relative shrink-0" onClick={(event) => event.stopPropagation()}>
+                <button
+                  type="button"
+                  onClick={openDeleteMenu}
+                  className={`inline-flex w-full sm:w-auto items-center justify-center gap-2 border rounded-xl px-3.5 py-2.5 text-sm font-semibold shadow-sm ${
+                    selectionMode
+                      ? "border-rose-200 bg-rose-50 text-rose-700"
+                      : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+                  }`}
+                  aria-haspopup="menu"
+                  aria-expanded={bulkMenuOpen}
+                >
+                  <Trash2 className="h-4 w-4 text-rose-500" />
+                  <span>Delete</span>
+                  <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
+                </button>
+                {bulkMenuOpen && (
+                  <div
+                    role="menu"
+                    className="acn-contacts-bulk-menu absolute right-0 mt-1.5 z-20 min-w-[14rem] rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={handleDeleteSelected}
+                      disabled={selectedCount === 0}
+                      className="acn-contacts-bulk-menu__item"
+                    >
+                      Delete selected ({selectedCount})
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={handleDeleteAllFiltered}
+                      disabled={filteredIds.length === 0}
+                      className="acn-contacts-bulk-menu__item"
+                    >
+                      Delete {hasActiveFilters ? "matching" : "visible"} ({filteredIds.length})
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={handleDeleteAllContacts}
+                      disabled={contacts.length === 0}
+                      className="acn-contacts-bulk-menu__item acn-contacts-bulk-menu__item--danger"
+                    >
+                      Delete all contacts ({contacts.length})
+                    </button>
+                    {selectionMode && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={exitSelectionMode}
+                        className="acn-contacts-bulk-menu__item"
+                      >
+                        Cancel selection
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : null}
+
             {hasActiveFilters && (
               <button
                 type="button"
                 onClick={clearFilters}
-                className="sm:w-auto w-full px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 border border-slate-200 hover:bg-slate-50"
+                className="sm:w-auto w-full shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-600 border border-slate-200 hover:bg-slate-50"
               >
                 Clear filters
               </button>
@@ -619,7 +801,28 @@ export default function ContactsScreen({
           </div>
 
           {contacts.length > 0 && (
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              {selectionMode ? (
+                <label className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={allFilteredSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = someFilteredSelected;
+                    }}
+                    onChange={toggleSelectAllFiltered}
+                    className="acn-contact-checkbox"
+                    aria-label="Select all visible contacts"
+                  />
+                  <span>
+                    Select all
+                    {hasActiveFilters ? " matching" : ""}
+                    {selectedCount > 0 ? ` (${selectedCount})` : ""}
+                  </span>
+                </label>
+              ) : (
+                <span />
+              )}
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                 {filteredContacts.length} record{filteredContacts.length === 1 ? "" : "s"}
                 {hasActiveFilters ? " matched" : ""}
@@ -666,9 +869,22 @@ export default function ContactsScreen({
             <div className="lg:hidden divide-y divide-slate-100">
               {filteredContacts.map((contact) => {
                 const tags = visibleTags(contact);
+                const isSelected = selectedIds.includes(contact.id);
                 return (
-                  <article key={contact.id} className="acn-contact-card p-4 space-y-3">
+                  <article
+                    key={contact.id}
+                    className={`acn-contact-card p-4 space-y-3${isSelected ? " acn-contact-card--selected" : ""}`}
+                  >
                     <div className="flex items-start gap-3">
+                      {selectionMode ? (
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelectOne(contact.id)}
+                          className="acn-contact-checkbox mt-2.5"
+                          aria-label={`Select ${contact.name}`}
+                        />
+                      ) : null}
                       <div className="acn-contact-avatar" aria-hidden>
                         {contactInitials(contact.name)}
                       </div>
@@ -760,6 +976,20 @@ export default function ContactsScreen({
               <table className="acn-contacts-table">
                 <thead>
                   <tr>
+                    {selectionMode ? (
+                      <th className="acn-contacts-table__check">
+                        <input
+                          type="checkbox"
+                          checked={allFilteredSelected}
+                          ref={(el) => {
+                            if (el) el.indeterminate = someFilteredSelected;
+                          }}
+                          onChange={toggleSelectAllFiltered}
+                          className="acn-contact-checkbox"
+                          aria-label="Select all visible contacts"
+                        />
+                      </th>
+                    ) : null}
                     <th>Contact</th>
                     <th>Phone</th>
                     <th>Source</th>
@@ -772,13 +1002,30 @@ export default function ContactsScreen({
                 <tbody>
                   {filteredContacts.map((contact) => {
                     const tags = visibleTags(contact);
+                    const isSelected = selectedIds.includes(contact.id);
 
                     return (
                       <tr
                         key={contact.id}
-                        className="acn-contacts-table__row--clickable"
+                        className={`acn-contacts-table__row--clickable${
+                          selectionMode && isSelected ? " acn-contacts-table__row--selected" : ""
+                        }`}
                         onClick={() => setDetailContact(contact)}
                       >
+                        {selectionMode ? (
+                          <td
+                            className="acn-contacts-table__check"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleSelectOne(contact.id)}
+                              className="acn-contact-checkbox"
+                              aria-label={`Select ${contact.name}`}
+                            />
+                          </td>
+                        ) : null}
                         <td>
                           <div className="acn-contact-identity">
                             <div className="acn-contact-avatar" aria-hidden>

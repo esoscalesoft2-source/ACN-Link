@@ -183,6 +183,8 @@ export interface QRCodeItem {
   conversionRate?: string;
   qrUrl: string;
   targetUrl: string;
+  /** When destination was last changed — keeps mobile scans on the latest Edit URL. */
+  targetUpdatedAt?: string;
   /** Fixed public redirect URL encoded in the QR matrix — never changes after create. */
   scanUrl?: string;
   /** Short code for /q/:code — never changes after create. */
@@ -395,6 +397,11 @@ export interface BioPagePreviewDetails {
   /** Linked template used to build / last save this page. */
   templateId?: string;
   templateName?: string;
+  /** 2nd-page Thank You after Form submit (not a popup / not a separate BioPage). */
+  thankYouTitle?: string;
+  thankYouMessage?: string;
+  thankYouEmoji?: string;
+  thankYouBlocks?: BioEditorBlock[];
 }
 
 /** Full restorable editor state for drafts and templates */
@@ -407,8 +414,12 @@ export interface BioEditorState {
     handle?: string;
     pageTheme?: BioPagePreviewTheme;
     coverSettings?: BioCoverPhotoSettings;
+    thankYouTitle?: string;
+    thankYouMessage?: string;
+    thankYouEmoji?: string;
   };
   blocks: BioEditorBlock[];
+  thankYouBlocks?: BioEditorBlock[];
 }
 
 export interface BioPageDraft {

@@ -1216,6 +1216,10 @@ export default function App() {
           if (!server) return item;
           const scans = Math.max(parseCount(item.scans), parseCount(server.scans));
           const unique = Math.max(parseCount(item.uniqueScanners), parseCount(server.uniqueScanners));
+          const localTs = Date.parse(String(item.targetUpdatedAt || "")) || 0;
+          const serverTs = Date.parse(String(server.targetUpdatedAt || "")) || 0;
+          const useServerDestination =
+            Boolean(server.targetUrl) && (serverTs > localTs || (!localTs && server.targetUrl !== item.targetUrl));
           return {
             ...item,
             scans: String(scans),
@@ -1223,9 +1227,15 @@ export default function App() {
             conversionRate: server.conversionRate || item.conversionRate,
             topLocation: server.topLocation && server.topLocation !== "N/A" ? server.topLocation : item.topLocation,
             status: server.status || item.status,
-            // Keep frozen payload from local if present.
+            // Destination follows the freshest Edit URL from the server.
+            targetUrl: useServerDestination ? server.targetUrl : item.targetUrl,
+            targetUpdatedAt: useServerDestination
+              ? server.targetUpdatedAt || item.targetUpdatedAt
+              : item.targetUpdatedAt || server.targetUpdatedAt,
+            // Keep frozen payload from local if present — QR matrix never changes.
             publicCode: item.publicCode || server.publicCode,
-            scanUrl: item.scanUrl || server.scanUrl
+            scanUrl: item.scanUrl || server.scanUrl,
+            qrUrl: item.qrUrl || server.qrUrl
           };
         });
 
@@ -1351,6 +1361,20 @@ export default function App() {
     }
   };
 
+  const handleDeleteContacts = (ids: string[]) => {
+    const idSet = new Set(ids.filter(Boolean));
+    if (idSet.size === 0) return;
+    setContacts((current) => current.filter((contact) => !idSet.has(contact.id)));
+    if (getAccessToken() && !isPreviewToken(getAccessToken())) {
+      for (const id of idSet) {
+        void fetch(apiUrl(`/api/contacts/${id}`), {
+          method: "DELETE",
+          headers: authenticatedHeaders()
+        }).catch((error) => console.warn("Failed to delete contact on server:", error));
+      }
+    }
+  };
+
   const handleAddWhatsAppTemplate = (template: Omit<WhatsAppTemplate, "id">) => {
     const newTpl: WhatsAppTemplate = {
       id: `tpl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -1414,6 +1438,13 @@ export default function App() {
         console.warn("QR server sync failed:", response.status);
         return false;
       }
+      if (method === "POST") {
+        const body = (await response.json().catch(() => null)) as {
+          destinationSynced?: boolean;
+        } | null;
+        // Edit URL / create must publish to the public route index for mobile scans.
+        if (body && body.destinationSynced === false) return false;
+      }
       return true;
     } catch (error) {
       console.warn("QR server sync failed:", error);
@@ -1441,6 +1472,7 @@ export default function App() {
       id: `qr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       name,
       targetUrl: normalizedTargetUrl,
+      targetUpdatedAt: new Date().toISOString(),
       qrUrl: buildQrImageUrl(scanUrl, customColor, 250),
       scans: "0",
       uniqueScanners: "0",
@@ -1471,17 +1503,66 @@ export default function App() {
     });
   };
 
-  const handleUpdateTargetUrl = (id: string, newUrl: string) => {
+  const handleUpdateTargetUrl = async (id: string, newUrl: string): Promise<boolean> => {
     const normalizedTargetUrl = normalizeExternalUrl(newUrl);
-    // Destination redirect only — never rewrite the printed scanUrl / QR matrix.
-    setQrCodes((current) => {
-      const next = current.map((item) =>
-        item.id === id ? { ...item, targetUrl: normalizedTargetUrl } : item
-      );
-      const updated = next.find((item) => item.id === id);
-      if (updated) void syncQrToServer(updated, "POST");
-      return next;
-    });
+    const targetUpdatedAt = new Date().toISOString();
+    const current = qrCodes.find((item) => item.id === id);
+    if (!current) return false;
+    // Destination redirect only — never rewrite printed scanUrl / publicCode / QR matrix.
+    const updated: QRCodeItem = {
+      ...current,
+      targetUrl: normalizedTargetUrl,
+      targetUpdatedAt,
+      publicCode: current.publicCode,
+      scanUrl: current.scanUrl,
+      qrUrl: current.qrUrl
+    };
+    setQrCodes((list) => list.map((item) => (item.id === id ? updated : item)));
+    const ok = await syncQrToServer(updated, "POST");
+    if (!ok) {
+      pushNotification({
+        type: "general",
+        title: "Destination not published for mobile scans",
+        message: "Save Dynamic Destination again. The QR image stays fixed — only the redirect must sync.",
+        targetScreen: ScreenId.QR_CODES
+      });
+      return false;
+    }
+
+    // Confirm the host encoded in the fixed QR (/q/:code) already serves the new destination.
+    const code = String(updated.publicCode || "").trim();
+    if (code) {
+      try {
+        let checkHref = apiUrl(`/api/public/qr/${encodeURIComponent(code)}`);
+        try {
+          if (updated.scanUrl) {
+            const scanOrigin = new URL(updated.scanUrl).origin;
+            if (scanOrigin && !/localhost|127\.0\.0\.1/i.test(scanOrigin)) {
+              checkHref = `${scanOrigin}/api/public/qr/${encodeURIComponent(code)}`;
+            }
+          }
+        } catch {
+          /* keep local check */
+        }
+        const check = await fetch(checkHref, { cache: "no-store" });
+        const payload = (await check.json().catch(() => null)) as { targetUrl?: string } | null;
+        const live = String(payload?.targetUrl || "").replace(/\/$/, "");
+        const expected = normalizedTargetUrl.replace(/\/$/, "");
+        if (check.ok && live && live !== expected) {
+          pushNotification({
+            type: "general",
+            title: "Live scan URL not updated yet",
+            message:
+              "Saved locally, but acnlink.mindflo.today still opens the old URL. Deploy this fix to live, then Save Dynamic Destination again.",
+            targetScreen: ScreenId.QR_CODES
+          });
+          return false;
+        }
+      } catch {
+        /* live verify is best-effort when offline */
+      }
+    }
+    return true;
   };
 
   const handleDeleteQR = (id: string) => {
@@ -1830,6 +1911,7 @@ export default function App() {
             onAddContact={handleAddContact}
             onUpdateContact={handleUpdateContact}
             onDeleteContact={handleDeleteContact}
+            onDeleteContacts={handleDeleteContacts}
           />
         );
       case ScreenId.WHATSAPP:

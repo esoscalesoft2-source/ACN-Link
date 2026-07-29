@@ -161,10 +161,17 @@ export function updateLinkRotator(
     destinations = patch.destinations.map((item) => {
       const prior =
         current.destinations.find((row) => row.id === item.id) ||
-        current.destinations.find((row) => row.url === item.url);
+        current.destinations.find(
+          (row) => normalizeDestUrl(row.url) === normalizeDestUrl(item.url)
+        );
+      // Never let an edit form reset/inflate lifetime counters — keep the higher real total.
+      const incoming = Number(item.clicks);
+      const previous = Number(prior?.clicks) || 0;
+      const clicks =
+        Number.isFinite(incoming) && incoming > previous ? Math.floor(incoming) : previous;
       return {
         ...item,
-        clicks: item.clicks ?? prior?.clicks ?? 0
+        clicks
       };
     });
   }
@@ -198,7 +205,14 @@ export function incrementLinkRotatorClicks(id: string): LinkRotatorRecord | null
   return recordLinkRotatorClick(id);
 }
 
-/** Record a redirect click against the rotator and a specific destination. */
+function normalizeDestUrl(value: string): string {
+  return String(value || "")
+    .trim()
+    .replace(/\/+$/, "")
+    .toLowerCase();
+}
+
+/** Record one real redirect against exactly one destination. Never invents clicks. */
 export function recordLinkRotatorClick(
   id: string,
   destination?: { id?: string; url?: string } | null
@@ -212,46 +226,43 @@ export function recordLinkRotatorClick(
   const destId = String(destination?.id || "").trim();
   const destUrl = String(destination?.url || "").trim();
 
-  // Match exactly one destination: prefer id, else first url match only.
-  // Avoid id||url OR matching, which double-increments when urls collide.
+  // Match exactly one row — id first, then normalized URL (ignore trailing slash).
   let matchedIndex = -1;
   if (destId) {
     matchedIndex = current.destinations.findIndex((item) => item.id === destId);
   }
   if (matchedIndex < 0 && destUrl) {
-    matchedIndex = current.destinations.findIndex((item) => item.url === destUrl);
+    const needle = normalizeDestUrl(destUrl);
+    matchedIndex = current.destinations.findIndex(
+      (item) => normalizeDestUrl(item.url) === needle
+    );
+  }
+
+  // Do not bump totalClicks when destination cannot be attributed — avoids ghost totals.
+  if (matchedIndex < 0) {
+    return current;
   }
 
   const destinations = current.destinations.map((item, i) => {
     if (i !== matchedIndex) return item;
-    return { ...item, clicks: (item.clicks || 0) + 1 };
+    return { ...item, clicks: (Number(item.clicks) || 0) + 1 };
   });
 
-  const matched = matchedIndex >= 0 ? destinations[matchedIndex] : null;
-  const event: LinkRotatorClickEvent | null = matched
-    ? {
-        destinationId: matched.id,
-        url: matched.url,
-        at: now
-      }
-    : destId || destUrl
-      ? {
-          destinationId: destId,
-          url: destUrl,
-          at: now
-        }
-      : null;
+  const matched = destinations[matchedIndex];
+  const event: LinkRotatorClickEvent = {
+    destinationId: matched.id,
+    url: matched.url,
+    at: now
+  };
 
   const prevEvents = Array.isArray(current.clickEvents) ? current.clickEvents : [];
-  const clickEvents = event
-    ? [event, ...prevEvents].slice(0, MAX_CLICK_EVENTS)
-    : prevEvents;
+  const clickEvents = [event, ...prevEvents].slice(0, MAX_CLICK_EVENTS);
 
   const next: LinkRotatorRecord = {
     ...current,
     destinations,
     clickEvents,
-    totalClicks: (current.totalClicks || 0) + 1,
+    totalClicks: destinations.reduce((sum, item) => sum + (Number(item.clicks) || 0), 0),
     updatedAt: now
   };
   rows[index] = next;

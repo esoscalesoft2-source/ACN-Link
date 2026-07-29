@@ -35,6 +35,10 @@ import {
   resolvePublicLinkRotator
 } from "./server/linkRotators/repository";
 import {
+  claimRotatorClickSlot,
+  shouldCountRotatorHit
+} from "./server/linkRotators/clickGuard";
+import {
   pickDestinationByProbability,
   toAbsoluteHttpUrl
 } from "./server/linkRotators/validation";
@@ -57,7 +61,13 @@ import {
 } from "./server/shortLinks/publicUrl";
 import { buildShortLinkRedirectHtml } from "./server/shortLinks/redirectPage";
 import { buildLeadContact, upsertOwnerContact, mergeContactLists } from "./server/leads";
-import { resolvePublicQrCode, recordQrScan, listQrCodes, upsertQrCode, deleteQrCode } from "./server/qrCodes/repository";
+import {
+  resolveQrForPublicRedirect,
+  recordQrScan,
+  listQrCodes,
+  upsertQrCode,
+  deleteQrCode
+} from "./server/qrCodes/repository";
 import { normalizeQrPublicCode } from "./server/qrCodes/publicUrl";
 import { toAbsoluteHttpUrl as toQrAbsoluteUrl } from "./server/shortLinks/validation";
 
@@ -239,6 +249,11 @@ app.post("/api/qr-codes", requireAuth, async (req, res) => {
       return;
     }
     const publicCode = normalizeQrPublicCode(String(body.publicCode || id));
+    const existing = listQrCodes().find((row) => row.id === id);
+    const targetChanged = !existing || existing.targetUrl !== targetUrl;
+    const targetUpdatedAt =
+      String(body.targetUpdatedAt || "").trim() ||
+      (targetChanged ? new Date().toISOString() : existing?.targetUpdatedAt);
     const saved = upsertQrCode({
       id,
       name: String(body.name || "Smart QR").slice(0, 120),
@@ -249,6 +264,7 @@ app.post("/api/qr-codes", requireAuth, async (req, res) => {
       conversionRate: body.conversionRate ? String(body.conversionRate) : undefined,
       qrUrl: String(body.qrUrl || ""),
       targetUrl,
+      ...(targetUpdatedAt ? { targetUpdatedAt } : {}),
       scanUrl: body.scanUrl ? String(body.scanUrl) : undefined,
       publicCode,
       customDesign: Boolean(body.customDesign),
@@ -258,14 +274,20 @@ app.post("/api/qr-codes", requireAuth, async (req, res) => {
       designPattern: body.designPattern ? String(body.designPattern) : undefined,
       ownerUserId: userId
     });
-    // Wait for durable public route index so mobile scans work immediately.
-    try {
-      const { upsertQrRouteIndex } = await import("./server/qrCodes/supabaseSync");
-      await upsertQrRouteIndex(saved);
-    } catch (error) {
-      console.error("QR route index sync failed:", error);
+    // Publish destination to durable route index (what mobile /q/:code reads on production).
+    const { publishQrDestination } = await import("./server/qrCodes/destinationSync");
+    const published = await publishQrDestination(saved);
+    if (targetChanged && !published.ok) {
+      console.error("QR destination publish failed after Edit URL:", published.error);
+      res.status(503).json({
+        error:
+          "Destination saved on this server but not published for mobile scans. Try Save again.",
+        item: saved,
+        destinationSynced: false
+      });
+      return;
     }
-    res.json({ item: saved });
+    res.json({ item: saved, destinationSynced: published.ok });
   } catch (error) {
     console.error("Upsert QR code failed:", error);
     res.status(500).json({ error: "Failed to save QR code." });
@@ -300,20 +322,7 @@ app.get("/api/public/qr/:code", async (req, res) => {
     return;
   }
   try {
-    let record = resolvePublicQrCode(code);
-    if (!record) {
-      const { reloadQrCodesFromSupabase } = await import("./server/db/rootStore");
-      await reloadQrCodesFromSupabase();
-      record = resolvePublicQrCode(code);
-    }
-    if (!record) {
-      const { findQrCodeByPublicCode } = await import("./server/qrCodes/supabaseSync");
-      const fromTable = await findQrCodeByPublicCode(code);
-      if (fromTable) {
-        upsertQrCode(fromTable);
-        record = fromTable;
-      }
-    }
+    const record = await resolveQrForPublicRedirect(code);
     if (!record) {
       res.status(404).json({ error: "QR code not found" });
       return;
@@ -332,7 +341,8 @@ app.get("/api/public/qr/:code", async (req, res) => {
     if (!isPrefetch) {
       recordQrScan(code, clientIp(req));
     }
-    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    res.setHeader("Pragma", "no-cache");
     res.json({ targetUrl: target, publicCode: record.publicCode || code });
   } catch (error) {
     console.error("Public QR lookup failed:", error);
@@ -355,20 +365,7 @@ app.get("/q/:code", async (req, res) => {
   }
 
   try {
-    let record = resolvePublicQrCode(code);
-    if (!record) {
-      const { reloadQrCodesFromSupabase } = await import("./server/db/rootStore");
-      await reloadQrCodesFromSupabase();
-      record = resolvePublicQrCode(code);
-    }
-    if (!record) {
-      const { findQrCodeByPublicCode } = await import("./server/qrCodes/supabaseSync");
-      const fromTable = await findQrCodeByPublicCode(code);
-      if (fromTable) {
-        upsertQrCode(fromTable);
-        record = fromTable;
-      }
-    }
+    const record = await resolveQrForPublicRedirect(code);
     if (!record) {
       res.status(404).type("html").send("<!doctype html><title>Not found</title><h1>QR code not found</h1>");
       return;
@@ -393,7 +390,8 @@ app.get("/q/:code", async (req, res) => {
     const wantsHeadersOnly = req.method === "HEAD";
     const fetchPurpose = String(req.get("Sec-Fetch-Purpose") || req.get("Purpose") || "").toLowerCase();
     const isPrefetch = fetchPurpose === "prefetch" || fetchPurpose === "prerender";
-    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    res.setHeader("Pragma", "no-cache");
     res.setHeader("Referrer-Policy", "no-referrer");
     if (wantsHeadersOnly) {
       res.setHeader("Location", target);
@@ -466,19 +464,24 @@ app.get("/r/:slug", (req, res) => {
     // Custom-domain edges sometimes follow 302 and serve destination HTML under
     // the customer host (broken CSS). Browser-only location.replace avoids that.
     const wantsHeadersOnly = req.method === "HEAD";
-    const fetchPurpose = String(req.get("Sec-Fetch-Purpose") || req.get("Purpose") || "").toLowerCase();
-    const isPrefetch = fetchPurpose === "prefetch" || fetchPurpose === "prerender";
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
     res.setHeader("Referrer-Policy", "no-referrer");
     if (wantsHeadersOnly) {
-      // Do not count HEAD probes — browsers/link checkers often HEAD then GET,
-      // which previously doubled every destination click.
+      // Do not count HEAD probes — browsers/link checkers often HEAD then GET.
       res.setHeader("Location", target);
       res.status(302).end();
       return;
     }
-    if (!isPrefetch) {
-      recordLinkRotatorClick(record.id, { id: destination.id, url: destination.url || target });
+
+    // Real clicks only: document navigations, no bots, 5s IP dedupe (kills double/triple counts).
+    if (
+      shouldCountRotatorHit(req) &&
+      claimRotatorClickSlot(record.id, clientIp(req))
+    ) {
+      recordLinkRotatorClick(record.id, {
+        id: destination.id,
+        url: destination.url || target
+      });
     }
     res.status(200).type("html").send(buildLinkRotatorRedirectHtml(target));
   } catch (error) {

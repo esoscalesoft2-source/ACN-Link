@@ -412,8 +412,7 @@ export function createDefaultFormFields(): Record<string, unknown> {
   return {
     submitLabel: "Submit",
     description: "",
-    formFields: createDefaultFormFieldList(),
-    thanksPageId: ""
+    formFields: createDefaultFormFieldList()
   };
 }
 

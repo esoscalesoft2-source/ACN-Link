@@ -284,7 +284,13 @@ export function buildEditorState(
   slug?: string,
   handle?: string,
   pageTheme: BioPagePreviewTheme = "dark",
-  coverSettings?: BioPagePreviewDetails["coverSettings"]
+  coverSettings?: BioPagePreviewDetails["coverSettings"],
+  thankYou?: {
+    title?: string;
+    message?: string;
+    emoji?: string;
+    blocks?: BioEditorBlock[];
+  }
 ): BioEditorState {
   return {
     pageMeta: {
@@ -294,9 +300,13 @@ export function buildEditorState(
       coverImage: coverImage || DEFAULT_COVER,
       handle: normalizeHandleInput(handle || ""),
       pageTheme,
-      ...(coverSettings ? { coverSettings } : {})
+      ...(coverSettings ? { coverSettings } : {}),
+      ...(thankYou?.title ? { thankYouTitle: thankYou.title } : {}),
+      ...(thankYou?.message ? { thankYouMessage: thankYou.message } : {}),
+      ...(thankYou?.emoji ? { thankYouEmoji: thankYou.emoji } : {})
     },
-    blocks: cloneBlocks(blocks)
+    blocks: cloneBlocks(blocks),
+    ...(thankYou?.blocks?.length ? { thankYouBlocks: cloneBlocks(thankYou.blocks) } : {})
   };
 }
 

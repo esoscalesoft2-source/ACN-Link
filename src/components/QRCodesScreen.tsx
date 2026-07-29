@@ -41,7 +41,7 @@ import {
 interface QRCodesScreenProps {
   items: QRCodeItem[];
   onGenerateQR: (name: string, targetUrl: string, customColor: string) => void;
-  onUpdateTargetUrl: (id: string, newUrl: string) => void;
+  onUpdateTargetUrl: (id: string, newUrl: string) => void | Promise<boolean>;
   onDeleteQR: (id: string) => void;
   onUpdateQR: (item: QRCodeItem) => void;
 }
@@ -203,7 +203,7 @@ export default function QRCodesScreen({
     }, 300);
   };
 
-  const handleSaveUrl = (event: React.FormEvent) => {
+  const handleSaveUrl = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!editingItem) return;
     setEditError("");
@@ -215,12 +215,17 @@ export default function QRCodesScreen({
     }
 
     setIsSavingUrl(true);
-    window.setTimeout(() => {
-      onUpdateTargetUrl(editingItem.id, target);
-      setIsSavingUrl(false);
+    try {
+      const ok = await Promise.resolve(onUpdateTargetUrl(editingItem.id, target));
       setEditingItem(null);
-      triggerToast("Destination updated. Printed QR matrix unchanged.");
-    }, 300);
+      triggerToast(
+        ok === false
+          ? "Saved locally — sync failed. Try again so mobile scans use the new URL."
+          : "Destination updated. QR code stays the same — scans open the new URL."
+      );
+    } finally {
+      setIsSavingUrl(false);
+    }
   };
 
   const handleSaveDesign = () => {

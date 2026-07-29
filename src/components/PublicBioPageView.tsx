@@ -13,6 +13,11 @@ import {
 import { apiUrl } from "../lib/apiBase";
 import BlockRenderer, { type BlockRendererHandlers } from "./bio/BlockRenderer";
 import CoverPhotoView from "./bio/CoverPhotoView";
+import ThankYouPageView, {
+  createDefaultThankYouBlocks,
+  DEFAULT_THANK_YOU_MESSAGE,
+  DEFAULT_THANK_YOU_BRAND
+} from "./bio/ThankYouPageView";
 import { normalizeCoverSettings } from "../lib/bioCoverPhoto";
 import { formatDisplayHandle, readLocalPageUpdatedAt } from "../storage/bioBuilderStorage";
 import type { BioPage, BioPagePreviewDetails, BioPagePreviewTheme } from "../types";
@@ -30,7 +35,7 @@ interface PublicBioPageViewProps {
   pageSlug: string;
   pageBio?: string;
   pageCoverPhoto?: string;
-  /** All pages (for Thanks page resolution after form submit). */
+  /** Optional page list (legacy; thank-you is now per-page details). */
   allPages?: BioPage[];
   /** Platform ?previewPageId= testing shows the sandbox banner; live custom domains do not. */
   mode?: "preview" | "live";
@@ -177,6 +182,7 @@ export default function PublicBioPageView({
   const [toast, setToast] = useState<string | null>(null);
   const [leadEmails, setLeadEmails] = useState<Record<string, string>>({});
   const [showSpinWheel, setShowSpinWheel] = useState(false);
+  const [showThanksPage, setShowThanksPage] = useState(false);
   const publicScreenRef = useRef<HTMLDivElement | null>(null);
   const [activeSpinBlockId, setActiveSpinBlockId] = useState<string | null>(null);
   const [isSpinning, setIsSpinning] = useState(false);
@@ -621,12 +627,8 @@ export default function PublicBioPageView({
     onTrack: trackAction,
     leadEmails,
     onLeadEmailChange: (blockId, email) => setLeadEmails((prev) => ({ ...prev, [blockId]: email })),
-    onShowThanksPage: (id) => {
-      if (!id) return;
-      setBlocks([]);
-      setCustomDetails(null);
-      setPageLoadStatus("loading");
-      setDisplayPageId(id);
+    onShowThanks: () => {
+      setShowThanksPage(true);
       publicScreenRef.current?.scrollTo?.({ top: 0, behavior: "smooth" });
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
@@ -634,7 +636,9 @@ export default function PublicBioPageView({
 
   return (
     <div
-      className={`acn-public-bio-page ${getBioPageThemeClass(pageTheme)} flex flex-col items-center justify-start font-sans`}
+      className={`acn-public-bio-page ${getBioPageThemeClass(pageTheme)} flex flex-col items-center justify-start font-sans${
+        showThanksPage ? " acn-public-bio-page--thanks-open" : ""
+      }`}
       style={getBioPageThemeStyle(pageTheme)}
     >
       <div
@@ -680,8 +684,7 @@ export default function PublicBioPageView({
               mode="live"
               context={{
                 displayTitle,
-                displayHandle,
-                thanksPages: allPages || []
+                displayHandle
               }}
               handlers={liveBlockHandlers}
             />
@@ -692,6 +695,38 @@ export default function PublicBioPageView({
             <span>Powered by ACN Link</span>
           </div>
         </div>
+
+        <ThankYouPageView
+          open={showThanksPage}
+          title={customDetails?.thankYouTitle || "Thank You"}
+          message={
+            !customDetails?.thankYouMessage ||
+            customDetails.thankYouMessage ===
+              "Your details were received. We will connect with you soon."
+              ? DEFAULT_THANK_YOU_MESSAGE
+              : customDetails.thankYouMessage
+          }
+          emoji={customDetails?.thankYouEmoji || "✓"}
+          blocks={(
+            (customDetails?.thankYouBlocks?.length
+              ? customDetails.thankYouBlocks
+              : createDefaultThankYouBlocks()) as BlockRecord[]
+          ).map((block) => {
+            if (block.type === "Button" && block.label === "View order status") {
+              return { ...block, label: "Back to page", value: "" };
+            }
+            if (
+              block.type === "Text" &&
+              block.label === "Your details were received. We will connect with you soon."
+            ) {
+              return { ...block, label: DEFAULT_THANK_YOU_BRAND, value: DEFAULT_THANK_YOU_BRAND };
+            }
+            return block;
+          })}
+          onBack={() => setShowThanksPage(false)}
+          displayTitle={displayTitle}
+          handlers={liveBlockHandlers}
+        />
 
         {/* Interactive Simulator Toast Overlay */}
         {toast && (

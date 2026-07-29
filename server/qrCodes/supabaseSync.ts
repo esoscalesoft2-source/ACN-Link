@@ -17,6 +17,7 @@ type QrRouteValue = {
   name: string;
   status: "Active" | "Paused";
   targetUrl: string;
+  targetUpdatedAt?: string;
   publicCode: string;
   scanUrl?: string;
   ownerUserId?: string;
@@ -33,11 +34,13 @@ export async function upsertQrRouteIndex(row: QrCodeRecord): Promise<boolean> {
     id: row.id,
     name: row.name || "",
     status: row.status === "Paused" ? "Paused" : "Active",
-    targetUrl: row.targetUrl,
+    targetUrl: String(row.targetUrl || "").trim(),
+    targetUpdatedAt: row.targetUpdatedAt || new Date().toISOString(),
     publicCode,
     scanUrl: row.scanUrl,
     ownerUserId: row.ownerUserId
   };
+  if (!value.targetUrl) return false;
 
   const { error } = await supabase.from("app_kv").upsert(
     {
@@ -81,6 +84,7 @@ export async function findQrRouteByPublicCode(code: string): Promise<QrCodeRecor
     uniqueScanners: "0",
     qrUrl: "",
     targetUrl: String(value.targetUrl),
+    targetUpdatedAt: value.targetUpdatedAt ? String(value.targetUpdatedAt) : undefined,
     publicCode: String(value.publicCode || publicCode),
     scanUrl: value.scanUrl ? String(value.scanUrl) : undefined,
     customDesign: true,
@@ -112,6 +116,7 @@ export async function upsertQrCodeRow(row: QrCodeRecord): Promise<boolean> {
     conversion_rate: row.conversionRate ?? null,
     qr_url: row.qrUrl || "",
     target_url: row.targetUrl || "",
+    target_updated_at: row.targetUpdatedAt || new Date().toISOString(),
     custom_design: Boolean(row.customDesign),
     design_color: row.designColor ?? null,
     design_logo: row.designLogo && row.designLogo !== "custom" ? row.designLogo : row.designLogo || null,
@@ -125,9 +130,10 @@ export async function upsertQrCodeRow(row: QrCodeRecord): Promise<boolean> {
   const { error } = await supabase.from("qr_codes").upsert(payload, { onConflict: "id" });
   if (!error) return true;
 
-  if (/public_code|scan_url|schema cache/i.test(error.message)) {
+  if (/public_code|scan_url|target_updated_at|schema cache/i.test(error.message)) {
     delete payload.public_code;
     delete payload.scan_url;
+    delete payload.target_updated_at;
     const retry = await supabase.from("qr_codes").upsert(payload, { onConflict: "id" });
     if (retry.error) {
       console.error("Direct QR Supabase upsert failed:", retry.error.message);
@@ -173,6 +179,7 @@ export async function findQrCodeByPublicCode(code: string): Promise<QrCodeRecord
     conversionRate: data.conversion_rate ? String(data.conversion_rate) : undefined,
     qrUrl: String(data.qr_url || ""),
     targetUrl: String(data.target_url || ""),
+    targetUpdatedAt: data.target_updated_at ? String(data.target_updated_at) : undefined,
     scanUrl: data.scan_url ? String(data.scan_url) : undefined,
     publicCode: data.public_code ? String(data.public_code) : normalized,
     customDesign: Boolean(data.custom_design),

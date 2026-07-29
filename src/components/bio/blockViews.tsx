@@ -30,7 +30,6 @@ import { getLinkArrowColor, getLinkButtonStyle, isDefaultBrightLink } from "../.
 import type { BlockRendererContext, BlockRendererHandlers, BlockRenderMode } from "./blockTypes";
 import CountdownBlockView from "./CountdownBlockView";
 import SocialLinksRow from "./SocialLinksRow";
-import { resolveThanksPageId } from "./ThanksPageTargetSelect";
 
 interface BlockViewProps {
   block: BlockRecord;
@@ -97,10 +96,12 @@ export function LinkButtonBlockView({ block, mode, context, handlers }: BlockVie
       type="button"
       onClick={() => {
         track(handlers, "click", `Button: ${block.label}`);
-        const explicit =
-          typeof block.thanksPageId === "string" ? block.thanksPageId.trim() : "";
-        if (explicit && handlers.onShowThanksPage) {
-          handlers.onShowThanksPage(explicit);
+        const openThanks =
+          block.openThanksPage === true ||
+          block.openThanksPage === "Yes" ||
+          block.openThanksPage === "true";
+        if (openThanks && handlers.onShowThanks) {
+          handlers.onShowThanks();
           return;
         }
         openLink(handlers, mode, block.value || "", block.label);
@@ -413,14 +414,11 @@ export function SmartFormBlockView({ block, mode, context, handlers }: BlockView
     }
     handlers.onLeadSubmit?.(block.id, leadEmail, destinationEmail);
     handlers.onLeadEmailChange?.(block.id, "");
-    const thanksId = resolveThanksPageId(block, context.thanksPages || []);
-    if (thanksId && handlers.onShowThanksPage) {
-      handlers.onShowThanksPage(thanksId);
+    if (handlers.onShowThanks) {
+      handlers.onShowThanks();
     } else {
       handlers.onToast?.(
-        mode === "preview"
-          ? "No Thanks page linked — create one from Bio Pages."
-          : "Thank you! We'll be in touch soon."
+        mode === "preview" ? "✨ Thank you!" : "Thank you! We'll be in touch soon."
       );
     }
   };
@@ -542,14 +540,11 @@ export function FormBlockView({ block, mode, context, handlers }: BlockViewProps
     }
 
     setValues(emptyValues);
-    const thanksId = resolveThanksPageId(block, context.thanksPages || []);
-    if (thanksId && handlers.onShowThanksPage) {
-      handlers.onShowThanksPage(thanksId);
+    if (handlers.onShowThanks) {
+      handlers.onShowThanks();
     } else {
       handlers.onToast?.(
-        mode === "preview"
-          ? "No Thanks page linked — create one from Bio Pages."
-          : "Thank you! Your submission was received."
+        mode === "preview" ? "✨ Thank you!" : "Thank you! Your submission was received."
       );
     }
   };

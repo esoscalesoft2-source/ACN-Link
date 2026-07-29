@@ -1048,19 +1048,28 @@ export default function LinkRotatorScreen({
                 if (!selected) return null;
 
                 const selectedAnalytics = viewAnalytics?.destinations.find(
-                  (item) => item.id === selected.id
+                  (item) =>
+                    (selected.id && item.id === selected.id) ||
+                    (!!selected.url && item.url === selected.url)
                 );
-                // Lifetime total is always the real stored destination counter.
-                const realTotal = destinationClickTotal(selected);
+                // Lifetime total: prefer analytics (reconciled from real events) else stored counter.
+                const realTotal = Math.max(
+                  0,
+                  Number(selectedAnalytics?.clicks.total) || destinationClickTotal(selected)
+                );
                 const clicks = {
                   total: realTotal,
-                  // Period stats cannot exceed the real lifetime total.
                   today: Math.min(selectedAnalytics?.clicks.today ?? 0, realTotal),
                   week: Math.min(selectedAnalytics?.clicks.week ?? 0, realTotal),
                   month: Math.min(selectedAnalytics?.clicks.month ?? 0, realTotal)
                 };
-                const summaryTotal = rotatorDestinationClicksTotal(viewing);
-                const destTotal = Math.max(clicks.total, 1);
+                const summaryTotal = Math.max(
+                  rotatorDestinationClicksTotal(viewing),
+                  Number(viewAnalytics?.summary.total) || 0
+                );
+                const periodTodayTotal = Math.max(Number(viewAnalytics?.summary.today) || 0, 1);
+                const periodWeekTotal = Math.max(Number(viewAnalytics?.summary.week) || 0, 1);
+                const periodMonthTotal = Math.max(Number(viewAnalytics?.summary.month) || 0, 1);
                 const sharePercent = periodPercent(clicks.total, summaryTotal);
                 const totalCount = formatCountExact(clicks.total);
 
@@ -1139,21 +1148,21 @@ export default function LinkRotatorScreen({
                       <StatCircle
                         label="Today"
                         value={clicks.today}
-                        percent={periodPercent(clicks.today, destTotal)}
+                        percent={periodPercent(clicks.today, periodTodayTotal)}
                         accent={PERIOD_RING_COLORS.today.ring}
                         percentClassName={PERIOD_RING_COLORS.today.text}
                       />
                       <StatCircle
                         label="Week"
                         value={clicks.week}
-                        percent={periodPercent(clicks.week, destTotal)}
+                        percent={periodPercent(clicks.week, periodWeekTotal)}
                         accent={PERIOD_RING_COLORS.week.ring}
                         percentClassName={PERIOD_RING_COLORS.week.text}
                       />
                       <StatCircle
                         label="Month"
                         value={clicks.month}
-                        percent={periodPercent(clicks.month, destTotal)}
+                        percent={periodPercent(clicks.month, periodMonthTotal)}
                         accent={PERIOD_RING_COLORS.month.ring}
                         percentClassName={PERIOD_RING_COLORS.month.text}
                       />

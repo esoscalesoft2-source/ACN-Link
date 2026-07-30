@@ -349,5 +349,5 @@ export const initialHelpArticles: HelpArticle[] = [
     readTime: "2 mins",
     content:
       "ACN Link supports root domains and subdomains.\n\nROOT (yourdomain.com)\n  Type: A\n  Name: @\n  Value: platform IP (example: 69.46.46.90)\n\nSUBDOMAIN (name.yourdomain.com, www.yourdomain.com, shop.yourdomain.com)\n  Type: CNAME\n  Name: name (prefix only — not the full domain)\n  Value: acnlink.mindflo.today (or value from Show DNS)\n\nRules:\n• Root → A record only\n• Subdomain → CNAME only (never A)\n\nAlways copy live values from Custom Domains → Show DNS.\n\nAfter saving → Test Connection → Verified."
-    }
+  }
 ];
